@@ -1,0 +1,18 @@
+{
+  "name": "replayfx-journal",
+  "version": "1.0.0",
+  "description": "TradingView Backtest Journal and Webhook Analytics",
+  "private": true,
+  "scripts": {
+    "postinstall": "npm run install:server && npm run install:client",
+    "install:server": "npm install --prefix server",
+    "install:client": "npm install --prefix client",
+    "dev": "concurrently -n \"server,client\" -c \"cyan,magenta\" \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "prisma:generate": "npm run prisma:generate --prefix server",
+    "prisma:push": "npm run prisma:push --prefix server",
+    "prisma:studio": "npm run prisma:studio --prefix server"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

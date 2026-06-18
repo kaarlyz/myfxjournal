@@ -1,0 +1,70 @@
+[
+  {
+    "description": "1. ENTRY Event - Triggered when a new strategy position opens (LONG / BUY)",
+    "url": "http://localhost:5000/api/webhook/tradingview",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "payload": {
+      "secret": "replayfx_secret_token_123",
+      "source": "tradingview",
+      "event": "ENTRY",
+      "trade_id": "tv_gold_trade_101",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "side": "buy",
+      "order_id": "LONG",
+      "action": "buy",
+      "fill_price": 2345.5,
+      "planned_entry": 2345.5,
+      "sl": 2342.5,
+      "tp": 2351.5,
+      "rr": 2.0,
+      "risk_usd": 15.0,
+      "setup": "SNR Breakout H1 + M5 retest",
+      "bar_time": 1780000000000
+    }
+  },
+  {
+    "description": "2. EXIT Event - Triggered when the position closes (LONG TARGET HIT / SELL)",
+    "url": "http://localhost:5000/api/webhook/tradingview",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "payload": {
+      "secret": "replayfx_secret_token_123",
+      "source": "tradingview",
+      "event": "EXIT",
+      "trade_id": "tv_gold_trade_101",
+      "symbol": "XAUUSD",
+      "timeframe": "M5",
+      "side": "buy",
+      "action": "sell",
+      "fill_price": 2351.5,
+      "setup": "Target TP hit on Gold resistance",
+      "bar_time": 1780003600000
+    }
+  },
+  {
+    "description": "3. ORPHAN Event - EXIT event that arrives with a trade_id that has no corresponding ENTRY event",
+    "url": "http://localhost:5000/api/webhook/tradingview",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "payload": {
+      "secret": "replayfx_secret_token_123",
+      "source": "tradingview",
+      "event": "EXIT",
+      "trade_id": "orphan_trade_xyz",
+      "symbol": "GBPUSD",
+      "timeframe": "M15",
+      "side": "sell",
+      "action": "buy",
+      "fill_price": 1.27500,
+      "bar_time": 1780005000000
+    }
+  }
+]

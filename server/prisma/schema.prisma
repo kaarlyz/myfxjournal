@@ -1,0 +1,106 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model BacktestSession {
+  id              String         @id @default(uuid())
+  name            String
+  sourceMode      String         // CSV | WEBHOOK | MANUAL | MIXED
+  symbol          String
+  marketType      String         // Forex, Gold, Crypto, Index, Custom
+  timeframe       String
+  initialBalance  Float
+  balanceCurrency String         // USD, CENT (cents), IDR
+  usdIdrRate      Float
+  riskMode        String         // FIXED_USD | FIXED_PCT | NO_R
+  riskValue       Float
+  rules           String?        // JSON string of backtest rules
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  trades          Trade[]
+  invalidTrades   InvalidTrade[]
+}
+
+model Trade {
+  id                    String          @id @default(uuid())
+  sessionId             String
+  session               BacktestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  source                String          // CSV | WEBHOOK | MANUAL
+  tradeNumber           Int?
+  tradeId               String?         // webhook trade_id
+  symbol                String
+  timeframe             String
+  side                  String          // LONG | SHORT
+  entryTime             DateTime?
+  exitTime              DateTime?
+  entryPrice            Float?
+  exitPrice             Float?
+  slPrice               Float?          // Stop Loss price
+  tpPrice               Float?          // Take Profit price
+  qty                   Float?
+  positionValue         Float?
+  netPnlUsd             Float?
+  netPnlPct             Float?
+  netPnlIdr             Float?
+  favorableExcursionUsd Float?
+  favorableExcursionPct Float?
+  adverseExcursionUsd   Float?
+  adverseExcursionPct   Float?
+  cumulativePnlUsd      Float?
+  cumulativePnlPct      Float?
+  durationMinutes       Int?            // Trade duration in minutes
+  entrySignal           String?
+  exitSignal            String?
+  setupTag              String?
+  mistakeTag            String?         // FOMO, Late Entry, Early Entry, No Confirmation, Against Trend, Bad SL, Moved SL, Revenge Trade, Overtrade, No Mistake
+  emotionTag            String?         // Calm, Fear, Greedy, Angry, Bored, Impulsive, Confident, Tired
+  confidenceRating      Int?            // 1-5
+  checklistData         String?         // JSON string of checklist items
+  status                String          // OPEN | CLOSED | INVALID
+  result                String?         // WIN | LOSS | BE
+  rMultiple             Float?
+  plannedRR             Float?
+  riskUsd               Float?
+  notes                 String?
+  screenshotUrl         String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@index([sessionId])
+  @@index([tradeId])
+}
+
+model WebhookEvent {
+  id           String   @id @default(uuid())
+  receivedAt   DateTime @default(now())
+  rawPayload   String
+  eventType    String   // ENTRY | EXIT
+  tradeId      String
+  status       String   // SUCCESS | ERROR | ORPHAN
+  errorMessage String?
+
+  @@index([tradeId])
+}
+
+model InvalidTrade {
+  id          String          @id @default(uuid())
+  sessionId   String
+  session     BacktestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tradeNumber Int
+  reason      String
+  rawRows     String          // JSON string of rows that caused error
+  createdAt   DateTime        @default(now())
+
+  @@index([sessionId])
+}
+
+model SystemSetting {
+  key   String @id
+  value String
+}

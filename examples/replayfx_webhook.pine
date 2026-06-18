@@ -1,0 +1,76 @@
+//@version=5
+strategy("ReplayFX Webhook Integration Template", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
+
+// ==========================================
+// USER PARAMETERS & SETTINGS
+// ==========================================
+secretToken = input.string("replayfx_secret_token_123", title="ReplayFX Secret Token", tooltip="Token rahasia yang dikonfigurasi di halaman Settings ReplayFX")
+riskUsd     = input.float(50.0, title="Risk Per Trade (USD)", tooltip="Jumlah nominal dolar yang dipertaruhkan per transaksi")
+slPips      = input.int(30, title="Stop Loss Pips")
+tpPips      = input.int(60, title="Take Profit Pips")
+
+// ==========================================
+// STRATEGY CALCULATIONS
+// ==========================================
+emaFast = ta.ema(close, 9)
+emaSlow = ta.ema(close, 21)
+
+plot(emaFast, color=color.cyan, title="EMA Fast")
+plot(emaSlow, color=color.blue, title="EMA Slow")
+
+// Entry Conditions
+longEntryCondition  = ta.crossover(emaFast, emaSlow)
+shortEntryCondition = ta.crossunder(emaFast, emaSlow)
+
+// Persistent state tracking
+var string currentTradeId = ""
+
+// ==========================================
+// ENTRY & EXIT TRIGGERS WITH WEBHOOK ALERTS
+// ==========================================
+
+// LONG (BUY) ENTRY
+if (longEntryCondition and strategy.position_size == 0)
+    currentTradeId := "tv_trade_" + str.tostring(time)
+    strategy.entry("LONG", strategy.long)
+    
+    // Hitung level SL/TP untuk pelaporan
+    slLevel = close - (slPips * 10 * syminfo.mintick)
+    tpLevel = close + (tpPips * 10 * syminfo.mintick)
+    rrRatio = double(tpPips) / double(slPips)
+    
+    // Construct Webhook JSON Payload
+    entryPayload = '{"secret": "' + secretToken + '", "source": "tradingview", "event": "ENTRY", "trade_id": "' + currentTradeId + '", "symbol": "' + syminfo.ticker + '", "timeframe": "' + timeframe.period + '", "side": "buy", "fill_price": ' + str.tostring(close) + ', "sl": ' + str.tostring(slLevel) + ', "tp": ' + str.tostring(tpLevel) + ', "rr": ' + str.tostring(rrRatio) + ', "risk_usd": ' + str.tostring(riskUsd) + ', "setup": "EMA 9/21 Golden Cross", "bar_time": ' + str.tostring(time) + '}'
+    
+    // Kirim alarm
+    alert(entryPayload, alert.freq_once_per_bar)
+
+// SHORT (SELL) ENTRY
+if (shortEntryCondition and strategy.position_size == 0)
+    currentTradeId := "tv_trade_" + str.tostring(time)
+    strategy.entry("SHORT", strategy.short)
+    
+    // Hitung level SL/TP untuk pelaporan
+    slLevel = close + (slPips * 10 * syminfo.mintick)
+    tpLevel = close - (tpPips * 10 * syminfo.mintick)
+    rrRatio = double(tpPips) / double(slPips)
+    
+    // Construct Webhook JSON Payload
+    entryPayload = '{"secret": "' + secretToken + '", "source": "tradingview", "event": "ENTRY", "trade_id": "' + currentTradeId + '", "symbol": "' + syminfo.ticker + '", "timeframe": "' + timeframe.period + '", "side": "sell", "fill_price": ' + str.tostring(close) + ', "sl": ' + str.tostring(slLevel) + ', "tp": ' + str.tostring(tpLevel) + ', "rr": ' + str.tostring(rrRatio) + ', "risk_usd": ' + str.tostring(riskUsd) + ', "setup": "EMA 9/21 Death Cross", "bar_time": ' + str.tostring(time) + '}'
+    
+    // Kirim alarm
+    alert(entryPayload, alert.freq_once_per_bar)
+
+// EXIT TRIGGERS (Close LONG)
+if (strategy.position_size > 0 and ta.crossunder(close, emaFast))
+    strategy.close("LONG")
+    
+    exitPayload = '{"secret": "' + secretToken + '", "source": "tradingview", "event": "EXIT", "trade_id": "' + currentTradeId + '", "fill_price": ' + str.tostring(close) + ', "setup": "EMA Trailing Exit LONG", "bar_time": ' + str.tostring(time) + '}'
+    alert(exitPayload, alert.freq_once_per_bar)
+
+// EXIT TRIGGERS (Close SHORT)
+if (strategy.position_size < 0 and ta.crossover(close, emaFast))
+    strategy.close("SHORT")
+    
+    exitPayload = '{"secret": "' + secretToken + '", "source": "tradingview", "event": "EXIT", "trade_id": "' + currentTradeId + '", "fill_price": ' + str.tostring(close) + ', "setup": "EMA Trailing Exit SHORT", "bar_time": ' + str.tostring(time) + '}'
+    alert(exitPayload, alert.freq_once_per_bar)
