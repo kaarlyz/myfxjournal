@@ -8,6 +8,10 @@ import QuickLogger from './pages/QuickLogger';
 import CompareSessions from './pages/CompareSessions';
 import Settings from './pages/Settings';
 import WebhookMonitor from './pages/WebhookMonitor';
+import LiveJournal from './pages/LiveJournal';
+import Accounts from './pages/Accounts';
+import Integrations from './pages/Integrations';
+import RiskCalculator from './components/RiskCalculator';
 import { useJournalStore } from './store/useJournalStore';
 import { AlertTriangle, Clock } from 'lucide-react';
 
@@ -35,6 +39,10 @@ export default function App() {
       case 'compare-sessions': return <CompareSessions />;
       case 'webhook-monitor': return <WebhookMonitor />;
       case 'settings': return <Settings />;
+      case 'live-journal': return <LiveJournal />;
+      case 'accounts': return <Accounts />;
+      case 'integrations': return <Integrations />;
+      case 'risk-calculator': return <RiskCalculator />;
       default: return <Home />;
     }
   };

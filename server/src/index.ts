@@ -8,6 +8,9 @@ import settingsRouter from './routes/settings';
 import sessionsRouter from './routes/sessions';
 import tradesRouter from './routes/trades';
 import webhookRouter from './routes/webhook';
+import accountsRouter from './routes/accounts';
+import liveTradesRouter from './routes/live-trades';
+import mt5IntegrationRouter from './routes/mt5-integration';
 
 // Load environment variables
 dotenv.config();
@@ -35,6 +38,24 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/sessions', sessionsRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/webhook', webhookRouter);
+app.use('/api/accounts', accountsRouter);
+app.use('/api/live-trades', liveTradesRouter);
+app.use('/api/integrations/mt5', mt5IntegrationRouter);
+
+// Handle 404 for API routes
+app.use('/api', (req: Request, res: Response) => {
+  res.status(404).json({ ok: false, error: 'API route not found' });
+});
+
+// Global Error Handler
+app.use((err: any, req: Request, res: Response, next: express.NextFunction) => {
+  console.error('Global Error Handler:', err);
+  res.status(err.status || 500).json({
+    ok: false,
+    error: err.message || 'Internal Server Error',
+    details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+  });
+});
 
 // Initialize database check and listen
 async function startServer() {

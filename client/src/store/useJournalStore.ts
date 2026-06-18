@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { BacktestSession, Trade, DashboardMetrics } from '../shared/types';
 
-export type AppPage = 'home' | 'create-session' | 'csv-import' | 'dashboard' | 'quick-logger' | 'compare-sessions' | 'settings' | 'webhook-monitor';
+export type AppPage = 'home' | 'create-session' | 'csv-import' | 'dashboard' | 'quick-logger' | 'compare-sessions' | 'settings' | 'webhook-monitor' | 'live-journal' | 'accounts' | 'integrations' | 'risk-calculator';
 
 interface SystemSettings {
   usdIdrRate: number;

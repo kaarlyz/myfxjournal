@@ -78,14 +78,18 @@ model Trade {
 
 model WebhookEvent {
   id           String   @id @default(uuid())
+  source       String   @default("UNKNOWN")
+  eventType    String
+  payload      String
+  dealId       String?  @unique // To prevent duplicate MT5 deal events
   receivedAt   DateTime @default(now())
-  rawPayload   String
-  eventType    String   // ENTRY | EXIT
-  tradeId      String
-  status       String   // SUCCESS | ERROR | ORPHAN
-  errorMessage String?
+  processed    Boolean  @default(false)
+  error        String?
 
-  @@index([tradeId])
+  // Legacy fields (optional to avoid breaking existing code if any)
+  tradeId      String?
+  status       String?
+  errorMessage String?
 }
 
 model InvalidTrade {
@@ -103,4 +107,68 @@ model InvalidTrade {
 model SystemSetting {
   key   String @id
   value String
+}
+
+model TradingAccount {
+  id             String      @id @default(uuid())
+  name           String
+  broker         String?
+  server         String?
+  accountNumber  String?
+  accountType    String      // DEMO | REAL | CENT | PROP | OTHER
+  currency       String
+  initialBalance Float
+  currentBalance Float
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  liveTrades     LiveTrade[]
+}
+
+model LiveTrade {
+  id               String          @id @default(uuid())
+  tradingAccountId String
+  tradingAccount   TradingAccount  @relation(fields: [tradingAccountId], references: [id], onDelete: Cascade)
+  source           String          // MANUAL | MT5_EA | MT5_PYTHON | BROKER_API
+  positionId       String?         @unique // MT5 position ID
+  symbol           String
+  side             String          // BUY | SELL
+  lot              Float
+  entryPrice       Float
+  stopLoss         Float?
+  takeProfit       Float?
+  closePrice       Float?
+  openTime         DateTime
+  closeTime        DateTime?
+  status           String          @default("OPEN") // OPEN | CLOSED
+  commission       Float?          @default(0)
+  swap             Float?          @default(0)
+  profit           Float?
+  profitCurrency   String?
+  riskMoney        Float?
+  riskPercent      Float?
+  rMultiple        Float?
+  magicNumber      String?
+  strategyTag      String?
+  emotionTag       String?
+  mistakeTag       String?
+  notes            String?
+  followedPlan     Boolean?
+  screenshots      String?         // JSON string array of URLs
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([tradingAccountId])
+}
+
+model RiskCalculationPreset {
+  id           String   @id @default(uuid())
+  name         String
+  symbol       String
+  pipSize      Float    // e.g., 0.0001 or 0.01
+  tickSize     Float    // e.g., 0.00001
+  tickValue    Float    // e.g., 1
+  contractSize Float    @default(100000)
+  lotStep      Float    @default(0.01)
+  minLot       Float    @default(0.01)
+  maxLot       Float    @default(100)
 }

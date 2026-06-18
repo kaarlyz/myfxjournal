@@ -272,7 +272,7 @@ export async function seedDemoData(prisma: PrismaClient) {
         eventType: 'ENTRY',
         tradeId: 'demo_web_001',
         status: 'SUCCESS',
-        rawPayload: JSON.stringify({
+        payload: JSON.stringify({
           secret: 'replayfx_secret_token_123',
           source: 'tradingview',
           event: 'ENTRY',
@@ -297,7 +297,7 @@ export async function seedDemoData(prisma: PrismaClient) {
         eventType: 'EXIT',
         tradeId: 'demo_web_001',
         status: 'SUCCESS',
-        rawPayload: JSON.stringify({
+        payload: JSON.stringify({
           secret: 'replayfx_secret_token_123',
           source: 'tradingview',
           event: 'EXIT',
@@ -317,7 +317,7 @@ export async function seedDemoData(prisma: PrismaClient) {
         tradeId: 'orphan_trade_999',
         status: 'ORPHAN',
         errorMessage: 'Gagal mencocokkan trade_id "orphan_trade_999" karena event ENTRY tidak ditemukan.',
-        rawPayload: JSON.stringify({
+        payload: JSON.stringify({
           secret: 'replayfx_secret_token_123',
           source: 'tradingview',
           event: 'EXIT',
@@ -337,7 +337,7 @@ export async function seedDemoData(prisma: PrismaClient) {
         tradeId: 'error_trade_888',
         status: 'ERROR',
         errorMessage: 'Token rahasia (secret token) webhook tidak valid.',
-        rawPayload: JSON.stringify({
+        payload: JSON.stringify({
           secret: 'WRONG_TOKEN_ALERT',
           source: 'tradingview',
           event: 'ENTRY',

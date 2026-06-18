@@ -1,1 +1,28 @@
-node_modules
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite-journal
+.DS_Store
+.vercel/
+
+# dependencies
+node_modules/
+
+# env
+.env
+*.env
+
+# build output
+client/dist/
+server/dist/
+dist/
+build/
+
+# local database
+server/prisma/*.db
+server/prisma/*.db-journal

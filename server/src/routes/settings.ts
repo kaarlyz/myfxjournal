@@ -4,40 +4,56 @@ import { seedDemoData } from '../utils/seeder';
 
 const router = Router();
 
-// Helper to get all settings key-values as a structured object
-export async function getSettings() {
+// Helper to get all settings
+export async function getSettings(includePrivate: boolean = false) {
   const settingsList = await prisma.systemSetting.findMany();
   const settingsMap: Record<string, string> = {};
   settingsList.forEach((s) => {
     settingsMap[s.key] = s.value;
   });
 
-  // Supply default fallbacks if database is empty
-  return {
+  const settings: any = {
     usdIdrRate: parseFloat(settingsMap['usdIdrRate'] || '16200'),
     defaultRiskMode: settingsMap['defaultRiskMode'] || 'FIXED_USD',
     defaultRiskValue: parseFloat(settingsMap['defaultRiskValue'] || '100'),
-    secretToken: settingsMap['secretToken'] || 'replayfx_secret_token_123',
   };
+
+  if (includePrivate) {
+    settings.secretToken = settingsMap['secretToken'] || 'replayfx_secret_token_123';
+  }
+
+  return settings;
 }
 
-// GET /api/settings
-router.get('/', async (req: Request, res: Response) => {
+// GET /api/settings/public
+router.get('/public', async (req: Request, res: Response) => {
   try {
-    const settings = await getSettings();
+    const settings = await getSettings(false);
     return res.json(settings);
   } catch (error: any) {
-    console.error('Error fetching settings:', error);
-    return res.status(500).json({ error: 'Gagal memuat pengaturan.' });
+    console.error('Error fetching public settings:', error);
+    return res.status(500).json({ error: 'Gagal memuat pengaturan publik.' });
+  }
+});
+
+// GET /api/settings/private
+// In a real production app, this would be protected by JWT admin auth.
+router.get('/private', async (req: Request, res: Response) => {
+  try {
+    const settings = await getSettings(true);
+    return res.json(settings);
+  } catch (error: any) {
+    console.error('Error fetching private settings:', error);
+    return res.status(500).json({ error: 'Gagal memuat pengaturan privat.' });
   }
 });
 
 // POST /api/settings
+// We'll leave this unprotected for personal use, but it handles private tokens.
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { usdIdrRate, defaultRiskMode, defaultRiskValue, secretToken } = req.body;
 
-    // Update settings in database
     const updates = [
       prisma.systemSetting.upsert({
         where: { key: 'usdIdrRate' },
@@ -54,17 +70,20 @@ router.post('/', async (req: Request, res: Response) => {
         update: { value: String(defaultRiskValue || '100') },
         create: { key: 'defaultRiskValue', value: String(defaultRiskValue || '100') },
       }),
-      prisma.systemSetting.upsert({
-        where: { key: 'secretToken' },
-        update: { value: String(secretToken || 'replayfx_secret_token_123') },
-        create: { key: 'secretToken', value: String(secretToken || 'replayfx_secret_token_123') },
-      }),
     ];
+
+    if (secretToken) {
+      updates.push(
+        prisma.systemSetting.upsert({
+          where: { key: 'secretToken' },
+          update: { value: String(secretToken) },
+          create: { key: 'secretToken', value: String(secretToken) },
+        })
+      );
+    }
 
     await prisma.$transaction(updates);
     
-    // Also, if usdIdrRate is updated, we update ALL existing trades' netPnlIdr!
-    // This allows the currency rates changes to propagate immediately through the entire journal history.
     if (usdIdrRate) {
       const rate = parseFloat(usdIdrRate);
       const trades = await prisma.trade.findMany({
@@ -83,7 +102,7 @@ router.post('/', async (req: Request, res: Response) => {
       }
     }
 
-    const newSettings = await getSettings();
+    const newSettings = await getSettings(false);
     return res.json({ message: 'Pengaturan berhasil diperbarui.', settings: newSettings });
   } catch (error: any) {
     console.error('Error updating settings:', error);
@@ -109,9 +128,10 @@ router.post('/reset', async (req: Request, res: Response) => {
     await prisma.invalidTrade.deleteMany({});
     await prisma.backtestSession.deleteMany({});
     await prisma.webhookEvent.deleteMany({});
+    await prisma.liveTrade.deleteMany({});
+    await prisma.tradingAccount.deleteMany({});
     await prisma.systemSetting.deleteMany({});
 
-    // Reset default settings
     await prisma.systemSetting.createMany({
       data: [
         { key: 'usdIdrRate', value: '16200' },
@@ -125,6 +145,16 @@ router.post('/reset', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error resetting database:', error);
     return res.status(500).json({ error: 'Gagal mereset database.' });
+  }
+});
+
+// Maintain legacy GET /api/settings route for older clients but don't expose token
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    const settings = await getSettings(false);
+    return res.json(settings);
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Gagal memuat pengaturan.' });
   }
 });
 

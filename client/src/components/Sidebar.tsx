@@ -9,7 +9,10 @@ import {
   TrendingUp,
   Zap,
   GitCompare,
-  Layers
+  Layers,
+  Wallet,
+  Calculator,
+  Link2
 } from 'lucide-react';
 import { useJournalStore, AppPage } from '../store/useJournalStore';
 
@@ -23,13 +26,18 @@ export default function Sidebar() {
   } = useJournalStore();
 
   const menuItems = [
-    { id: 'home' as AppPage, name: 'Sesi Backtest', icon: Home },
-    { id: 'create-session' as AppPage, name: 'Buat Sesi Baru', icon: PlusCircle },
-    { id: 'csv-import' as AppPage, name: 'Import CSV', icon: UploadCloud },
-    { id: 'quick-logger' as AppPage, name: 'Quick Logger', icon: Zap, disabled: !activeSessionId },
-    { id: 'dashboard' as AppPage, name: 'Analisa Dashboard', icon: BarChart3, disabled: !activeSessionId },
-    { id: 'compare-sessions' as AppPage, name: 'Bandingkan Sesi', icon: GitCompare },
-    { id: 'settings' as AppPage, name: 'Pengaturan', icon: SettingsIcon },
+    { id: 'home' as AppPage, name: 'Sesi Backtest', icon: Home, group: 'BACKTEST' },
+    { id: 'create-session' as AppPage, name: 'Buat Sesi Baru', icon: PlusCircle, group: 'BACKTEST' },
+    { id: 'csv-import' as AppPage, name: 'Import CSV', icon: UploadCloud, group: 'BACKTEST' },
+    { id: 'quick-logger' as AppPage, name: 'Quick Logger', icon: Zap, disabled: !activeSessionId, group: 'BACKTEST' },
+    { id: 'dashboard' as AppPage, name: 'Analisa Dashboard', icon: BarChart3, disabled: !activeSessionId, group: 'BACKTEST' },
+    
+    { id: 'live-journal' as AppPage, name: 'Live Journal', icon: BookOpen, group: 'LIVE' },
+    { id: 'accounts' as AppPage, name: 'Accounts', icon: Wallet, group: 'LIVE' },
+    { id: 'risk-calculator' as AppPage, name: 'Risk Calculator', icon: Calculator, group: 'TOOLS' },
+    { id: 'integrations' as AppPage, name: 'MT5 Integrations', icon: Link2, group: 'TOOLS' },
+    
+    { id: 'settings' as AppPage, name: 'Pengaturan', icon: SettingsIcon, group: 'SYSTEM' },
   ];
 
   return (
@@ -61,26 +69,35 @@ export default function Sidebar() {
       </div>
 
       {/* Main Navigation Menu */}
-      <nav className="flex-1 p-3 space-y-0.5">
-        <p className="px-3 text-[9px] font-bold text-gray-600 uppercase tracking-widest mb-3 mt-1">Navigasi</p>
-        {menuItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
-          const isDisabled = item.disabled;
-
+      <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
+        {['BACKTEST', 'LIVE', 'TOOLS', 'SYSTEM'].map(group => {
+          const groupItems = menuItems.filter(item => item.group === group);
+          if (groupItems.length === 0) return null;
+          
           return (
-            <button
-              key={item.id}
-              disabled={isDisabled}
-              onClick={() => setTab(item.id)}
-              className={`sidebar-item w-full text-left ${isActive ? 'active' : ''} ${isDisabled ? 'opacity-30 cursor-not-allowed' : ''}`}
-            >
-              <Icon className="w-4 h-4 flex-shrink-0" />
-              <span>{item.name}</span>
-              {isDisabled && (
-                <span className="ml-auto text-[8px] text-gray-600 font-bold uppercase">Pilih sesi</span>
-              )}
-            </button>
+            <div key={group} className="space-y-0.5">
+              <p className="px-3 text-[9px] font-bold text-gray-600 uppercase tracking-widest mb-2">{group}</p>
+              {groupItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                const isDisabled = item.disabled;
+
+                return (
+                  <button
+                    key={item.id}
+                    disabled={isDisabled}
+                    onClick={() => setTab(item.id)}
+                    className={`sidebar-item w-full text-left ${isActive ? 'active' : ''} ${isDisabled ? 'opacity-30 cursor-not-allowed' : ''}`}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span>{item.name}</span>
+                    {isDisabled && (
+                      <span className="ml-auto text-[8px] text-gray-600 font-bold uppercase">Pilih sesi</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           );
         })}
       </nav>

@@ -10,7 +10,7 @@ async function handleWebhook(req: Request, res: Response) {
   
   let eventStatus: 'SUCCESS' | 'ERROR' | 'ORPHAN' = 'SUCCESS';
   let errorMessage: string | null = null;
-  const rawPayload = JSON.stringify(req.body);
+  const payload = JSON.stringify(req.body);
   const receivedAt = new Date();
 
   // Extract common fields
@@ -41,7 +41,7 @@ async function handleWebhook(req: Request, res: Response) {
       await prisma.webhookEvent.create({
         data: {
           receivedAt,
-          rawPayload,
+          payload,
           eventType: event || 'UNKNOWN',
           tradeId: trade_id || 'UNKNOWN',
           status: eventStatus,
@@ -58,7 +58,7 @@ async function handleWebhook(req: Request, res: Response) {
       await prisma.webhookEvent.create({
         data: {
           receivedAt,
-          rawPayload,
+          payload,
           eventType: event || 'UNKNOWN',
           tradeId: trade_id || 'UNKNOWN',
           status: eventStatus,
@@ -74,7 +74,7 @@ async function handleWebhook(req: Request, res: Response) {
       await prisma.webhookEvent.create({
         data: {
           receivedAt,
-          rawPayload,
+          payload,
           eventType: event,
           tradeId: trade_id,
           status: eventStatus,
@@ -130,7 +130,7 @@ async function handleWebhook(req: Request, res: Response) {
         await prisma.webhookEvent.create({
           data: {
             receivedAt,
-            rawPayload,
+            payload,
             eventType: event,
             tradeId: trade_id,
             status: eventStatus,
@@ -183,7 +183,7 @@ async function handleWebhook(req: Request, res: Response) {
       await prisma.webhookEvent.create({
         data: {
           receivedAt,
-          rawPayload,
+          payload,
           eventType: event,
           tradeId: trade_id,
           status: 'SUCCESS',
@@ -211,7 +211,7 @@ async function handleWebhook(req: Request, res: Response) {
         await prisma.webhookEvent.create({
           data: {
             receivedAt,
-            rawPayload,
+            payload,
             eventType: event,
             tradeId: trade_id,
             status: eventStatus,
@@ -280,7 +280,7 @@ async function handleWebhook(req: Request, res: Response) {
       await prisma.webhookEvent.create({
         data: {
           receivedAt,
-          rawPayload,
+          payload,
           eventType: event,
           tradeId: trade_id,
           status: 'SUCCESS',
@@ -299,7 +299,7 @@ async function handleWebhook(req: Request, res: Response) {
       await prisma.webhookEvent.create({
         data: {
           receivedAt,
-          rawPayload,
+          payload,
           eventType: event || 'UNKNOWN',
           tradeId: trade_id || 'UNKNOWN',
           status: eventStatus,
