@@ -19,21 +19,32 @@ router.get('/', async (req: Request, res: Response) => {
 // POST /api/accounts
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { name, broker, server, accountType, currency, initialBalance } = req.body;
+    const { 
+      name, platform, accountNumber, broker, brokerServer, 
+      accountType, accountModel, leverage, currency, initialBalance,
+      currentBalance, status, notes
+    } = req.body;
     
-    if (!name || !accountType || !currency || initialBalance === undefined) {
+    if (!name || !platform || !currency || initialBalance === undefined) {
       return res.status(400).json({ error: 'Data akun tidak lengkap.' });
     }
 
     const newAccount = await prisma.tradingAccount.create({
       data: {
         name,
+        platform,
+        accountNumber,
         broker,
-        server,
+        brokerServer,
+        server: brokerServer, // sync legacy field
         accountType,
+        accountModel,
+        leverage,
         currency,
         initialBalance: parseFloat(initialBalance),
-        currentBalance: parseFloat(initialBalance),
+        currentBalance: currentBalance !== undefined ? parseFloat(currentBalance) : parseFloat(initialBalance),
+        status: status || 'Active',
+        notes
       }
     });
 

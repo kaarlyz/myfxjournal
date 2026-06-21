@@ -16,6 +16,7 @@ model BacktestSession {
   timeframe       String
   initialBalance  Float
   balanceCurrency String         // USD, CENT (cents), IDR
+  centMultiplier  Float          @default(100)
   usdIdrRate      Float
   riskMode        String         // FIXED_USD | FIXED_PCT | NO_R
   riskValue       Float
@@ -25,6 +26,11 @@ model BacktestSession {
   updatedAt       DateTime       @updatedAt
   trades          Trade[]
   invalidTrades   InvalidTrade[]
+  mt5ReportImports Mt5ReportImport[]
+  mt5Deals       Mt5Deal[]
+  mt5EquityPoints Mt5EquityPoint[]
+  mt5Orders      Mt5Order[]
+  mt5ReportFindings Mt5ReportFinding[]
 }
 
 model Trade {
@@ -69,11 +75,190 @@ model Trade {
   riskUsd               Float?
   notes                 String?
   screenshotUrl         String?
+  importFingerprint     String?         // stable hash for dedup
+  importBatchId         String?         // links to ImportBatch.id
+  importedAt            DateTime?       // when this trade was imported
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 
   @@index([sessionId])
   @@index([tradeId])
+  @@index([importBatchId])
+  @@index([importFingerprint, sessionId])
+}
+
+model ImportBatch {
+  id               String   @id @default(uuid())
+  sessionId        String
+  fileName         String?
+  mode             String   // NEW | REPLACE | APPEND | SMART_MERGE
+  totalRows        Int      @default(0)
+  validTrades      Int      @default(0)
+  insertedTrades   Int      @default(0)
+  skippedDuplicates Int     @default(0)
+  invalidRows      Int      @default(0)
+  importedAt       DateTime @default(now())
+  notes            String?
+}
+
+model Mt5ReportImport {
+  id                    String   @id @default(uuid())
+  sessionId             String
+  session               BacktestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  fileName              String
+  graphFileName         String?
+  expertName            String?
+  symbol                String?
+  timeframe             String?
+  periodStart           DateTime?
+  periodEnd             DateTime?
+  initialDeposit        Float?
+  currency              String?
+  leverage              String?
+  totalNetProfit        Float?
+  grossProfit           Float?
+  grossLoss             Float?
+  profitFactor          Float?
+  expectedPayoff        Float?
+  recoveryFactor        Float?
+  sharpeRatio           Float?
+  totalTrades           Int?
+  totalDeals            Int?
+  winrate               Float?
+  profitTrades          Int?
+  lossTrades            Int?
+  shortTrades           Int?
+  shortWinrate          Float?
+  longTrades            Int?
+  longWinrate           Float?
+  balanceDrawdownMax    Float?
+  balanceDrawdownPct    Float?
+  equityDrawdownMax     Float?
+  equityDrawdownPct     Float?
+  largestProfitTrade    Float?
+  largestLossTrade      Float?
+  averageProfitTrade    Float?
+  averageLossTrade      Float?
+  maxConsecutiveWins    Int?
+  maxConsecutiveLosses  Int?
+  averageConsecutiveWins Float?
+  averageConsecutiveLosses Float?
+  zScore                Float?
+  ahpr                  Float?
+  ghpr                  Float?
+  finalBalance          Float?
+  findingsCount         Int      @default(0)
+  rawInputs             String?
+  rawSettings           String?
+  rawResults            String?
+  rawOrders             String?
+  rawDeals              String?
+  warnings              String?
+  importedAt            DateTime @default(now())
+  deals                 Mt5Deal[]
+  equityPoints          Mt5EquityPoint[]
+  orders                Mt5Order[]
+  findings              Mt5ReportFinding[]
+
+  @@index([sessionId])
+  @@index([importedAt])
+}
+
+model Mt5Order {
+  id             String   @id @default(uuid())
+  sessionId      String
+  session        BacktestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reportImportId String
+  reportImport   Mt5ReportImport @relation(fields: [reportImportId], references: [id], onDelete: Cascade)
+  openTime       DateTime?
+  orderId        String?
+  symbol         String?
+  type           String?
+  volume         Float?
+  price          Float?
+  sl             Float?
+  tp             Float?
+  closeTime      DateTime?
+  state          String?
+  comment        String?
+
+  @@index([sessionId])
+  @@index([reportImportId])
+  @@index([orderId])
+}
+
+model Mt5Deal {
+  id             String   @id @default(uuid())
+  sessionId      String
+  session        BacktestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reportImportId String
+  reportImport   Mt5ReportImport @relation(fields: [reportImportId], references: [id], onDelete: Cascade)
+  time           DateTime?
+  dealId         String?
+  symbol         String?
+  type           String?
+  direction      String?
+  positionId     String?
+  volume         Float?
+  price          Float?
+  orderId        String?
+  commission     Float?
+  swap           Float?
+  profit         Float?
+  balance        Float?
+  comment        String?
+
+  @@index([sessionId])
+  @@index([reportImportId])
+  @@index([dealId])
+  @@index([orderId])
+  @@index([positionId])
+}
+
+model Mt5EquityPoint {
+  id             String   @id @default(uuid())
+  sessionId      String
+  session        BacktestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reportImportId String
+  reportImport   Mt5ReportImport @relation(fields: [reportImportId], references: [id], onDelete: Cascade)
+  time           DateTime
+  balance        Float
+  equity         Float
+  depositLoad    Float?
+
+  @@index([sessionId])
+  @@index([reportImportId])
+  @@index([time])
+}
+
+model Mt5ReportFinding {
+  id             String   @id @default(uuid())
+  sessionId      String
+  session        BacktestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reportImportId String
+  reportImport   Mt5ReportImport @relation(fields: [reportImportId], references: [id], onDelete: Cascade)
+  severity       String
+  title          String
+  explanation    String
+  suggestedFix   String?
+  createdAt      DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([reportImportId])
+}
+
+model DailyJournalNote {
+  id         String   @id @default(uuid())
+  scope      String   // BACKTEST_SESSION | LIVE_ACCOUNT
+  contextId  String
+  dateKey    String   // YYYY-MM-DD
+  note       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([scope, contextId, dateKey])
+  @@index([scope, contextId])
+  @@index([dateKey])
 }
 
 model WebhookEvent {
@@ -90,6 +275,33 @@ model WebhookEvent {
   tradeId      String?
   status       String?
   errorMessage String?
+}
+
+model TradingViewSetup {
+  id           String   @id @default(uuid())
+  source       String   @default("tradingview")
+  symbol       String
+  timeframe    String
+  side         String
+  price        Float
+  sl           Float?
+  tp           Float?
+  bodySize     Float?
+  volume       Float?
+  reason       String?
+  chartUrl     String?
+  previewUrl   String?
+  payload      String
+  status       String   @default("PENDING_REVIEW") // PENDING_REVIEW | APPROVED | REJECTED | EXPIRED | EXECUTED
+  expiresAt    DateTime
+  reviewSource String?
+  reviewNote   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status])
+  @@index([expiresAt])
+  @@index([symbol, timeframe])
 }
 
 model InvalidTrade {
@@ -113,12 +325,24 @@ model TradingAccount {
   id             String      @id @default(uuid())
   name           String
   broker         String?
-  server         String?
+  server         String?     // Keeping this for backwards compatibility, but we will mostly use brokerServer
+  brokerServer   String?
   accountNumber  String?
   accountType    String      // DEMO | REAL | CENT | PROP | OTHER
+  centMultiplier Float       @default(100)
+  accountModel   String?     // Standard | Raw ECN | Cent | Pro | Demo | Other
+  platform       String      @default("MANUAL") // MT5 | MT4 | Manual | Other
+  leverage       String?
+  status         String      @default("Active") // Active | Inactive | Archived
   currency       String
   initialBalance Float
   currentBalance Float
+  currentEquity  Float?
+  freeMargin     Float?
+  lastSnapshotAt DateTime?
+  notes          String?
+  source         String      @default("MANUAL") // MANUAL | MT5_AUTO
+  autoCreated    Boolean     @default(false)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
   liveTrades     LiveTrade[]
@@ -139,6 +363,8 @@ model LiveTrade {
   closePrice       Float?
   openTime         DateTime
   closeTime        DateTime?
+  rawMt5Time       Int?            // The original Unix timestamp sent by EA
+  receivedAt       DateTime        @default(now()) // Backend received time
   status           String          @default("OPEN") // OPEN | CLOSED
   commission       Float?          @default(0)
   swap             Float?          @default(0)
@@ -171,4 +397,47 @@ model RiskCalculationPreset {
   lotStep      Float    @default(0.01)
   minLot       Float    @default(0.01)
   maxLot       Float    @default(100)
+}
+
+model AlertRule {
+  id            String   @id @default(uuid())
+  channel       String   // TELEGRAM | WHATSAPP | BOTH
+  eventType     String   // TRADE_OPEN | TRADE_CLOSE | BALANCE_UPDATE | DRAWDOWN_LIMIT | DAILY_PROFIT_TARGET | DAILY_LOSS_LIMIT | MT5_DISCONNECTED
+  enabled       Boolean  @default(true)
+  thresholdValue Float?
+  accountId     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model CommandLog {
+  id        String   @id @default(uuid())
+  source    String   // TELEGRAM | WHATSAPP
+  senderId  String
+  command   String
+  args      String?
+  status    String   // RECEIVED | REJECTED | EXECUTED | FAILED
+  response  String?
+  createdAt DateTime @default(now())
+}
+
+model CommandQueue {
+  id            String   @id @default(uuid())
+  command       String
+  args          String?
+  accountId     String?
+  status        String   @default("PENDING") // PENDING | APPROVED | SENT_TO_MT5 | EXECUTED | FAILED | EXPIRED
+  targetEA      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model IntegrationLog {
+  id        String   @id @default(uuid())
+  source    String   // MT5 | TELEGRAM | WHATSAPP_BAILEYS | WHATSAPP_CLOUD | SYSTEM
+  eventType String
+  status    String   // INFO | SUCCESS | WARNING | ERROR
+  message   String
+  details   String?  // JSON string
+  createdAt DateTime @default(now())
 }

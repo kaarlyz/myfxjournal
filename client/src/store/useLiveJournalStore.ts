@@ -1,14 +1,26 @@
 import { create } from 'zustand';
 
-interface TradingAccount {
+export interface TradingAccount {
   id: string;
   name: string;
-  broker: string | null;
-  server: string | null;
+  platform: string;
+  broker?: string;
+  brokerServer?: string;
+  accountNumber?: string;
   accountType: string;
+  accountModel?: string;
+  centMultiplier: number;
+  leverage?: string;
   currency: string;
   initialBalance: number;
   currentBalance: number;
+  currentEquity: number | null;
+  freeMargin: number | null;
+  lastSnapshotAt: string | null;
+  notes: string | null;
+  source: string;
+  autoCreated: boolean;
+  status: string;
 }
 
 interface LiveTrade {
@@ -38,8 +50,10 @@ interface LiveJournalStore {
   activeAccountId: string | null;
   trades: LiveTrade[];
   summary: any | null;
+  liveCharts: any | null;
   loading: boolean;
   error: string | null;
+  sseStatus: 'offline' | 'connecting' | 'live';
   
   fetchAccounts: () => Promise<void>;
   createAccount: (data: any) => Promise<void>;
@@ -50,6 +64,8 @@ interface LiveJournalStore {
   fetchSummary: () => Promise<void>;
   addTrade: (data: any) => Promise<void>;
   deleteTrade: (id: string) => Promise<void>;
+  
+  listenToSSE: () => void;
 }
 
 const API_BASE_URL = (import.meta as any).env.VITE_API_URL || '/api';
@@ -59,8 +75,54 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
   activeAccountId: null,
   trades: [],
   summary: null,
+  liveCharts: null,
   loading: false,
   error: null,
+  sseStatus: 'offline',
+
+  listenToSSE: () => {
+    set({ sseStatus: 'connecting' });
+    const eventSource = new EventSource(`${API_BASE_URL}/events/stream`);
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'CONNECTED') {
+          set({ sseStatus: 'live' });
+        } else if (data.type === 'ACCOUNT_SNAPSHOT') {
+          if ((import.meta as any).env.DEV) console.log('[DEV] account_snapshot received', data);
+          const { accountId, currentBalance, currentEquity, freeMargin, lastSnapshotAt } = data;
+          
+          set((state) => ({
+            accounts: state.accounts.map(acc => 
+              acc.id === accountId ? { ...acc, currentBalance, currentEquity, freeMargin: freeMargin ?? acc.freeMargin, lastSnapshotAt } : acc
+            )
+          }));
+          
+          get().fetchAccounts();
+          if (get().activeAccountId === accountId) {
+            get().fetchSummary();
+          }
+        } else if (data.type === 'TRADE_EVENT') {
+          if ((import.meta as any).env.DEV) console.log('[DEV] trade_event received', data);
+          get().fetchAccounts();
+          get().fetchTrades();
+          get().fetchSummary();
+        }
+      } catch (err) {
+        console.error('SSE Error processing message', err);
+      }
+    };
+
+    eventSource.onerror = () => {
+      set({ sseStatus: 'offline' });
+      eventSource.close();
+      // Retry after 5s
+      setTimeout(() => {
+        get().listenToSSE();
+      }, 5000);
+    };
+  },
 
   fetchAccounts: async () => {
     set({ loading: true, error: null });
@@ -68,9 +130,21 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
       const res = await fetch(`${API_BASE_URL}/accounts`);
       if (!res.ok) throw new Error('Failed to fetch accounts');
       const data = await res.json();
-      set({ accounts: data, loading: false });
-      if (data.length > 0 && !get().activeAccountId) {
-        set({ activeAccountId: data[0].id });
+      const validAccounts = Array.isArray(data) ? data : [];
+      const normalizedAccounts = validAccounts.map(acc => ({
+        ...acc,
+        currentBalance: acc.currentBalance ?? acc.initialBalance ?? 0,
+        currentEquity: acc.currentEquity ?? acc.currentBalance ?? acc.initialBalance ?? 0,
+        currency: acc.currency || "USD",
+        status: acc.status || "Active"
+      }));
+      set({ accounts: normalizedAccounts, loading: false });
+      if (normalizedAccounts.length > 0 && !get().activeAccountId) {
+        const sorted = [...normalizedAccounts].sort((a, b) => new Date(b.lastSnapshotAt || 0).getTime() - new Date(a.lastSnapshotAt || 0).getTime());
+        set({ activeAccountId: sorted[0].id });
+        // Since activeAccountId changed, need to fetch trades and summary
+        get().fetchTrades();
+        get().fetchSummary();
       }
     } catch (err: any) {
       set({ error: err.message, loading: false });
@@ -124,7 +198,19 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
       const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch trades');
       const data = await res.json();
-      set({ trades: data, loading: false });
+      const validTrades = Array.isArray(data) ? data : [];
+      const normalizedTrades = validTrades.map(trade => ({
+        ...trade,
+        lot: trade.lot ?? 0,
+        entryPrice: trade.entryPrice ?? 0,
+        closePrice: trade.closePrice ?? null,
+        profit: trade.profit ?? 0,
+        commission: trade.commission ?? 0,
+        swap: trade.swap ?? 0,
+        rMultiple: trade.rMultiple ?? 0,
+        status: trade.closeTime ? 'CLOSED' : 'OPEN'
+      }));
+      set({ trades: normalizedTrades, loading: false });
     } catch (err: any) {
       set({ error: err.message, loading: false });
     }
@@ -139,7 +225,10 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
-        set({ summary: data });
+        set({
+          summary: data.summary ? { ...data.summary, ...data, summary: undefined, charts: undefined } : data,
+          liveCharts: data.charts || null,
+        });
       }
     } catch (err) {
       console.error(err);

@@ -1,360 +1,232 @@
-import React, { useState } from 'react';
-import { LogIn, LogOut, RotateCcw, Zap, TrendingUp, TrendingDown } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { BarChart3, CheckCircle2, RefreshCw, Zap } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
-import { formatUsd, formatR } from '../utils/formatters';
+import { formatUsd, formatPercent } from '../utils/formatters';
+import { HelpCard, PageGuide } from '../components/help/HelpSystem';
 
 export default function QuickLogger() {
-  const { activeSessionId, activeSessionDetails } = useJournalStore();
-
-  const [mode, setMode] = useState<'simple' | 'advanced'>('simple');
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { sessions, activeSessionId, activeSessionDetails, fetchSessions, fetchActiveSession, selectSession } = useJournalStore();
+  const [sessionId, setSessionId] = useState('');
+  const [mode, setMode] = useState<'FAST_R' | 'DETAILED'>('FAST_R');
+  const [result, setResult] = useState<'WIN' | 'LOSS' | 'BE'>('WIN');
+  const [riskPerTrade, setRiskPerTrade] = useState('50');
+  const [rr, setRr] = useState('2');
+  const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
   const [entryPrice, setEntryPrice] = useState('');
   const [exitPrice, setExitPrice] = useState('');
-  const [slPrice, setSlPrice] = useState('');
-  const [tpPrice, setTpPrice] = useState('');
-  const [riskUsd, setRiskUsd] = useState('');
-  const [riskPct, setRiskPct] = useState('');
-  const [setupTag, setSetupTag] = useState('');
+  const [lot, setLot] = useState('');
+  const [profit, setProfit] = useState('');
   const [notes, setNotes] = useState('');
-  const [side, setSide] = useState<'LONG' | 'SHORT'>('LONG');
-  const [isTradeActive, setIsTradeActive] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<any | null>(null);
 
-  if (!activeSessionId || !activeSessionDetails) {
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
+
+  useEffect(() => {
+    const querySessionId = searchParams.get('sessionId');
+    const preferred = querySessionId || activeSessionId || sessions[0]?.id || '';
+    if (preferred && preferred !== sessionId) {
+      setSessionId(preferred);
+      selectSession(preferred);
+    }
+  }, [searchParams, activeSessionId, sessions, sessionId, selectSession]);
+
+  const selectedSession = sessions.find(s => s.id === sessionId);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sessionId) return setError('Pilih sesi dulu.');
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const body = {
+        mode,
+        result,
+        side,
+        entryPrice: entryPrice ? Number(entryPrice) : undefined,
+        exitPrice: exitPrice ? Number(exitPrice) : undefined,
+        lot: lot ? Number(lot) : undefined,
+        riskPerTrade: riskPerTrade ? Number(riskPerTrade) : undefined,
+        rr: rr ? Number(rr) : undefined,
+        profit: profit !== '' ? Number(profit) : undefined,
+        notes,
+      };
+      const res = await fetch(`/api/sessions/${sessionId}/quick-log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal menyimpan quick log.');
+      setSuccess(data);
+      await fetchSessions();
+      await fetchActiveSession(sessionId);
+      setNotes('');
+      if (mode === 'DETAILED') {
+        setEntryPrice('');
+        setExitPrice('');
+        setLot('');
+        setProfit('');
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (sessions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 space-y-4">
-        <Zap className="w-12 h-12 text-gray-600" />
-        <h2 className="text-xl font-bold text-gray-300">Tidak ada sesi aktif</h2>
-        <p className="text-sm text-gray-500">Pilih sesi dari sidebar untuk mulai logging trade.</p>
+      <div className="flex flex-col items-center justify-center py-20 space-y-6">
+        <Zap className="w-12 h-12 text-[#707a8a]" />
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-white">Quick Logger</h2>
+          <p className="text-[#929aa5] mt-2">Buat atau import sesi dulu sebelum quick log.</p>
+        </div>
+        <div className="flex gap-3">
+          <Link to="/create-session" className="px-5 py-2 bg-[#fcd535] text-black rounded-lg font-bold text-sm">Create Session</Link>
+          <Link to="/csv-import" className="px-5 py-2 bg-[#2b3139] text-white rounded-lg font-bold text-sm">Import CSV</Link>
+        </div>
       </div>
     );
   }
 
-  const handleEntryLong = () => {
-    setSide('LONG');
-    setIsTradeActive(true);
-  };
-
-  const handleEntryShort = () => {
-    setSide('SHORT');
-    setIsTradeActive(true);
-  };
-
-  const handleExitWin = async () => {
-    // TODO: Implement exit logic
-    setIsTradeActive(false);
-  };
-
-  const handleExitLoss = async () => {
-    // TODO: Implement exit logic
-    setIsTradeActive(false);
-  };
-
-  const handleExitBE = async () => {
-    // TODO: Implement exit logic
-    setIsTradeActive(false);
-  };
-
-  const handleUndo = () => {
-    // TODO: Implement undo
-  };
-
-  const handleReset = () => {
-    if (confirm('Reset semua trade dalam session ini? Tindakan tidak bisa dibatalkan.')) {
-      // TODO: Implement reset
-    }
-  };
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-start">
+    <div className="space-y-6 max-w-5xl min-w-0">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-bold text-white flex items-center gap-2"><Zap className="w-5 h-5 text-[#fcd535]" /> Quick Logger</h1>
+            <PageGuide
+              title="Quick Logger"
+              purpose="Quick Logger dipakai untuk mencatat trade manual dengan cepat tanpa upload CSV."
+              steps={[
+                'Pilih sesi tujuan.',
+                'Gunakan Fast R jika hanya ingin input WIN/LOSS/BE, risk, dan RR.',
+                'Gunakan Detailed jika ingin input harga entry/exit dan lot.',
+                'Klik Save Quick Log lalu buka dashboard untuk melihat trade count dan PnL update.'
+              ]}
+              outputs={[
+                'WIN menghitung profit = risk x RR.',
+                'LOSS menghitung profit = -risk.',
+                'BE menghitung profit = 0.'
+              ]}
+              warnings={[
+                'Pastikan sesi yang dipilih benar agar trade tidak masuk ke dashboard yang salah.',
+                'Quick Log cocok untuk catatan cepat, bukan pengganti broker statement.'
+              ]}
+              nextAction="Setelah save, klik View Dashboard untuk cek metrik terbaru."
+            />
+          </div>
+          <p className="text-sm text-[#929aa5] mt-1">Tambah trade manual cepat ke sesi backtest yang dipilih.</p>
+        </div>
+        <select
+          value={sessionId}
+          onChange={(e) => {
+            setSessionId(e.target.value);
+            selectSession(e.target.value);
+            navigate(`/quick-logger?sessionId=${e.target.value}`, { replace: true });
+          }}
+          className="bn-card border border-[#2b3139] rounded-lg py-2 px-3 text-white text-sm min-w-[260px]"
+          style={{ maxWidth: '100%' }}
+        >
+          {sessions.map(s => <option key={s.id} value={s.id}>{s.name} ({s.symbol})</option>)}
+        </select>
+      </div>
+
+      <HelpCard title="Fast R mode">
+        Mode ini cocok jika kamu hanya tahu hasil trade secara risk/reward. Contoh: risk $50, RR 2, result WIN akan membuat trade profit +$100.
+      </HelpCard>
+
+      {selectedSession && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bn-card border border-[#2b3139] rounded-lg p-3 min-w-0"><p className="text-[10px] text-[#707a8a]">Session</p><p className="text-sm text-white font-bold truncate" title={selectedSession.name}>{selectedSession.name}</p></div>
+          <div className="bn-card border border-[#2b3139] rounded-lg p-3"><p className="text-[10px] text-[#707a8a]">Trades</p><p className="text-sm text-white font-bold">{selectedSession.tradeCount}</p></div>
+          <div className="bn-card border border-[#2b3139] rounded-lg p-3"><p className="text-[10px] text-[#707a8a]">Winrate</p><p className="text-sm text-white font-bold">{selectedSession.tradeCount ? formatPercent(selectedSession.winrate) : '-'}</p></div>
+          <div className="bn-card border border-[#2b3139] rounded-lg p-3"><p className="text-[10px] text-[#707a8a]">Net PnL</p><p className={`text-sm font-bold ${selectedSession.netPnlUsd >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>{formatUsd(selectedSession.netPnlUsd)}</p></div>
+        </div>
+      )}
+
+      {error && <div className="rounded-lg border border-[rgba(246,70,93,0.25)] bg-[rgba(246,70,93,0.08)] p-4 text-sm text-[#f6465d]">{error}</div>}
+      {success && (
+        <div className="rounded-lg border border-[rgba(14,203,129,0.25)] bg-[rgba(14,203,129,0.08)] p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="text-sm text-[#0ecb81] font-semibold flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Quick log saved. Dashboard stats refreshed.</div>
+          <button onClick={() => navigate(`/dashboard?sessionId=${sessionId}`)} className="px-4 py-2 bg-[#fcd535] text-black rounded-lg text-xs font-bold flex items-center justify-center gap-1.5">
+            <BarChart3 className="w-3.5 h-3.5" /> View Dashboard
+          </button>
+        </div>
+      )}
+
+      <form onSubmit={submit} className="bn-card border border-[#2b3139] rounded-xl p-6 space-y-5">
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setMode('FAST_R')} className={`px-4 py-2 rounded-lg text-sm font-bold ${mode === 'FAST_R' ? 'bg-[#fcd535] text-black' : 'bg-[#2b3139] text-[#929aa5]'}`}>Fast R mode</button>
+          <button type="button" onClick={() => setMode('DETAILED')} className={`px-4 py-2 rounded-lg text-sm font-bold ${mode === 'DETAILED' ? 'bg-[#fcd535] text-black' : 'bg-[#2b3139] text-[#929aa5]'}`}>Detailed trade mode</button>
+        </div>
+
+        {mode === 'FAST_R' ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs text-[#929aa5] mb-1">Result</label>
+              <select value={result} onChange={(e: any) => setResult(e.target.value)} className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white">
+                <option value="WIN">WIN</option>
+                <option value="LOSS">LOSS</option>
+                <option value="BE">BE</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-[#929aa5] mb-1">Risk per trade</label>
+              <input value={riskPerTrade} onChange={e => setRiskPerTrade(e.target.value)} type="number" step="0.01" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-[#929aa5] mb-1">RR / R multiple</label>
+              <input value={rr} onChange={e => setRr(e.target.value)} type="number" step="0.01" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div>
+              <label className="block text-xs text-[#929aa5] mb-1">Side</label>
+              <select value={side} onChange={(e: any) => setSide(e.target.value)} className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white">
+                <option value="BUY">BUY</option>
+                <option value="SELL">SELL</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-[#929aa5] mb-1">Entry price</label>
+              <input value={entryPrice} onChange={e => setEntryPrice(e.target.value)} type="number" step="0.00001" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-[#929aa5] mb-1">Exit price</label>
+              <input value={exitPrice} onChange={e => setExitPrice(e.target.value)} type="number" step="0.00001" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-[#929aa5] mb-1">Lot optional</label>
+              <input value={lot} onChange={e => setLot(e.target.value)} type="number" step="0.01" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+            </div>
+            <div>
+              <label className="block text-xs text-[#929aa5] mb-1">Profit/Loss optional</label>
+              <input value={profit} onChange={e => setProfit(e.target.value)} type="number" step="0.01" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+            </div>
+          </div>
+        )}
+
         <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">
-            Quick Logger
-          </h1>
-          <p className="text-sm text-gray-400 mt-2">
-            Logging cepat trade manual sambil Bar Replay di TradingView
-          </p>
-        </div>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setMode('simple')}
-            className={`px-4 py-2 rounded-lg font-semibold text-sm transition ${
-              mode === 'simple'
-                ? 'bg-accentCyan/20 text-accentCyan border border-accentCyan/40'
-                : 'bg-gray-800/40 text-gray-400 hover:bg-gray-800'
-            }`}
-          >
-            Mode Cepat
-          </button>
-          <button
-            onClick={() => setMode('advanced')}
-            className={`px-4 py-2 rounded-lg font-semibold text-sm transition ${
-              mode === 'advanced'
-                ? 'bg-accentCyan/20 text-accentCyan border border-accentCyan/40'
-                : 'bg-gray-800/40 text-gray-400 hover:bg-gray-800'
-            }`}
-          >
-            Mode Detail
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Panel: Entry/Exit Buttons */}
-        <div className="lg:col-span-1 space-y-4">
-          <div className="glass-card rounded-xl border border-gray-800 p-6">
-            <h3 className="font-bold text-white mb-4">Entry</h3>
-            <div className="space-y-3">
-              <button
-                onClick={handleEntryLong}
-                disabled={isTradeActive}
-                className="w-full bg-accentEmerald/20 hover:bg-accentEmerald/30 disabled:opacity-50 text-accentEmerald font-bold py-3 rounded-lg flex items-center justify-center space-x-2 transition"
-              >
-                <LogIn className="w-5 h-5" />
-                <span>Entry Long</span>
-              </button>
-              <button
-                onClick={handleEntryShort}
-                disabled={isTradeActive}
-                className="w-full bg-lossRed/20 hover:bg-lossRed/30 disabled:opacity-50 text-lossRed font-bold py-3 rounded-lg flex items-center justify-center space-x-2 transition"
-              >
-                <LogIn className="w-5 h-5" />
-                <span>Entry Short</span>
-              </button>
-            </div>
-
-            <div className="mt-6 pt-6 border-t border-gray-800">
-              <h3 className="font-bold text-white mb-4">Exit</h3>
-              <div className="space-y-3">
-                <button
-                  onClick={handleExitWin}
-                  disabled={!isTradeActive}
-                  className="w-full bg-accentEmerald/20 hover:bg-accentEmerald/30 disabled:opacity-50 text-accentEmerald font-bold py-3 rounded-lg flex items-center justify-center space-x-2 transition"
-                >
-                  <TrendingUp className="w-5 h-5" />
-                  <span>Exit Win</span>
-                </button>
-                <button
-                  onClick={handleExitLoss}
-                  disabled={!isTradeActive}
-                  className="w-full bg-lossRed/20 hover:bg-lossRed/30 disabled:opacity-50 text-lossRed font-bold py-3 rounded-lg flex items-center justify-center space-x-2 transition"
-                >
-                  <TrendingDown className="w-5 h-5" />
-                  <span>Exit Loss</span>
-                </button>
-                <button
-                  onClick={handleExitBE}
-                  disabled={!isTradeActive}
-                  className="w-full bg-gray-700/40 hover:bg-gray-700/60 disabled:opacity-50 text-gray-300 font-bold py-3 rounded-lg transition"
-                >
-                  <span>Exit BE</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-6 pt-6 border-t border-gray-800 space-y-3">
-              <button
-                onClick={handleUndo}
-                className="w-full bg-gray-800/40 hover:bg-gray-800 text-gray-300 font-semibold py-2 rounded-lg transition"
-              >
-                Undo
-              </button>
-              <button
-                onClick={handleReset}
-                className="w-full bg-lossRed/10 hover:bg-lossRed/20 text-lossRed font-semibold py-2 rounded-lg flex items-center justify-center space-x-2 transition"
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span>Reset Session</span>
-              </button>
-            </div>
-          </div>
+          <label className="block text-xs text-[#929aa5] mb-1">Notes</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
         </div>
 
-        {/* Center Panel: Trade Form */}
-        <div className="lg:col-span-1">
-          <div className="glass-card rounded-xl border border-gray-800 p-6 space-y-4">
-            <h3 className="font-bold text-white">Form Entry</h3>
-
-            {mode === 'simple' ? (
-              <div className="space-y-3 text-sm">
-                <p className="text-gray-400 italic">Mode cepat: Tinggal pilih RR default lalu klik WIN/LOSS/BE</p>
-                {/* Simple mode implementation later */}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1">Entry Price</label>
-                  <input
-                    type="number"
-                    value={entryPrice}
-                    onChange={(e) => setEntryPrice(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full bg-gray-800/40 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-accentCyan"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1">Exit Price</label>
-                  <input
-                    type="number"
-                    value={exitPrice}
-                    onChange={(e) => setExitPrice(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full bg-gray-800/40 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-accentCyan"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-400 mb-1">SL</label>
-                    <input
-                      type="number"
-                      value={slPrice}
-                      onChange={(e) => setSlPrice(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full bg-gray-800/40 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-accentCyan"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-400 mb-1">TP</label>
-                    <input
-                      type="number"
-                      value={tpPrice}
-                      onChange={(e) => setTpPrice(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full bg-gray-800/40 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-accentCyan"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-400 mb-1">Risk USD</label>
-                    <input
-                      type="number"
-                      value={riskUsd}
-                      onChange={(e) => setRiskUsd(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full bg-gray-800/40 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-accentCyan"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-400 mb-1">Risk %</label>
-                    <input
-                      type="number"
-                      value={riskPct}
-                      onChange={(e) => setRiskPct(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full bg-gray-800/40 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-accentCyan"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1">Setup Tag</label>
-                  <input
-                    type="text"
-                    value={setupTag}
-                    onChange={(e) => setSetupTag(e.target.value)}
-                    placeholder="SNR, Fibo, Breakout, ..."
-                    className="w-full bg-gray-800/40 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-accentCyan"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1">Notes</label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Catatan singkat tentang trade ini"
-                    rows={3}
-                    className="w-full bg-gray-800/40 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-accentCyan resize-none"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Panel: Session Stats & Recent Trades */}
-        <div className="lg:col-span-1 space-y-4">
-          {/* Session Stats */}
-          <div className="glass-card rounded-xl border border-gray-800 p-6">
-            <h3 className="font-bold text-white mb-4">Session Stats</h3>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-400">Total Trades:</span>
-                <span className="text-white font-semibold">{activeSessionDetails?.trades.length || 0}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Win:</span>
-                <span className="text-accentEmerald font-semibold">
-                  {activeSessionDetails?.trades.filter((t) => t.result === 'WIN').length || 0}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Loss:</span>
-                <span className="text-lossRed font-semibold">
-                  {activeSessionDetails?.trades.filter((t) => t.result === 'LOSS').length || 0}
-                </span>
-              </div>
-              <div className="flex justify-between border-t border-gray-800 pt-3 mt-3">
-                <span className="text-gray-400">Net PnL:</span>
-                <span
-                  className={`font-bold ${
-                    (activeSessionDetails?.metrics.netPnlUsd || 0) >= 0
-                      ? 'text-accentEmerald'
-                      : 'text-lossRed'
-                  }`}
-                >
-                  {formatUsd(activeSessionDetails?.metrics.netPnlUsd || 0)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Winrate:</span>
-                <span className="text-white font-semibold">
-                  {((activeSessionDetails?.metrics.winrate || 0) * 100).toFixed(1)}%
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Recent Trades */}
-          <div className="glass-card rounded-xl border border-gray-800 p-6">
-            <h3 className="font-bold text-white mb-4">Recent Trades</h3>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {(activeSessionDetails?.trades || []).slice(-5).reverse().map((trade) => (
-                <div
-                  key={trade.id}
-                  className={`p-3 rounded-lg text-xs border ${
-                    trade.result === 'WIN'
-                      ? 'bg-accentEmerald/5 border-accentEmerald/20'
-                      : trade.result === 'LOSS'
-                      ? 'bg-lossRed/5 border-lossRed/20'
-                      : 'bg-gray-800/20 border-gray-700/30'
-                  }`}
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold text-white">
-                      {trade.side} #{trade.tradeNumber}
-                    </span>
-                    <span
-                      className={
-                        trade.result === 'WIN'
-                          ? 'text-accentEmerald font-bold'
-                          : trade.result === 'LOSS'
-                          ? 'text-lossRed font-bold'
-                          : 'text-gray-400 font-bold'
-                      }
-                    >
-                      {formatUsd(trade.netPnlUsd || 0)}
-                    </span>
-                  </div>
-                  {trade.rMultiple && <div className="text-gray-500 mt-1">{formatR(trade.rMultiple)}</div>}
-                </div>
-              ))}
-              {(!activeSessionDetails?.trades || activeSessionDetails.trades.length === 0) && (
-                <p className="text-gray-600 italic text-center py-4">Belum ada trade</p>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+        <button disabled={saving} className="px-5 py-2.5 bg-[#fcd535] hover:bg-[#f0b90b] disabled:opacity-50 text-black rounded-lg text-sm font-bold flex items-center gap-2">
+          {saving && <RefreshCw className="w-4 h-4 animate-spin" />}
+          Save Quick Log
+        </button>
+      </form>
     </div>
   );
 }

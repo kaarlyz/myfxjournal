@@ -1,7 +1,7 @@
 export interface BacktestSession {
   id: string;
   name: string;
-  sourceMode: 'CSV' | 'WEBHOOK' | 'MANUAL';
+  sourceMode: 'CSV' | 'WEBHOOK' | 'MANUAL' | 'MT5_REPORT';
   symbol: string;
   marketType: 'Forex' | 'Gold' | 'Crypto' | 'Index' | 'Custom';
   timeframe: string;
@@ -18,7 +18,7 @@ export interface BacktestSession {
 export interface Trade {
   id: string;
   sessionId: string;
-  source: 'CSV' | 'WEBHOOK' | 'MANUAL';
+  source: 'CSV' | 'WEBHOOK' | 'MANUAL' | 'MT5_REPORT';
   tradeNumber?: number | null;
   tradeId?: string | null;
   symbol: string;

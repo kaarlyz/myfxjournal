@@ -1,3 +1,6 @@
+import { format, formatDistanceToNow, parseISO } from 'date-fns';
+import { formatNumber as safeFormatNumber } from './numberUtils';
+
 export function formatUsd(val: number | null | undefined): string {
   if (val === undefined || val === null) return '$0.00';
   const formatter = new Intl.NumberFormat('en-US', {
@@ -29,14 +32,14 @@ export function formatPercent(val: number | null | undefined): string {
   if (val === undefined || val === null) return '0.00%';
   const isNegative = val < 0;
   const absVal = Math.abs(val);
-  return `${isNegative ? '-' : ''}${absVal.toFixed(2)}%`;
+  return `${isNegative ? '-' : ''}${safeFormatNumber(absVal, 2)}%`;
 }
 
 export function formatR(val: number | null | undefined): string {
-  if (val === undefined || val === null) return '-';
+  if (val === undefined || val === null) return '0.00R';
   const isNegative = val < 0;
   const absVal = Math.abs(val);
-  return `${isNegative ? '-' : ''}${absVal.toFixed(2)}R`;
+  return `${isNegative ? '-' : ''}${safeFormatNumber(absVal, 2)}R`;
 }
 
 export function formatDate(dateStr: string | null | undefined): string {

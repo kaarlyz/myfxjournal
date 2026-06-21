@@ -29,7 +29,8 @@ router.get('/summary', async (req: Request, res: Response) => {
     const whereClause = accountId ? { tradingAccountId: String(accountId) } : {};
     
     const trades = await prisma.liveTrade.findMany({
-      where: whereClause
+      where: whereClause,
+      orderBy: { openTime: 'asc' }
     });
     
     const closedTrades = trades.filter(t => t.closeTime !== null);
@@ -49,18 +50,98 @@ router.get('/summary', async (req: Request, res: Response) => {
     
     const averageWin = winningTrades > 0 ? grossProfit / winningTrades : 0;
     const averageLoss = losingTrades > 0 ? grossLoss / losingTrades : 0;
+    const bestTrade = closedTrades.reduce((best, t) => Math.max(best, t.profit || 0), 0);
+    const worstTrade = closedTrades.reduce((worst, t) => Math.min(worst, t.profit || 0), 0);
+    const totalLots = trades.reduce((sum, t) => sum + (t.lot || 0), 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayPnl = closedTrades
+      .filter(t => new Date(t.closeTime || t.openTime) >= today)
+      .reduce((sum, t) => sum + (t.profit || 0), 0);
     
-    // Quick account balance update calculation
+    // Fetch account info for true balance/equity
     let currentBalance = 0;
+    let currentEquity = null;
+    let freeMargin = null;
+    let accountName = '';
+    let account: any = null;
+    
     if (accountId) {
-      const account = await prisma.tradingAccount.findUnique({ where: { id: String(accountId) } });
+      account = await prisma.tradingAccount.findUnique({ where: { id: String(accountId) } });
       if (account) {
-        currentBalance = account.initialBalance + netPnl;
-        // Optionally update it in DB, but better done on trade save
+        currentBalance = account.currentBalance;
+        currentEquity = account.currentEquity;
+        freeMargin = account.freeMargin;
+        accountName = account.name;
       }
     }
 
+    const dailyMap = new Map<string, number>();
+    closedTrades.forEach(t => {
+      const key = new Date(t.closeTime || t.openTime).toISOString().slice(0, 10);
+      dailyMap.set(key, (dailyMap.get(key) || 0) + (t.profit || 0));
+    });
+    const dailyPnl = Array.from(dailyMap.entries()).map(([date, pnl]) => ({ date, pnl }));
+
+    let cumulative = 0;
+    const equityCurve = closedTrades.map(t => {
+      cumulative += t.profit || 0;
+      return {
+        time: t.closeTime || t.openTime,
+        equity: (account?.currentBalance ?? currentBalance ?? 0) + cumulative,
+        balance: (account?.currentBalance ?? currentBalance ?? 0) + cumulative,
+        pnl: cumulative,
+      };
+    });
+
+    const symbolPerformance = Object.values(trades.reduce((acc: any, t: any) => {
+      const key = t.symbol || 'UNKNOWN';
+      if (!acc[key]) acc[key] = { symbol: key, trades: 0, pnl: 0, lots: 0 };
+      acc[key].trades += 1;
+      acc[key].pnl += t.profit || 0;
+      acc[key].lots += t.lot || 0;
+      return acc;
+    }, {}));
+
+    const sidePerformance = ['BUY', 'SELL'].map(side => {
+      const sideTrades = trades.filter(t => t.side === side);
+      return {
+        side,
+        trades: sideTrades.length,
+        pnl: sideTrades.reduce((sum, t) => sum + (t.profit || 0), 0),
+        lots: sideTrades.reduce((sum, t) => sum + (t.lot || 0), 0),
+      };
+    });
+
+    const nestedSummary = {
+      balance: currentBalance,
+      equity: currentEquity ?? currentBalance,
+      freeMargin: freeMargin ?? 0,
+      floatingPnl: (currentEquity ?? currentBalance) - currentBalance,
+      netPnl,
+      todayPnl,
+      openTrades: trades.filter(t => t.closeTime === null).length,
+      closedTrades: totalTrades,
+      winrate,
+      profitFactor,
+      averageWin,
+      averageLoss,
+      bestTrade,
+      worstTrade,
+      maxDrawdown: 0,
+      totalLots,
+    };
+
     return res.json({
+      account,
+      summary: nestedSummary,
+      charts: {
+        equityCurve,
+        dailyPnl,
+        symbolPerformance,
+        sidePerformance,
+        pnlDistribution: closedTrades.map(t => ({ id: t.id, pnl: t.profit || 0 })),
+      },
       totalTrades,
       winningTrades,
       losingTrades,
@@ -72,7 +153,14 @@ router.get('/summary', async (req: Request, res: Response) => {
       profitFactor,
       averageWin,
       averageLoss,
-      currentBalance
+      bestTrade,
+      worstTrade,
+      totalLots,
+      todayPnl,
+      currentBalance,
+      currentEquity,
+      freeMargin,
+      accountName
     });
   } catch (error: any) {
     console.error('Error fetching live trades summary:', error);
@@ -119,17 +207,7 @@ router.post('/', async (req: Request, res: Response) => {
       }
     });
 
-    // Update account balance
-    if (trade.profit !== null) {
-      await prisma.tradingAccount.update({
-        where: { id: trade.tradingAccountId },
-        data: {
-          currentBalance: {
-            increment: trade.profit
-          }
-        }
-      });
-    }
+    // Removed: Account balance must only be updated from account-snapshot
 
     return res.json(trade);
   } catch (error: any) {
@@ -143,18 +221,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
-    // Check if trade had profit to reverse balance
-    const trade = await prisma.liveTrade.findUnique({ where: { id }});
-    if (trade && trade.profit !== null) {
-      await prisma.tradingAccount.update({
-        where: { id: trade.tradingAccountId },
-        data: {
-          currentBalance: {
-            decrement: trade.profit
-          }
-        }
-      });
-    }
+    // Removed: Account balance must only be updated from account-snapshot
 
     await prisma.liveTrade.delete({
       where: { id }

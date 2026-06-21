@@ -1,6 +1,11 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../prisma';
 import { getSettings } from './settings';
+import { EventEmitter } from 'events';
+import { logIntegration } from '../utils/logger';
+
+// Global Event Emitter for SSE
+export const mt5Events = new EventEmitter();
 
 const router = Router();
 
@@ -101,21 +106,59 @@ router.post('/trade-event', rateLimiter, authMiddleware, async (req: Request, re
       }
     });
 
-    // 3. Find or Create TradingAccount
-    let account = await prisma.tradingAccount.findFirst({
-      where: { accountNumber: String(accountNumber), broker: String(broker) }
-    });
+    // 3. Robust Account Matching & Auto-Create
+    const accNumStr = String(accountNumber);
+    const brokerServerStr = payload.brokerServer || broker;
+
+    let account = null;
+
+    // a. Try accountNumber + brokerServer
+    if (payload.brokerServer) {
+      account = await prisma.tradingAccount.findFirst({
+        where: { accountNumber: accNumStr, brokerServer: String(payload.brokerServer) }
+      });
+    }
+
+    // b. Try accountNumber + broker
+    if (!account) {
+      account = await prisma.tradingAccount.findFirst({
+        where: { accountNumber: accNumStr, broker: String(broker) }
+      });
+    }
+
+    // c. Try accountNumber only (if only 1 exists)
+    if (!account) {
+      const accountsByNumber = await prisma.tradingAccount.findMany({
+        where: { accountNumber: accNumStr }
+      });
+      if (accountsByNumber.length === 1) {
+        account = accountsByNumber[0];
+      } else if (accountsByNumber.length > 1) {
+        // Do not guess. Return warning.
+        return res.json({ 
+          ok: true, 
+          warning: "Multiple accounts matched accountNumber. Trade event saved but not linked.",
+          eventId: event.id 
+        });
+      }
+    }
 
     if (!account) {
+      // Auto-create
       account = await prisma.tradingAccount.create({
         data: {
-          name: `MT5 Account ${String(accountNumber).slice(-4)}`, // Mask account number in name
+          name: `Auto MT5 ${accNumStr.slice(-4)}`,
           broker: String(broker),
-          accountNumber: String(accountNumber),
+          brokerServer: payload.brokerServer ? String(payload.brokerServer) : null,
+          accountNumber: accNumStr,
           accountType: 'REAL',
+          platform: 'MT5',
           currency: 'USD',
           initialBalance: 0,
-          currentBalance: 0
+          currentBalance: 0,
+          source: 'MT5_AUTO',
+          autoCreated: true,
+          status: 'Active'
         }
       });
     }
@@ -125,7 +168,36 @@ router.post('/trade-event', rateLimiter, authMiddleware, async (req: Request, re
       where: { positionId: String(positionId) }
     });
 
-    const parsedTime = new Date(time * 1000); // Assuming EA sends unix timestamp
+    // Time parsing logic
+    let parsedTime = new Date(); // default to receivedAt
+    let rawMt5Time: number | null = null;
+    
+    // Parse raw time
+    if (time !== undefined) {
+      if (typeof time === 'number') {
+        if (time < 1000000000000) {
+          rawMt5Time = time;
+        } else {
+          rawMt5Time = Math.floor(time / 1000);
+        }
+      }
+    }
+
+    // Determine Display Time (openTime / closeTime)
+    // Priority: terminalLocalTime -> receivedAt (default new Date()) -> raw time
+    if (payload.terminalLocalTime) {
+      const tLocal = payload.terminalLocalTime;
+      if (tLocal < 1000000000000) parsedTime = new Date(tLocal * 1000);
+      else parsedTime = new Date(tLocal);
+    } else {
+      // If no terminalLocalTime, rely on receivedAt (which is `new Date()` right now)
+      // Exception: If we are backfilling old history, maybe we shouldn't use receivedAt.
+      // We can guess it's history if receivedAt is drastically different from rawMt5Time, but for now we default to receivedAt for Live events.
+      // If we want to be safe, if rawMt5Time is more than 1 hour old, use rawMt5Time.
+      if (rawMt5Time && (Math.floor(Date.now()/1000) - rawMt5Time > 3600)) {
+        parsedTime = new Date(rawMt5Time * 1000);
+      }
+    }
 
     if (eventType === 'OPEN') {
       if (!liveTrade) {
@@ -141,6 +213,7 @@ router.post('/trade-event', rateLimiter, authMiddleware, async (req: Request, re
             stopLoss: sl ? parseFloat(sl) : null,
             takeProfit: tp ? parseFloat(tp) : null,
             openTime: parsedTime,
+            rawMt5Time: rawMt5Time,
             status: 'OPEN',
             commission: commission ? parseFloat(commission) : 0,
             swap: swap ? parseFloat(swap) : 0,
@@ -183,6 +256,9 @@ router.post('/trade-event', rateLimiter, authMiddleware, async (req: Request, re
       data: { processed: true }
     });
 
+    // Emit event for SSE
+    mt5Events.emit('trade-update', { type: 'TRADE_EVENT', eventType, accountId: account.id });
+
     return res.json({ ok: true, message: 'MT5 event received', eventId: event.id, tradeId: liveTrade?.id });
   } catch (error: any) {
     next(error);
@@ -195,6 +271,7 @@ router.post('/account-snapshot', rateLimiter, authMiddleware, async (req: Reques
     const payload = req.body;
     
     if (!payload.accountNumber || !payload.broker || payload.balance === undefined) {
+      await logIntegration('MT5', 'ACCOUNT_SNAPSHOT', 'ERROR', 'Invalid snapshot payload', payload);
       return res.status(400).json({ ok: false, error: 'Invalid payload', details: 'Missing accountNumber, broker, or balance' });
     }
 
@@ -209,21 +286,85 @@ router.post('/account-snapshot', rateLimiter, authMiddleware, async (req: Reques
       }
     });
 
-    let account = await prisma.tradingAccount.findFirst({
-      where: { accountNumber: String(accountNumber), broker: String(broker) }
-    });
+    // Robust matching for snapshot
+    const accNumStr = String(accountNumber);
+    let account = null;
+    let matchStrategy = 'None';
 
-    if (account) {
-      await prisma.tradingAccount.update({
-        where: { id: account.id },
-        data: {
-          currentBalance: parseFloat(balance)
-        }
+    if (payload.brokerServer) {
+      account = await prisma.tradingAccount.findFirst({
+        where: { accountNumber: accNumStr, brokerServer: String(payload.brokerServer) }
       });
+      if (account) matchStrategy = 'accountNumber + brokerServer';
+    }
+    
+    if (!account) {
+      account = await prisma.tradingAccount.findFirst({
+        where: { accountNumber: accNumStr, broker: String(broker) }
+      });
+      if (account) matchStrategy = 'accountNumber + broker';
+    }
+    
+    if (!account) {
+      const accountsByNumber = await prisma.tradingAccount.findMany({
+        where: { accountNumber: accNumStr }
+      });
+      if (accountsByNumber.length === 1) {
+        account = accountsByNumber[0];
+        matchStrategy = 'accountNumber only';
+      }
     }
 
-    return res.json({ ok: true, message: 'Snapshot received' });
+    if (!account) {
+      await logIntegration('MT5', 'ACCOUNT_SNAPSHOT', 'WARNING', `No matching account found for snapshot: ${accNumStr}`, payload);
+      return res.status(404).json({ ok: false, error: 'No matching account found' });
+    }
+
+    // Only update initialBalance if it's currently 0
+    const newInitialBalance = account.initialBalance === 0 ? parseFloat(balance) : account.initialBalance;
+
+    const beforeState = { balance: account.currentBalance, equity: account.currentEquity, freeMargin: account.freeMargin };
+
+    try {
+      const updatedAccount = await prisma.tradingAccount.update({
+        where: { id: account.id },
+        data: {
+          currentBalance: parseFloat(balance),
+          currentEquity: equity !== undefined ? parseFloat(equity) : parseFloat(balance),
+          freeMargin: freeMargin !== undefined ? parseFloat(freeMargin) : account.freeMargin,
+          initialBalance: newInitialBalance,
+          lastSnapshotAt: new Date(),
+          brokerServer: payload.brokerServer ? String(payload.brokerServer) : account.brokerServer
+        }
+      });
+      
+      const afterState = { balance: updatedAccount.currentBalance, equity: updatedAccount.currentEquity, freeMargin: updatedAccount.freeMargin };
+
+      await logIntegration('MT5', 'ACCOUNT_SNAPSHOT', 'SUCCESS', `Snapshot updated for ${accNumStr}`, {
+        accountId: account.id,
+        matchStrategy,
+        before: beforeState,
+        after: afterState
+      });
+
+      // Emit event for SSE
+      mt5Events.emit('account-snapshot', { 
+        type: 'ACCOUNT_SNAPSHOT', 
+        accountId: account.id,
+        accountNumber: account.accountNumber,
+        currentBalance: parseFloat(balance),
+        currentEquity: equity !== undefined ? parseFloat(equity) : parseFloat(balance),
+        freeMargin: freeMargin !== undefined ? parseFloat(freeMargin) : account.freeMargin,
+        lastSnapshotAt: new Date()
+      });
+
+      return res.json({ ok: true, message: 'Snapshot received and updated' });
+    } catch (updateError: any) {
+      await logIntegration('MT5', 'ACCOUNT_SNAPSHOT', 'ERROR', `Prisma update failed for ${accNumStr}`, { error: updateError.message });
+      return res.status(500).json({ ok: false, error: 'Database update failed', details: updateError.message });
+    }
   } catch (error: any) {
+    await logIntegration('MT5', 'ACCOUNT_SNAPSHOT', 'ERROR', 'Unexpected server error', { error: error.message });
     next(error);
   }
 });

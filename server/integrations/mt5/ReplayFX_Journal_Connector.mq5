@@ -8,10 +8,10 @@
 #property version   "1.00"
 
 //--- Input parameters
-input string   BackendURL = "https://your-backend-url.com"; // Backend API URL (do not add /api/...)
-input string   SecretToken = "your_secret_token_here";      // Webhook Secret Token
+input string   BackendURL = "http://127.0.0.1:5000"; // Backend API URL (do not add /api/...)
+input string   SecretToken = "replayfx_secret_token_123";      // Webhook Secret Token
 input string   AccountIdOverride = "";                      // Optional: Override Account ID (leaves blank to use AccountNumber)
-input bool     SyncHistoryOnStart = true;                   // Sync recent history on EA start
+input bool     SyncHistoryOnStart = false;                  // Sync recent history on EA start
 input int      HistoryLookbackDays = 7;                     // Days to look back for history sync
 input bool     SendAccountSnapshot = true;                  // Periodically send account snapshot
 input int      SnapshotIntervalSeconds = 300;               // Interval in seconds to send snapshot (default 5 min)
@@ -37,11 +37,15 @@ string EscapeJSON(string inputStr) {
 //| Helper: Send POST Request
 //+------------------------------------------------------------------+
 bool SendWebhook(string url, string payload) {
-    char postData[];
-    char result[];
-    string resultHeaders;
+    Print("ReplayFX JSON payload: ", payload);
+
+    uchar postData[];
+    int len = StringLen(payload);
+    ArrayResize(postData, len);
+    StringToCharArray(payload, postData, 0, len, CP_UTF8);
     
-    int dataLen = StringToCharArray(payload, postData, 0, WHOLE_ARRAY, CP_UTF8) - 1;
+    uchar result[];
+    string resultHeaders = "";
     
     string headers = "Content-Type: application/json\r\n";
     headers += "Authorization: Bearer " + SecretToken + "\r\n";
@@ -51,13 +55,16 @@ bool SendWebhook(string url, string payload) {
     
     if(res == -1) {
         Print("WebRequest failed. Error code: ", GetLastError(), ". Make sure URL is added to WebRequest allowed list in Tools -> Options -> Expert Advisors");
+        Print("URL: ", url, " | Payload Len: ", len);
         return false;
     } else if(res >= 200 && res < 300) {
-        // Success
+        string resText = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+        Print("Webhook Success HTTP ", res, " | URL: ", url, " | Payload Len: ", len);
         return true;
     } else {
         string resText = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
-        Print("Webhook returned HTTP ", res, ". Response: ", resText);
+        Print("Webhook returned HTTP ", res, " | URL: ", url, " | Payload Len: ", len);
+        Print("Response body: ", resText);
         return false;
     }
 }
@@ -68,10 +75,12 @@ bool SendWebhook(string url, string payload) {
 void SendTradeEvent(ulong dealId, ulong positionId, string eventType, string symbol, string side, double lot, double price, datetime time, double sl, double tp, double commission, double swap, double profit, string comment, ulong magic) {
     string accNum = AccountIdOverride != "" ? AccountIdOverride : IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
     string broker = AccountInfoString(ACCOUNT_COMPANY);
-    
+    string brokerServer = AccountInfoString(ACCOUNT_SERVER);
+
     string json = "{";
     json += "\"accountNumber\":\"" + EscapeJSON(accNum) + "\",";
     json += "\"broker\":\"" + EscapeJSON(broker) + "\",";
+    json += "\"brokerServer\":\"" + EscapeJSON(brokerServer) + "\",";
     json += "\"symbol\":\"" + EscapeJSON(symbol) + "\",";
     json += "\"dealId\":\"" + IntegerToString(dealId) + "\",";
     json += "\"positionId\":\"" + IntegerToString(positionId) + "\",";
@@ -86,7 +95,9 @@ void SendTradeEvent(ulong dealId, ulong positionId, string eventType, string sym
     json += "\"profit\":" + DoubleToString(profit, 2) + ",";
     json += "\"comment\":\"" + EscapeJSON(comment) + "\",";
     json += "\"magicNumber\":\"" + IntegerToString(magic) + "\",";
-    json += "\"time\":" + IntegerToString((int)time);
+    json += "\"time\":" + IntegerToString((int)time) + ",";
+    json += "\"terminalLocalTime\":" + IntegerToString((int)TimeLocal()) + ",";
+    json += "\"tradeServerTime\":" + IntegerToString((int)TimeTradeServer());
     json += "}";
     
     if(SendWebhook(g_tradeUrl, json)) {

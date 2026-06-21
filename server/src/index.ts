@@ -11,6 +11,15 @@ import webhookRouter from './routes/webhook';
 import accountsRouter from './routes/accounts';
 import liveTradesRouter from './routes/live-trades';
 import mt5IntegrationRouter from './routes/mt5-integration';
+import integrationSettingsRouter from './routes/integration-settings';
+import eventsRouter from './routes/events';
+import telegramRouter from './routes/telegram';
+import whatsappRouter from './routes/whatsapp';
+import integrationLogsRouter from './routes/integration-logs';
+import tradingViewRouter from './routes/tradingview';
+import journalNotesRouter from './routes/journal-notes';
+import mt5ReportsRouter from './routes/mt5-reports';
+import { logIntegration } from './utils/logger';
 
 // Load environment variables
 dotenv.config();
@@ -22,8 +31,8 @@ const PORT = process.env.PORT || 5000;
 app.use(cors({
   origin: '*', // For local/personal development, accept all origins
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Serve static assets if uploads are used
 app.use('/uploads', express.static('uploads'));
@@ -41,10 +50,24 @@ app.use('/api/webhook', webhookRouter);
 app.use('/api/accounts', accountsRouter);
 app.use('/api/live-trades', liveTradesRouter);
 app.use('/api/integrations/mt5', mt5IntegrationRouter);
+app.use('/api/integrations/settings', integrationSettingsRouter);
+app.use('/api/integrations/telegram', telegramRouter);
+app.use('/api/integrations/whatsapp', whatsappRouter);
+app.use('/api/integrations/logs', integrationLogsRouter);
+app.use('/api/integrations/tradingview', tradingViewRouter);
+app.use('/api/journal-notes', journalNotesRouter);
+app.use('/api/events', eventsRouter);
+app.use('/api/mt5-reports', mt5ReportsRouter);
 
 // Handle 404 for API routes
 app.use('/api', (req: Request, res: Response) => {
-  res.status(404).json({ ok: false, error: 'API route not found' });
+  logIntegration('SYSTEM', 'API_NOT_FOUND', 'WARNING', `Route not found: ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ 
+    ok: false, 
+    error: 'API route not found',
+    path: req.originalUrl,
+    method: req.method
+  });
 });
 
 // Global Error Handler

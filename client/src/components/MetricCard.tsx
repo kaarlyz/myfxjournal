@@ -16,48 +16,54 @@ export default function MetricCard({
   value,
   subtitle,
   icon: Icon,
-  valueColorClass = 'text-white',
+  valueColorClass,
   tooltip,
   glow = false,
 }: MetricCardProps) {
-  return (
-    <div 
-      className={`metric-card rounded-xl p-4 relative overflow-hidden ${
-        glow ? 'border-accentCyan/30 cyan-glow' : ''
-      }`}
-      title={tooltip}
-    >
-      {/* Top shimmer line for glow cards */}
-      {glow && (
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-accentCyan/40 to-transparent" />
-      )}
+  // Map legacy tailwind color classes to inline styles
+  const valueColor = (() => {
+    if (!valueColorClass) return '#eaecef';
+    if (valueColorClass.includes('winGreen') || valueColorClass.includes('emerald') || valueColorClass.includes('green'))
+      return '#0ecb81';
+    if (valueColorClass.includes('lossRed') || valueColorClass.includes('red') || valueColorClass.includes('rose'))
+      return '#f6465d';
+    if (valueColorClass.includes('yellow') || valueColorClass.includes('primary') || valueColorClass.includes('accentBlue'))
+      return '#fcd535';
+    if (valueColorClass.includes('cyan'))
+      return '#0ecb81';
+    if (valueColorClass.includes('white'))
+      return '#ffffff';
+    return '#eaecef';
+  })();
 
-      {/* Decorative background orb */}
-      <div className={`absolute -top-8 -right-8 w-20 h-20 rounded-full pointer-events-none blur-2xl ${
-        glow ? 'bg-accentCyan/10' : 'bg-white/[0.02]'
-      }`} />
-      
+  return (
+    <div
+      className="metric-card"
+      title={tooltip}
+      style={glow ? { borderColor: 'rgba(252,213,53,0.2)' } : {}}
+    >
       <div className="flex justify-between items-start gap-2">
-        <div className="space-y-1.5 min-w-0">
-          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest leading-none">
+        <div className="space-y-1 min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: '#707a8a' }}>
             {title}
           </p>
-          <h3 className={`text-xl font-extrabold tracking-tight ticker-value leading-tight ${valueColorClass}`}>
+          <div className="text-xl font-bold ticker-value leading-tight" style={{ color: valueColor }}>
             {value}
-          </h3>
+          </div>
           {subtitle && (
-            <div className="text-[10px] text-gray-500 font-medium leading-tight">
+            <div className="text-[11px]" style={{ color: '#707a8a' }}>
               {subtitle}
             </div>
           )}
         </div>
-
         {Icon && (
-          <div className={`p-2 rounded-lg flex-shrink-0 ${
-            glow 
-              ? 'bg-accentCyan/15 text-accentCyan' 
-              : 'bg-gray-800/50 text-gray-500'
-          }`}>
+          <div
+            className="p-2 rounded-lg flex-shrink-0"
+            style={{
+              background: glow ? 'rgba(252,213,53,0.1)' : '#2b3139',
+              color: glow ? '#fcd535' : '#707a8a',
+            }}
+          >
             <Icon className="w-4 h-4" />
           </div>
         )}

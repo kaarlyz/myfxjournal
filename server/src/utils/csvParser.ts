@@ -59,6 +59,62 @@ export function cleanNumber(val: any): number {
   return isNaN(parsed) ? 0 : parsed;
 }
 
+function parseTradingViewDate(value: string): Date | null {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const direct = new Date(raw);
+  if (!isNaN(direct.getTime())) return direct;
+
+  const normalized = raw
+    .replace(/\s+(UTC|GMT)$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const patterns = [
+    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/,
+    /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/,
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/,
+    /^(\d{1,2})-(\d{1,2})-(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+
+    let year: number;
+    let month: number;
+    let day: number;
+    const hour = Number(match[4] || 0);
+    const minute = Number(match[5] || 0);
+    const second = Number(match[6] || 0);
+
+    if (match[1].length === 4) {
+      year = Number(match[1]);
+      month = Number(match[2]);
+      day = Number(match[3]);
+    } else {
+      const first = Number(match[1]);
+      const secondPart = Number(match[2]);
+      year = Number(match[3]);
+      // TradingView exports commonly use MM/DD/YYYY in English locale. If the first
+      // value is greater than 12, treat it as DD/MM/YYYY.
+      if (first > 12) {
+        day = first;
+        month = secondPart;
+      } else {
+        month = first;
+        day = secondPart;
+      }
+    }
+
+    const parsed = new Date(year, month - 1, day, hour, minute, second);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+
+  return null;
+}
+
 /**
  * Flexible column finder. Tries multiple candidate names in order and returns the first match.
  * For monetary columns (Price, PnL, Excursion, etc.) the CSV may have any currency suffix:
@@ -219,10 +275,10 @@ export function parseTradingViewCsv(csvText: string): {
     const cumPnlPctVal = findFlexible(exitRow, 'Cumulative PnL %') || findFlexible(entryRow, 'Cumulative PnL %');
 
     // Parse time values
-    const entryTime = new Date(entryTimeStr);
-    const exitTime = new Date(exitTimeStr);
+    const entryTime = parseTradingViewDate(entryTimeStr);
+    const exitTime = parseTradingViewDate(exitTimeStr);
 
-    if (isNaN(entryTime.getTime())) {
+    if (!entryTime || isNaN(entryTime.getTime())) {
       invalidTrades.push({
         tradeNumber,
         reason: `Format tanggal Entry tidak valid: "${entryTimeStr}"`,
@@ -230,7 +286,7 @@ export function parseTradingViewCsv(csvText: string): {
       });
       return;
     }
-    if (isNaN(exitTime.getTime())) {
+    if (!exitTime || isNaN(exitTime.getTime())) {
       invalidTrades.push({
         tradeNumber,
         reason: `Format tanggal Exit tidak valid: "${exitTimeStr}"`,

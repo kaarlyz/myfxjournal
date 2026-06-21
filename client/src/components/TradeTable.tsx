@@ -160,13 +160,13 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         {/* Search */}
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3.5 top-3 w-4.5 h-4.5 text-gray-500" />
+          <Search className="absolute left-3.5 top-3 w-4.5 h-4.5 text-[#707a8a]" />
           <input
             type="text"
             placeholder="Cari trade number, symbol, signal, setup, notes..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-gray-900/60 border border-gray-800 focus:border-accentCyan/50 outline-none rounded-lg py-2 pl-10 pr-4 text-sm text-gray-200 transition-all font-medium"
+            className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg py-2 pl-10 pr-4 text-sm text-gray-200 transition-all font-medium"
           />
         </div>
 
@@ -174,7 +174,7 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
         <div className="flex items-center space-x-2 self-end md:self-auto">
           <button
             onClick={exportToCSV}
-            className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
+            className="bg-[#2b3139] hover:bg-[#363e47] text-[#eaecef] px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
             title="Ekspor ke CSV"
           >
             <Download className="w-3.5 h-3.5" />
@@ -182,7 +182,7 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
           </button>
           <button
             onClick={exportToJSON}
-            className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
+            className="bg-[#2b3139] hover:bg-[#363e47] text-[#eaecef] px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
             title="Ekspor ke JSON"
           >
             <Download className="w-3.5 h-3.5" />
@@ -192,14 +192,14 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
       </div>
 
       {/* Grid Multi-Filter Section */}
-      <div className="glass-card rounded-xl p-4 border border-gray-800 grid grid-cols-2 md:grid-cols-6 gap-3">
+      <div className=" rounded-xl p-4 border border-[#2b3139] grid grid-cols-2 md:grid-cols-6 gap-3">
         {/* Source */}
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase">Sumber</label>
+          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Sumber</label>
           <select
             value={filterSource}
             onChange={(e) => setFilterSource(e.target.value)}
-            className="w-full bg-gray-950 border border-gray-800 outline-none rounded p-1.5 text-xs text-gray-300 font-medium"
+            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
           >
             <option value="ALL">Semua Sumber</option>
             <option value="CSV">CSV</option>
@@ -210,11 +210,11 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
 
         {/* Symbol */}
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase">Symbol</label>
+          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Symbol</label>
           <select
             value={filterSymbol}
             onChange={(e) => setFilterSymbol(e.target.value)}
-            className="w-full bg-gray-950 border border-gray-800 outline-none rounded p-1.5 text-xs text-gray-300 font-medium"
+            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
           >
             <option value="ALL">Semua Symbol</option>
             {uniqueSymbols.map((sym) => (
@@ -225,11 +225,11 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
 
         {/* Timeframe */}
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase">Timeframe</label>
+          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Timeframe</label>
           <select
             value={filterTimeframe}
             onChange={(e) => setFilterTimeframe(e.target.value)}
-            className="w-full bg-gray-950 border border-gray-800 outline-none rounded p-1.5 text-xs text-gray-300 font-medium"
+            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
           >
             <option value="ALL">Semua TF</option>
             {uniqueTimeframes.map((tf) => (
@@ -240,11 +240,11 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
 
         {/* Result */}
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase">Hasil</label>
+          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Hasil</label>
           <select
             value={filterResult}
             onChange={(e) => setFilterResult(e.target.value)}
-            className="w-full bg-gray-950 border border-gray-800 outline-none rounded p-1.5 text-xs text-gray-300 font-medium"
+            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
           >
             <option value="ALL">Semua Hasil</option>
             <option value="WIN">WIN</option>
@@ -255,11 +255,11 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
 
         {/* Side */}
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase">Sisi</label>
+          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Sisi</label>
           <select
             value={filterSide}
             onChange={(e) => setFilterSide(e.target.value)}
-            className="w-full bg-gray-950 border border-gray-800 outline-none rounded p-1.5 text-xs text-gray-300 font-medium"
+            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
           >
             <option value="ALL">Semua Arah</option>
             <option value="LONG">LONG (Beli)</option>
@@ -269,11 +269,11 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
 
         {/* Setup */}
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase">Setup Tag</label>
+          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Setup Tag</label>
           <select
             value={filterSetup}
             onChange={(e) => setFilterSetup(e.target.value)}
-            className="w-full bg-gray-950 border border-gray-800 outline-none rounded p-1.5 text-xs text-gray-300 font-medium"
+            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
           >
             <option value="ALL">Semua Setup</option>
             {uniqueSetups.map((s) => (
@@ -284,11 +284,11 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
       </div>
 
       {/* Trade Table Ledger */}
-      <div className="glass-card rounded-xl border border-gray-800 overflow-hidden">
+      <div className=" rounded-xl border border-[#2b3139] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-gray-900/40 border-b border-gray-800 text-gray-400 font-semibold select-none">
+              <tr className="bg-[#1e2329]/40 border-b border-[#2b3139] text-[#929aa5] font-semibold select-none">
                 <th 
                   onClick={() => toggleSort('number')}
                   className="py-3.5 px-4 cursor-pointer hover:text-white transition"
@@ -345,7 +345,7 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
             <tbody>
               {filteredAndSortedTrades.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-gray-500 font-medium">
+                  <td colSpan={11} className="py-12 text-center text-[#707a8a] font-medium">
                     Tidak ditemukan data trade yang cocok dengan kriteria pencarian/filter.
                   </td>
                 </tr>
@@ -358,15 +358,15 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
                   return (
                     <tr 
                       key={t.id} 
-                      className={`border-b border-gray-800/80 hover:bg-gray-800/25 transition cursor-pointer ${
+                      className={`border-b border-[#2b3139] hover:bg-[#2b3139]/25 transition cursor-pointer ${
                         t.status === 'OPEN' ? 'bg-accentCyan/5 border-l-2 border-l-accentCyan' : ''
                       }`}
                       onClick={() => onSelectTrade(t)}
                     >
                       {/* Trade Number */}
-                      <td className="py-3.5 px-4 font-semibold text-gray-300">
+                      <td className="py-3.5 px-4 font-semibold text-[#eaecef]">
                         {t.status === 'OPEN' ? (
-                          <span className="px-1.5 py-0.5 rounded bg-accentCyan/15 text-accentCyan text-[9px] font-extrabold uppercase animate-pulse">
+                          <span className="px-1.5 py-0.5 rounded bg-[rgba(14,203,129,0.1)] text-[#0ecb81] text-[9px] font-extrabold uppercase animate-pulse">
                             OPEN
                           </span>
                         ) : (
@@ -377,7 +377,7 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
                       {/* Info Symbol & Timeframe & Source */}
                       <td className="py-3.5 px-4">
                         <div className="font-bold text-gray-200">{t.symbol}</div>
-                        <div className="flex items-center space-x-1 text-[10px] text-gray-500 mt-0.5 font-medium">
+                        <div className="flex items-center space-x-1 text-[10px] text-[#707a8a] mt-0.5 font-medium">
                           <span>{t.timeframe}</span>
                           <span>•</span>
                           <span className="capitalize">{t.source.toLowerCase()}</span>
@@ -388,7 +388,7 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
                       <td className="py-3.5 px-4">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold tracking-wider ${
                           t.side === 'LONG' 
-                            ? 'bg-accentCyan/10 text-accentCyan border border-accentCyan/20' 
+                            ? 'bg-[rgba(14,203,129,0.08)] text-[#0ecb81] border border-[rgba(14,203,129,0.2)]' 
                             : 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
                         }`}>
                           {t.side}
@@ -396,27 +396,27 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
                       </td>
 
                       {/* Exit Time */}
-                      <td className="py-3.5 px-4 text-gray-400">
+                      <td className="py-3.5 px-4 text-[#929aa5]">
                         {t.exitTime ? formatDate(t.exitTime) : (t.entryTime ? `Open: ${formatDate(t.entryTime)}` : '-')}
                       </td>
 
                       {/* Entry & Exit Prices */}
                       <td className="py-3.5 px-4 text-right">
-                        <div className="font-bold text-gray-300">{formatNumber(t.entryPrice, 4)}</div>
-                        <div className="text-[10px] text-gray-500 mt-0.5">{t.exitPrice ? formatNumber(t.exitPrice, 4) : 'Running'}</div>
+                        <div className="font-bold text-[#eaecef]">{formatNumber(t.entryPrice, 4)}</div>
+                        <div className="text-[10px] text-[#707a8a] mt-0.5">{t.exitPrice ? formatNumber(t.exitPrice, 4) : 'Running'}</div>
                       </td>
 
                       {/* Net PnL USD */}
                       <td className="py-3.5 px-4 text-right">
                         {t.status === 'OPEN' ? (
-                          <span className="text-gray-500 italic text-[11px]">Running</span>
+                          <span className="text-[#707a8a] italic text-[11px]">Running</span>
                         ) : (
                           <span className={`font-bold text-sm ${
                             (t.netPnlUsd || 0) > 0 
-                              ? 'text-accentEmerald' 
+                              ? 'text-[#0ecb81]' 
                               : (t.netPnlUsd || 0) < 0 
-                              ? 'text-lossRed' 
-                              : 'text-gray-400'
+                              ? 'text-[#f6465d]' 
+                              : 'text-[#929aa5]'
                           }`}>
                             {(t.netPnlUsd || 0) > 0 ? '+' : ''}{formatUsd(t.netPnlUsd)}
                           </span>
@@ -426,43 +426,43 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
                       {/* Net PnL % / IDR */}
                       <td className="py-3.5 px-4 text-right">
                         {t.status === 'OPEN' ? (
-                          <span className="text-gray-600">-</span>
+                          <span className="text-[#707a8a]">-</span>
                         ) : (
                           <>
                             <div className={`font-semibold text-[11px] ${
-                              (t.netPnlUsd || 0) >= 0 ? 'text-accentEmerald' : 'text-lossRed'
+                              (t.netPnlUsd || 0) >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'
                             }`}>
                               {(t.netPnlUsd || 0) > 0 ? '+' : ''}{formatPercent(t.netPnlPct)}
                             </div>
-                            <div className="text-[10px] text-gray-500 mt-0.5">{formatIdr(t.netPnlIdr)}</div>
+                            <div className="text-[10px] text-[#707a8a] mt-0.5">{formatIdr(t.netPnlIdr)}</div>
                           </>
                         )}
                       </td>
 
                       {/* R-multiple */}
-                      <td className="py-3.5 px-4 text-right font-bold text-gray-300">
+                      <td className="py-3.5 px-4 text-right font-bold text-[#eaecef]">
                         {t.rMultiple !== null && t.rMultiple !== undefined ? (
-                          <span className={t.rMultiple >= 0 ? 'text-accentEmerald' : 'text-lossRed'}>
+                          <span className={t.rMultiple >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}>
                             {formatR(t.rMultiple)}
                           </span>
                         ) : (
-                          <span className="text-gray-600">-</span>
+                          <span className="text-[#707a8a]">-</span>
                         )}
                       </td>
 
                       {/* Duration */}
-                      <td className="py-3.5 px-4 text-gray-400 font-medium">
+                      <td className="py-3.5 px-4 text-[#929aa5] font-medium">
                         {t.status === 'OPEN' ? '-' : formatDuration(durationMs)}
                       </td>
 
                       {/* Setup Tag */}
                       <td className="py-3.5 px-4">
                         {t.setupTag ? (
-                          <span className="px-2 py-1 rounded bg-gray-800 text-gray-300 text-[10px] font-medium border border-gray-700">
+                          <span className="px-2 py-1 rounded bg-[#2b3139] text-[#eaecef] text-[10px] font-medium border border-[#3a4149]">
                             {t.setupTag}
                           </span>
                         ) : (
-                          <span className="text-gray-600 font-medium italic text-[11px]">Tanpa Tag</span>
+                          <span className="text-[#707a8a] font-medium italic text-[11px]">Tanpa Tag</span>
                         )}
                       </td>
 
@@ -474,7 +474,7 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
                               href={t.screenshotUrl}
                               target="_blank"
                               rel="noreferrer"
-                              className="p-1.5 hover:bg-gray-800 text-gray-400 hover:text-accentCyan rounded transition"
+                              className="p-1.5 hover:bg-[#2b3139] text-[#929aa5] hover:text-[#0ecb81] rounded transition"
                               title="Lihat Screenshot"
                             >
                               <ExternalLink className="w-3.5 h-3.5" />
@@ -482,7 +482,7 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
                           )}
                           <button
                             onClick={() => onSelectTrade(t)}
-                            className="p-1.5 hover:bg-gray-800 text-gray-400 hover:text-white rounded transition"
+                            className="p-1.5 hover:bg-[#2b3139] text-[#929aa5] hover:text-white rounded transition"
                             title="Edit Catatan"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
@@ -493,7 +493,7 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
                                 onDeleteTrade(t.id);
                               }
                             }}
-                            className="p-1.5 hover:bg-gray-800 text-gray-500 hover:text-lossRed rounded transition"
+                            className="p-1.5 hover:bg-[#2b3139] text-[#707a8a] hover:text-[#f6465d] rounded transition"
                             title="Hapus Trade"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

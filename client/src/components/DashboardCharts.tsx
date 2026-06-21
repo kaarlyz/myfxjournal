@@ -18,6 +18,7 @@ import {
 } from 'recharts';
 import { Trade, BacktestSession } from '../shared/types';
 import { formatUsd, formatPercent, formatR } from '../utils/formatters';
+import { formatNumber } from '../utils/numberUtils';
 
 interface ChartsProps {
   session: BacktestSession;
@@ -37,7 +38,7 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
 
   if (closedTrades.length === 0) {
     return (
-      <div className="glass-card rounded-xl p-8 text-center text-gray-500 border border-gray-800">
+      <div className=" rounded-xl p-8 text-center text-[#707a8a] border border-[#2b3139]">
         Belum ada data trade yang ditutup untuk membuat visualisasi chart.
       </div>
     );
@@ -186,13 +187,13 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
   return (
     <div className="space-y-6">
       {/* Chart Tabs Navigation */}
-      <div className="flex border-b border-gray-800 space-x-2">
+      <div className="flex border-b border-[#2b3139] space-x-2">
         <button
           onClick={() => setActiveChartTab('equity')}
           className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
             activeChartTab === 'equity'
-              ? 'border-accentCyan text-accentCyan bg-accentCyan/5'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
+              ? 'border-accentCyan text-[#0ecb81] bg-accentCyan/5'
+              : 'border-transparent text-[#929aa5] hover:text-gray-200'
           }`}
         >
           Kurva Ekuitas & DD
@@ -201,8 +202,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
           onClick={() => setActiveChartTab('pnl')}
           className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
             activeChartTab === 'pnl'
-              ? 'border-accentCyan text-accentCyan bg-accentCyan/5'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
+              ? 'border-accentCyan text-[#0ecb81] bg-accentCyan/5'
+              : 'border-transparent text-[#929aa5] hover:text-gray-200'
           }`}
         >
           Kinerja Setup & Trades
@@ -211,8 +212,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
           onClick={() => setActiveChartTab('time')}
           className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
             activeChartTab === 'time'
-              ? 'border-accentCyan text-accentCyan bg-accentCyan/5'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
+              ? 'border-accentCyan text-[#0ecb81] bg-accentCyan/5'
+              : 'border-transparent text-[#929aa5] hover:text-gray-200'
           }`}
         >
           Analisis Sisi & Waktu
@@ -221,8 +222,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
           onClick={() => setActiveChartTab('excursion')}
           className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
             activeChartTab === 'excursion'
-              ? 'border-accentCyan text-accentCyan bg-accentCyan/5'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
+              ? 'border-accentCyan text-[#0ecb81] bg-accentCyan/5'
+              : 'border-transparent text-[#929aa5] hover:text-gray-200'
           }`}
         >
           Excursion (MFE vs MAE)
@@ -233,8 +234,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
       {activeChartTab === 'equity' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Equity growth curve */}
-          <div className="glass-card rounded-xl p-5 border border-gray-800">
-            <h4 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider">Kurva Pertumbuhan Ekuitas</h4>
+          <div className=" rounded-xl p-5 border border-[#2b3139]">
+            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Kurva Pertumbuhan Ekuitas</h4>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={equityData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
@@ -259,8 +260,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
           </div>
 
           {/* Drawdown chart */}
-          <div className="glass-card rounded-xl p-5 border border-gray-800">
-            <h4 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider">Drawdown Ekuitas (%)</h4>
+          <div className=" rounded-xl p-5 border border-[#2b3139]">
+            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Drawdown Ekuitas (%)</h4>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={equityData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
@@ -272,7 +273,7 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" opacity={0.3} />
                   <XAxis dataKey="tradeNum" stroke="#4b5563" fontSize={11} />
-                  <YAxis stroke="#4b5563" fontSize={11} tickFormatter={(val) => `${val.toFixed(1)}%`} domain={[-15, 0]} />
+                  <YAxis stroke="#4b5563" fontSize={11} tickFormatter={(val) => formatPercent(val)} domain={[-15, 0]} />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
                     labelFormatter={(label) => `Setelah Trade #${label}`}
@@ -286,8 +287,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
 
           {/* R-multiple cumulative chart if applicable */}
           {session.riskMode !== 'NO_R' && (
-            <div className="glass-card rounded-xl p-5 border border-gray-800 lg:col-span-2">
-              <h4 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider">Kurva Akumulasi R-Multiple</h4>
+            <div className=" rounded-xl p-5 border border-[#2b3139] lg:col-span-2">
+              <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Kurva Akumulasi R-Multiple</h4>
               <div className="h-[250px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={equityData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
@@ -311,8 +312,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
       {activeChartTab === 'pnl' && (
         <div className="space-y-6">
           {/* PNL per trade bar chart */}
-          <div className="glass-card rounded-xl p-5 border border-gray-800">
-            <h4 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider">Distribusi PnL USD per Trade</h4>
+          <div className=" rounded-xl p-5 border border-[#2b3139]">
+            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Distribusi PnL USD per Trade</h4>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={equityData.filter(d => d.tradeNum > 0)} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
@@ -335,8 +336,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
           </div>
 
           {/* Setup Tag Performance */}
-          <div className="glass-card rounded-xl p-5 border border-gray-800">
-            <h4 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider">Performa Berdasarkan Setup Tag</h4>
+          <div className=" rounded-xl p-5 border border-[#2b3139]">
+            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Performa Berdasarkan Setup Tag</h4>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={setupChartData} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
@@ -347,7 +348,7 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
                     formatter={(val: any, name: string) => {
                       if (name === 'PnL') return [formatUsd(val), 'Total PnL'];
-                      if (name === 'Winrate') return [`${val.toFixed(1)}%`, 'Win Rate'];
+                      if (name === 'Winrate') return [formatPercent(val), 'Win Rate'];
                       return [val, name];
                     }}
                   />
@@ -367,8 +368,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
       {activeChartTab === 'time' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Win/Loss distribution pie */}
-          <div className="glass-card rounded-xl p-5 border border-gray-800 flex flex-col justify-between">
-            <h4 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider">Rasio Hasil Trade</h4>
+          <div className=" rounded-xl p-5 border border-[#2b3139] flex flex-col justify-between">
+            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Rasio Hasil Trade</h4>
             <div className="h-[200px] flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -392,7 +393,7 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="flex justify-around text-xs text-gray-400 mt-2 font-medium">
+            <div className="flex justify-around text-xs text-[#929aa5] mt-2 font-medium">
               {pieData.map((p) => (
                 <div key={p.name} className="flex items-center space-x-1.5">
                   <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.color }} />
@@ -403,8 +404,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
           </div>
 
           {/* LONG vs SHORT winrates */}
-          <div className="glass-card rounded-xl p-5 border border-gray-800 lg:col-span-2">
-            <h4 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider">Performa Sisi Beli vs Jual</h4>
+          <div className=" rounded-xl p-5 border border-[#2b3139] lg:col-span-2">
+            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Performa Sisi Beli vs Jual</h4>
             <div className="h-[230px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={sideChartData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -414,7 +415,7 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
                   <Tooltip
                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
                     formatter={(val: any, name: string) => {
-                      if (name === 'Winrate') return [`${val.toFixed(1)}%`, 'Win Rate'];
+                      if (name === 'Winrate') return [formatPercent(val), 'Win Rate'];
                       if (name === 'PnL') return [formatUsd(val), 'Total PnL'];
                       return [val, name];
                     }}
@@ -426,8 +427,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
           </div>
 
           {/* Day of week performance */}
-          <div className="glass-card rounded-xl p-5 border border-gray-800 lg:col-span-2">
-            <h4 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider">Kinerja Berdasarkan Hari Entry</h4>
+          <div className=" rounded-xl p-5 border border-[#2b3139] lg:col-span-2">
+            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Kinerja Berdasarkan Hari Entry</h4>
             <div className="h-[250px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dayChartData} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
@@ -438,7 +439,7 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
                     formatter={(val: any, name: string) => {
                       if (name === 'PnL') return [formatUsd(val), 'Total PnL'];
-                      if (name === 'Winrate') return [`${val.toFixed(1)}%`, 'Win Rate'];
+                      if (name === 'Winrate') return [formatPercent(val), 'Win Rate'];
                       return [val, name];
                     }}
                   />
@@ -453,8 +454,8 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
           </div>
 
           {/* Hour performance */}
-          <div className="glass-card rounded-xl p-5 border border-gray-800">
-            <h4 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider">Volume & PnL Berdasarkan Jam Entry</h4>
+          <div className=" rounded-xl p-5 border border-[#2b3139]">
+            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Volume & PnL Berdasarkan Jam Entry</h4>
             <div className="h-[250px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={hourChartData} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
@@ -478,12 +479,12 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
       )}
 
       {activeChartTab === 'excursion' && (
-        <div className="glass-card rounded-xl p-5 border border-gray-800">
+        <div className=" rounded-xl p-5 border border-[#2b3139]">
           <div className="flex justify-between items-center mb-4">
-            <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
+            <h4 className="text-sm font-bold text-[#929aa5] uppercase tracking-wider">
               Analisis MFE (Maximum Favorable Excursion) vs MAE (Maximum Adverse Excursion)
             </h4>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-[#707a8a]">
               * MFE menunjukkan sejauh mana trade floating profit. MAE menunjukkan sejauh mana trade floating loss sebelum exit.
             </span>
           </div>
@@ -492,7 +493,7 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-gray-800 text-gray-400">
+                <tr className="border-b border-[#2b3139] text-[#929aa5]">
                   <th className="py-2.5 px-3">Trade #</th>
                   <th className="py-2.5 px-3">Side</th>
                   <th className="py-2.5 px-3">PnL USD</th>
@@ -506,25 +507,25 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
                 {closedTrades.slice(0, 15).map((t) => {
                   const mfe = t.favorableExcursionUsd || 0;
                   const mae = t.adverseExcursionUsd || 0;
-                  const ratio = mae > 0 ? (mfe / mae).toFixed(2) : '∞';
+                  const ratio = mae > 0 ? formatNumber((mfe / mae), 2) : '∞';
 
                   return (
-                    <tr key={t.id} className="border-b border-gray-800 hover:bg-gray-800/20">
+                    <tr key={t.id} className="border-b border-[#2b3139] hover:bg-[#2b3139]/20">
                       <td className="py-2.5 px-3 font-semibold">#{t.tradeNumber || '-'}</td>
                       <td className="py-2.5 px-3">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                          t.side === 'LONG' ? 'bg-accentCyan/10 text-accentCyan' : 'bg-orange-500/10 text-orange-400'
+                          t.side === 'LONG' ? 'bg-[rgba(14,203,129,0.08)] text-[#0ecb81]' : 'bg-orange-500/10 text-orange-400'
                         }`}>
                           {t.side}
                         </span>
                       </td>
-                      <td className={`py-2.5 px-3 font-medium ${(t.netPnlUsd || 0) >= 0 ? 'text-accentEmerald' : 'text-lossRed'}`}>
+                      <td className={`py-2.5 px-3 font-medium ${(t.netPnlUsd || 0) >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
                         {formatUsd(t.netPnlUsd)}
                       </td>
-                      <td className="py-2.5 px-3 text-accentEmerald">{formatUsd(mfe)}</td>
-                      <td className="py-2.5 px-3 text-lossRed">{formatUsd(mae)}</td>
-                      <td className="py-2.5 px-3 text-gray-400">{t.setupTag || '-'}</td>
-                      <td className="py-2.5 px-3 font-semibold text-gray-300">
+                      <td className="py-2.5 px-3 text-[#0ecb81]">{formatUsd(mfe)}</td>
+                      <td className="py-2.5 px-3 text-[#f6465d]">{formatUsd(mae)}</td>
+                      <td className="py-2.5 px-3 text-[#929aa5]">{t.setupTag || '-'}</td>
+                      <td className="py-2.5 px-3 font-semibold text-[#eaecef]">
                         {ratio === '∞' ? '∞' : `${ratio}x`}
                       </td>
                     </tr>
@@ -533,7 +534,7 @@ export default function DashboardCharts({ session, trades }: ChartsProps) {
               </tbody>
             </table>
             {closedTrades.length > 15 && (
-              <p className="text-center text-[10px] text-gray-500 mt-3 italic">
+              <p className="text-center text-[10px] text-[#707a8a] mt-3 italic">
                 Menampilkan 15 trade teratas. Buka tabel di bawah untuk melihat rincian lengkap.
               </p>
             )}

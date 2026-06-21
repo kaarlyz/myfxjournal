@@ -26,3 +26,17 @@ build/
 # local database
 server/prisma/*.db
 server/prisma/*.db-journal
+
+# local runtime data
+server/storage/
+server/uploads/
+
+# local AI / test folders
+deepseek-cli/
+
+# local MT5 fixtures
+server/fixtures/
+
+# local upload/session storage
+server/uploads/
+server/storage/
