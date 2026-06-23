@@ -16,6 +16,7 @@ import SetupReview from './pages/SetupReview';
 import MT5ReportImport from './pages/MT5ReportImport';
 import MT5ReportDashboard from './pages/MT5ReportDashboard';
 import ReportPrint from './pages/ReportPrint';
+import EAControlCenter from './pages/EAControlCenter';
 import RiskCalculator from './components/RiskCalculator';
 import { useJournalStore } from './store/useJournalStore';
 import { useLiveJournalStore } from './store/useLiveJournalStore';
@@ -116,6 +117,7 @@ export default function App() {
                 <Route path="/live-journal" element={<LiveJournal />} />
                 <Route path="/accounts" element={<Accounts />} />
                 <Route path="/integrations" element={<Integrations />} />
+                <Route path="/ea-control" element={<EAControlCenter />} />
                 <Route path="/setup-review" element={<SetupReview />} />
                 <Route path="/risk-calculator" element={<RiskCalculator />} />
                 <Route path="*" element={<Navigate to="/" replace />} />

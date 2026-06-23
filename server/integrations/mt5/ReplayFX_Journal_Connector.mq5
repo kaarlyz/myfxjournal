@@ -33,16 +33,50 @@ string EscapeJSON(string inputStr) {
     return output;
 }
 
+string AccountNumber()
+{
+    return AccountIdOverride != "" ? AccountIdOverride : IntegerToString((int)AccountInfoInteger(ACCOUNT_LOGIN));
+}
+
+string TerminalId()
+{
+    return "ReplayFX-MT5-" + AccountNumber();
+}
+
+int SymbolDigits(string symbol)
+{
+    long digits = 0;
+    if(SymbolInfoInteger(symbol, SYMBOL_DIGITS, digits))
+        return (int)digits;
+    return _Digits;
+}
+
+int StringToUtf8Body(string text, char &data[])
+{
+    ArrayResize(data, 0);
+    if(text == "")
+        return 0;
+    int size = StringToCharArray(text, data, 0, WHOLE_ARRAY, CP_UTF8);
+    if(size <= 0)
+    {
+        ArrayResize(data, 0);
+        return 0;
+    }
+    int n = ArraySize(data);
+    while(n > 0 && data[n - 1] == 0)
+        n--;
+    ArrayResize(data, n);
+    return n;
+}
+
 //+------------------------------------------------------------------+
 //| Helper: Send POST Request
 //+------------------------------------------------------------------+
 bool SendWebhook(string url, string payload) {
     Print("ReplayFX JSON payload: ", payload);
 
-    uchar postData[];
-    int len = StringLen(payload);
-    ArrayResize(postData, len);
-    StringToCharArray(payload, postData, 0, len, CP_UTF8);
+    char postData[];
+    int len = StringToUtf8Body(payload, postData);
     
     uchar result[];
     string resultHeaders = "";
@@ -54,8 +88,8 @@ bool SendWebhook(string url, string payload) {
     int res = WebRequest("POST", url, headers, 10000, postData, result, resultHeaders);
     
     if(res == -1) {
-        Print("WebRequest failed. Error code: ", GetLastError(), ". Make sure URL is added to WebRequest allowed list in Tools -> Options -> Expert Advisors");
-        Print("URL: ", url, " | Payload Len: ", len);
+        Print("ReplayFX Journal Connector WebRequest failed. endpoint=", url, " httpStatus=-1 response= lastError=", GetLastError(), " payloadLength=", len, " tokenPresent=", (SecretToken == "" ? "false" : "true"));
+        Print("Make sure URL is added to WebRequest allowed list in Tools -> Options -> Expert Advisors");
         return false;
     } else if(res >= 200 && res < 300) {
         string resText = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
@@ -63,8 +97,7 @@ bool SendWebhook(string url, string payload) {
         return true;
     } else {
         string resText = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
-        Print("Webhook returned HTTP ", res, " | URL: ", url, " | Payload Len: ", len);
-        Print("Response body: ", resText);
+        Print("ReplayFX Journal Connector HTTP diagnostic endpoint=", url, " httpStatus=", res, " response=", resText, " lastError=", GetLastError(), " payloadLength=", len, " tokenPresent=", (SecretToken == "" ? "false" : "true"));
         return false;
     }
 }
@@ -73,11 +106,14 @@ bool SendWebhook(string url, string payload) {
 //| Send Trade Event
 //+------------------------------------------------------------------+
 void SendTradeEvent(ulong dealId, ulong positionId, string eventType, string symbol, string side, double lot, double price, datetime time, double sl, double tp, double commission, double swap, double profit, string comment, ulong magic) {
-    string accNum = AccountIdOverride != "" ? AccountIdOverride : IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
+    string accNum = AccountNumber();
     string broker = AccountInfoString(ACCOUNT_COMPANY);
     string brokerServer = AccountInfoString(ACCOUNT_SERVER);
+    int digits = SymbolDigits(symbol);
 
     string json = "{";
+    json += "\"terminalId\":\"" + EscapeJSON(TerminalId()) + "\",";
+    json += "\"connectorName\":\"ReplayFX Journal Connector\",";
     json += "\"accountNumber\":\"" + EscapeJSON(accNum) + "\",";
     json += "\"broker\":\"" + EscapeJSON(broker) + "\",";
     json += "\"brokerServer\":\"" + EscapeJSON(brokerServer) + "\",";
@@ -87,9 +123,9 @@ void SendTradeEvent(ulong dealId, ulong positionId, string eventType, string sym
     json += "\"eventType\":\"" + eventType + "\",";
     json += "\"side\":\"" + side + "\",";
     json += "\"lot\":" + DoubleToString(lot, 2) + ",";
-    json += "\"price\":" + DoubleToString(price, 5) + ",";
-    json += "\"sl\":" + DoubleToString(sl, 5) + ",";
-    json += "\"tp\":" + DoubleToString(tp, 5) + ",";
+    json += "\"price\":" + DoubleToString(price, digits) + ",";
+    json += "\"sl\":" + DoubleToString(sl, digits) + ",";
+    json += "\"tp\":" + DoubleToString(tp, digits) + ",";
     json += "\"commission\":" + DoubleToString(commission, 2) + ",";
     json += "\"swap\":" + DoubleToString(swap, 2) + ",";
     json += "\"profit\":" + DoubleToString(profit, 2) + ",";
@@ -109,19 +145,31 @@ void SendTradeEvent(ulong dealId, ulong positionId, string eventType, string sym
 //| Send Account Snapshot
 //+------------------------------------------------------------------+
 void SendAccountSnapshotEvent() {
-    string accNum = AccountIdOverride != "" ? AccountIdOverride : IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
+    string accNum = AccountNumber();
     string broker = AccountInfoString(ACCOUNT_COMPANY);
+    string brokerServer = AccountInfoString(ACCOUNT_SERVER);
+    string currency = AccountInfoString(ACCOUNT_CURRENCY);
     
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity = AccountInfoDouble(ACCOUNT_EQUITY);
     double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+    double margin = AccountInfoDouble(ACCOUNT_MARGIN);
+    double marginLevel = AccountInfoDouble(ACCOUNT_MARGIN_LEVEL);
     
     string json = "{";
+    json += "\"terminalId\":\"" + EscapeJSON(TerminalId()) + "\",";
+    json += "\"connectorName\":\"ReplayFX Journal Connector\",";
     json += "\"accountNumber\":\"" + EscapeJSON(accNum) + "\",";
     json += "\"broker\":\"" + EscapeJSON(broker) + "\",";
+    json += "\"brokerServer\":\"" + EscapeJSON(brokerServer) + "\",";
+    json += "\"currency\":\"" + EscapeJSON(currency) + "\",";
     json += "\"balance\":" + DoubleToString(balance, 2) + ",";
     json += "\"equity\":" + DoubleToString(equity, 2) + ",";
-    json += "\"freeMargin\":" + DoubleToString(freeMargin, 2);
+    json += "\"freeMargin\":" + DoubleToString(freeMargin, 2) + ",";
+    json += "\"margin\":" + DoubleToString(margin, 2) + ",";
+    json += "\"marginLevel\":" + DoubleToString(marginLevel, 2) + ",";
+    json += "\"terminalLocalTime\":" + IntegerToString((int)TimeLocal()) + ",";
+    json += "\"tradeServerTime\":" + IntegerToString((int)TimeTradeServer());
     json += "}";
     
     if(SendWebhook(g_snapshotUrl, json)) {

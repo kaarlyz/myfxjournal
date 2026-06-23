@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../prisma';
+import { notifyTradeLifecycle } from '../services/tradeNotifier';
 import { getSettings } from './settings';
 
 const router = Router();
@@ -254,6 +255,35 @@ async function handleWebhook(req: Request, res: Response) {
           rMultiple,
         },
       });
+
+      const closeReason = trade.tpPrice && Math.abs(exitPrice - trade.tpPrice) <= Math.max(Math.abs(trade.tpPrice) * 0.0002, 0.00001)
+        ? 'TP hit'
+        : 'Trade closed';
+      await notifyTradeLifecycle({
+        id: trade.id,
+        symbol: trade.symbol,
+        side: trade.side,
+        lot: trade.qty,
+        entryPrice: trade.entryPrice,
+        closePrice: exitPrice,
+        stopLoss: trade.slPrice,
+        takeProfit: trade.tpPrice,
+        openTime: trade.entryTime,
+        closeTime: exitTime,
+        profit: netPnlUsd,
+        profitCurrency: 'USD',
+        riskMoney: trade.riskUsd,
+        riskPercent: null,
+        rMultiple,
+        result,
+        status: 'CLOSED',
+        notes: trade.notes,
+        strategyTag: trade.setupTag,
+        source: 'WEBHOOK',
+        closeReason,
+        eventType: closeReason === 'TP hit' ? 'TP' : 'CLOSE',
+        accountName: session.name,
+      }).catch(err => console.error('Failed to send webhook trade notification:', err));
 
       // Recalculate cumulative PnLs for all trades in this webhook session
       const allSessionTrades = await prisma.trade.findMany({

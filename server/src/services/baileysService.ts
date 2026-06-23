@@ -6,6 +6,15 @@ import { Boom } from '@hapi/boom';
 import { logIntegration } from './../utils/logger';
 import { prisma } from '../prisma';
 import { handleSetupReviewCommand } from './setupReviewService';
+import {
+  buildMainMenu,
+  createEaCommandFromIntent,
+  formatHelp,
+  handleEaControlCommand,
+  parseEaControlIntent,
+} from './eaControlService';
+import { startCommandWatcher } from './eaCommandWatcher';
+import { handleEaBotInput, isEaBotText } from './eaMenuService';
 
 const QR_TTL_MS = 50000;
 
@@ -13,9 +22,21 @@ const BLOCKED_WA = new Set(['buy', 'sell', 'close_all', 'modify_sl', 'modify_tp'
 const VALID_CMDS = new Set([
   '/status', '/balance', '/equity', '/today', '/open_trades', '/last_trade', '/help',
   '/pending', '/detail', '/acc', '/reject',
+  '/ea', '/pair', '/chart', '/attach', '/mode', '/config', '/set', '/signals', '/approve', '/screenshot',
   'status', 'balance', 'equity', 'today', 'open_trades', 'last_trade', 'help',
-  'pending', 'detail', 'acc', 'reject', 'open trades', 'last trade'
+  'pending', 'detail', 'acc', 'reject', 'open trades', 'last trade',
+  'menu', 'list ea', 'ea library', 'list terminals', 'active eas', 'cancel pending',
+  'attach', 'screenshot', 'symbols', 'charts', 'cleanup', 'logs', 'config', 'set', 'pause', 'resume', 'signals',
+  '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'yes', 'cancel'
 ]);
+const WA_SESSION_TTL_MS = 5 * 60 * 1000;
+type WaSession = {
+  flow: 'menu' | 'attach' | 'screenshot' | 'cleanup' | 'pause_resume' | 'signals';
+  step: string;
+  data: Record<string, string>;
+  expiresAt: number;
+};
+const waSessions = new Map<string, WaSession>();
 
 // Dedup cache by message id (prevent processing the same message twice)
 const processedIds = new Set<string>();
@@ -38,9 +59,82 @@ function isCommandLike(text: string) {
   return lower.startsWith('/') || VALID_CMDS.has(lower) || VALID_CMDS.has(first) || VALID_CMDS.has(firstTwo) || BLOCKED_WA.has(first) || BLOCKED_WA.has(lower);
 }
 
+function getWaSession(senderId: string | undefined) {
+  if (!senderId) return null;
+  const session = waSessions.get(senderId);
+  if (!session) return null;
+  if (session.expiresAt < Date.now()) {
+    waSessions.delete(senderId);
+    return null;
+  }
+  session.expiresAt = Date.now() + WA_SESSION_TTL_MS;
+  return session;
+}
+
+function setWaSession(senderId: string | undefined, session: Omit<WaSession, 'expiresAt'>) {
+  if (!senderId) return;
+  waSessions.set(senderId, { ...session, expiresAt: Date.now() + WA_SESSION_TTL_MS });
+}
+
+function clearWaSession(senderId: string | undefined) {
+  if (senderId) waSessions.delete(senderId);
+}
+
 function isReplayFxResponse(text: string) {
   const lower = text.toLowerCase().trim();
   return lower.startsWith('replayfx') || lower.startsWith('[replayfx]') || text.includes('[ReplayFX]');
+}
+
+function replayFxContextInfo() {
+  return {
+    externalAdReply: {
+      title: 'ReplayFX Control Center',
+      body: 'EA management only. Manual trading commands disabled.',
+      mediaType: 1,
+      renderLargerThumbnail: false,
+    },
+  };
+}
+
+function valueOrDash(value: unknown) {
+  return value === null || value === undefined || value === '' ? '-' : String(value);
+}
+
+function buildWhatsAppPendingSignalsList(signals: any[]) {
+  if (!signals.length) return 'No pending EA signals.';
+  return [
+    '*Pending EA Signals*',
+    '',
+    ...signals.map((s, index) => `${index + 1}. ${s.approvalCode}: ${s.eaName} ${s.symbol} ${s.timeframe} ${s.side} entry ${valueOrDash(s.entry)} SL ${valueOrDash(s.sl)} TP ${valueOrDash(s.tp)}`),
+    '',
+    'Reply with a number to open a signal.',
+  ].join('\n');
+}
+
+function buildWhatsAppSignalCard(signal: any) {
+  return [
+    '*EA Signal Pending*',
+    '',
+    `EA name: ${signal.eaName}`,
+    `Symbol: ${signal.symbol}`,
+    `Timeframe: ${signal.timeframe}`,
+    `Side: ${signal.side}`,
+    `Entry: ${valueOrDash(signal.entry)}`,
+    `SL: ${valueOrDash(signal.sl)}`,
+    `TP: ${valueOrDash(signal.tp)}`,
+    `RR: ${valueOrDash(signal.rr)}`,
+    `Lot: ${valueOrDash(signal.lot)}`,
+    `Risk %: ${valueOrDash(signal.riskPercent)}`,
+    `Setup reason: ${valueOrDash(signal.reason)}`,
+    `Approval code: ${signal.approvalCode}`,
+    `Expires at: ${signal.expiresAt ? new Date(signal.expiresAt).toISOString() : '-'}`,
+    '',
+      '1. Confirm Entry',
+      '2. Reject',
+      '3. Screenshot',
+      '4. Details',
+      '5. Edit Lot/Risk',
+  ].join('\n');
 }
 
 async function getWaSettings(): Promise<{ allowedNumbers: string[]; selfCommandsEnabled: boolean; selfCommandModeSource: 'db' | 'env' | 'default' }> {
@@ -64,25 +158,270 @@ async function getWaSettings(): Promise<{ allowedNumbers: string[]; selfCommands
   };
 }
 
-async function handleWaCommand(text: string): Promise<{ response: string; status: string }> {
+async function handleWaSession(senderId: string | undefined, text: string): Promise<{ response: string; status: string; commandId?: string } | null> {
+  const session = getWaSession(senderId);
+  if (!session) return null;
+  const value = text.trim();
+  const lower = value.toLowerCase();
+  if (['cancel', '/cancel', 'back'].includes(lower)) {
+    clearWaSession(senderId);
+    return { response: 'Flow cancelled.', status: 'CANCELLED' };
+  }
+
+  if (session.flow === 'menu') {
+    clearWaSession(senderId);
+    const map: Record<string, string> = {
+      '1': 'status',
+      '2': 'list ea',
+      '3': 'symbols',
+      '4': '__START_SCREENSHOT__',
+      '5': '__START_ATTACH__',
+      '6': 'config',
+      '7': '__START_PAUSE_RESUME__',
+      '8': 'logs',
+      '9': '__START_CLEANUP__',
+      '10': 'help',
+    };
+    const next = map[lower];
+    if (!next) return { response: 'Choose a number from 1 to 10, or type `cancel`.', status: 'WAITING_INPUT' };
+    if (next === '__START_ATTACH__') {
+      setWaSession(senderId, { flow: 'attach', step: 'template', data: {} });
+      return { response: '*Attach EA*\n\nEnter EA template name or number, for example `ERS`.', status: 'WAITING_INPUT' };
+    }
+    if (next === '__START_SCREENSHOT__') {
+      setWaSession(senderId, { flow: 'screenshot', step: 'symbol', data: {} });
+      return { response: '*Screenshot Chart*\n\nEnter symbol like `BTCUSD`, or type `current`.', status: 'WAITING_INPUT' };
+    }
+    if (next === '__START_PAUSE_RESUME__') {
+      setWaSession(senderId, { flow: 'pause_resume', step: 'action', data: {} });
+      return { response: '*Pause / Resume EA*\n\nType `pause` or `resume`.', status: 'WAITING_INPUT' };
+    }
+    if (next === '__START_CLEANUP__') {
+      setWaSession(senderId, { flow: 'cleanup', step: 'confirm', data: {} });
+      return { response: '*Cleanup Stuck Commands*\n\nReply `yes` to confirm cleanup.', status: 'CONFIRMATION_REQUIRED' };
+    }
+    return createEaCommandFromIntent(parseEaControlIntent(next), 'WHATSAPP_BAILEYS', senderId, { channel: 'WHATSAPP' });
+  }
+
+  if (session.flow === 'cleanup') {
+    if (['yes', 'y', 'confirm'].includes(lower)) {
+      clearWaSession(senderId);
+      return createEaCommandFromIntent({ type: 'cleanup', confirmed: true }, 'WHATSAPP_BAILEYS', senderId, { channel: 'WHATSAPP', confirmed: true });
+    }
+    return { response: 'Cleanup not confirmed. Reply `yes` to cleanup stuck commands or `cancel` to stop.', status: 'CONFIRMATION_REQUIRED' };
+  }
+
+  if (session.flow === 'screenshot') {
+    if (session.step === 'symbol') {
+      session.data.symbol = lower === 'current' ? '' : value.toUpperCase();
+      session.step = 'timeframe';
+      return { response: 'Enter timeframe, for example `M1`, `M5`, `H1`, or `D1`.', status: 'WAITING_INPUT' };
+    }
+    if (session.step === 'timeframe') {
+      clearWaSession(senderId);
+      return createEaCommandFromIntent({ type: 'screenshot', symbol: session.data.symbol || undefined, timeframe: value.toUpperCase() }, 'WHATSAPP_BAILEYS', senderId, { channel: 'WHATSAPP' });
+    }
+  }
+
+  if (session.flow === 'pause_resume') {
+    if (session.step === 'action') {
+      if (!['pause', 'resume'].includes(lower)) return { response: 'Type `pause` or `resume`.', status: 'WAITING_INPUT' };
+      session.data.action = lower;
+      session.step = 'symbol';
+      return { response: 'Enter symbol, for example `BTCUSD`.', status: 'WAITING_INPUT' };
+    }
+    if (session.step === 'symbol') {
+      session.data.symbol = value.toUpperCase();
+      session.step = 'timeframe';
+      return { response: 'Enter timeframe, for example `H1`.', status: 'WAITING_INPUT' };
+    }
+    if (session.step === 'timeframe') {
+      clearWaSession(senderId);
+      return createEaCommandFromIntent({ type: session.data.action as 'pause' | 'resume', symbol: session.data.symbol, timeframe: value.toUpperCase() }, 'WHATSAPP_BAILEYS', senderId, { channel: 'WHATSAPP' });
+    }
+  }
+
+  if (session.flow === 'signals') {
+    if (session.step === 'choose') {
+      const signals = await prisma.eaSignalProposal.findMany({ where: { status: 'PENDING' }, orderBy: { createdAt: 'desc' }, take: 10 });
+      const index = Number.parseInt(lower, 10);
+      if (!Number.isInteger(index) || index < 1 || index > signals.length) {
+        return { response: `Choose a number from 1 to ${signals.length}, or type \`cancel\`.`, status: 'WAITING_INPUT' };
+      }
+      const selected = signals[index - 1];
+      session.step = 'action';
+      session.data.signalId = selected.id;
+      session.data.signalApprovalCode = selected.approvalCode;
+      return { response: buildWhatsAppSignalCard(selected), status: 'WAITING_INPUT' };
+    }
+
+    if (session.step === 'action') {
+      const signalId = session.data.signalId;
+      if (!signalId) {
+        clearWaSession(senderId);
+        return { response: 'Signal session expired. Send `signals` again.', status: 'FAILED' };
+      }
+      const signal = await prisma.eaSignalProposal.findUnique({ where: { id: signalId } });
+      if (!signal) {
+        clearWaSession(senderId);
+        return { response: 'Signal not found. Send `signals` again.', status: 'FAILED' };
+      }
+
+      if (['1', 'confirm', 'confirm entry'].includes(lower)) {
+        if (signal.status === 'EXPIRED' || (signal.status === 'PENDING' && signal.expiresAt && signal.expiresAt.getTime() < Date.now())) {
+          await prisma.eaSignalProposal.update({ where: { id: signal.id }, data: { status: 'EXPIRED' } });
+          clearWaSession(senderId);
+          return { response: 'Signal expired.', status: 'FAILED' };
+        }
+        if (signal.status !== 'PENDING') {
+          clearWaSession(senderId);
+          return { response: `Signal already ${signal.status.toLowerCase()}.`, status: 'SUCCESS' };
+        }
+        clearWaSession(senderId);
+        const updated = await prisma.eaSignalProposal.update({ where: { id: signal.id }, data: { status: 'APPROVED', decidedAt: new Date() } });
+        return { response: `Signal approved: ${updated.approvalCode} ${updated.symbol} ${updated.side}`, status: 'SUCCESS' };
+      }
+      if (['2', 'reject'].includes(lower)) {
+        if (signal.status === 'EXPIRED' || (signal.status === 'PENDING' && signal.expiresAt && signal.expiresAt.getTime() < Date.now())) {
+          await prisma.eaSignalProposal.update({ where: { id: signal.id }, data: { status: 'EXPIRED' } });
+          clearWaSession(senderId);
+          return { response: 'Signal expired.', status: 'FAILED' };
+        }
+        if (signal.status !== 'PENDING') {
+          clearWaSession(senderId);
+          return { response: `Signal already ${signal.status.toLowerCase()}.`, status: 'SUCCESS' };
+        }
+        clearWaSession(senderId);
+        const updated = await prisma.eaSignalProposal.update({ where: { id: signal.id }, data: { status: 'REJECTED', decidedAt: new Date() } });
+        return { response: `Signal rejected: ${updated.approvalCode} ${updated.symbol} ${updated.side}`, status: 'SUCCESS' };
+      }
+      if (['3', 'screenshot'].includes(lower)) {
+        clearWaSession(senderId);
+        const command = await createEaCommandFromIntent({ type: 'screenshot', symbol: signal.symbol, timeframe: signal.timeframe }, 'WHATSAPP_BAILEYS', senderId, { channel: 'WHATSAPP' });
+        return { response: `Screenshot queued for ${signal.approvalCode}.`, status: command.status, commandId: command.commandId };
+      }
+      if (['4', 'details'].includes(lower)) {
+        return { response: buildWhatsAppSignalCard(signal), status: 'SUCCESS' };
+      }
+      if (['5', 'edit lot/risk', 'edit', 'lot', 'risk'].includes(lower)) {
+        session.step = 'edit_field';
+        session.data.signalId = signal.id;
+        return { response: '*Edit Lot/Risk*\n\nReply `lot` or `risk` to choose which field to edit.', status: 'WAITING_INPUT' };
+      }
+      return { response: 'Reply `1`, `2`, `3`, `4`, or `5`, or type `cancel`.', status: 'WAITING_INPUT' };
+    }
+    if (session.step === 'edit_field') {
+      if (!['lot', 'risk'].includes(lower)) return { response: 'Reply `lot` or `risk`, or type `cancel`.', status: 'WAITING_INPUT' };
+      session.data.editField = lower;
+      session.step = 'edit_value';
+      return { response: `Enter new ${lower === 'lot' ? 'lot size' : 'risk percent'} value.`, status: 'WAITING_INPUT' };
+    }
+    if (session.step === 'edit_value') {
+      const signalId = session.data.signalId;
+      const signal = signalId ? await prisma.eaSignalProposal.findUnique({ where: { id: signalId } }) : null;
+      if (!signal) {
+        clearWaSession(senderId);
+        return { response: 'Signal session expired. Send `signals` again.', status: 'FAILED' };
+      }
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return { response: 'Enter a numeric value.', status: 'WAITING_INPUT' };
+      const updated = await prisma.eaSignalProposal.update({
+        where: { id: signal.id },
+        data: session.data.editField === 'lot' ? { lot: numeric } : { riskPercent: numeric },
+      });
+      clearWaSession(senderId);
+      return { response: `Signal updated: ${updated.approvalCode} ${session.data.editField}=${numeric}`, status: 'SUCCESS' };
+    }
+  }
+
+  if (session.flow === 'attach') {
+    if (session.step === 'template') {
+      session.data.templateRef = value;
+      session.step = 'symbol';
+      return { response: 'Enter symbol, for example `XAUUSD` or `BTCUSD`.', status: 'WAITING_INPUT' };
+    }
+    if (session.step === 'symbol') {
+      session.data.symbol = value.toUpperCase();
+      session.step = 'timeframe';
+      return { response: 'Enter timeframe, for example `M1`, `M5`, `H1`, or `D1`.', status: 'WAITING_INPUT' };
+    }
+    if (session.step === 'timeframe') {
+      session.data.timeframe = value.toUpperCase();
+      session.step = 'mode';
+      return { response: 'Select mode: `NOTIFY_ONLY`, `AUTO`, or `PAUSED`.', status: 'WAITING_INPUT' };
+    }
+    if (session.step === 'mode') {
+      session.data.mode = value.toUpperCase();
+      session.step = 'confirm';
+      return {
+        response: `*Confirm Attach EA*\n\n*Template:* ${session.data.templateRef}\n*Symbol:* ${session.data.symbol}\n*Timeframe:* ${session.data.timeframe}\n*Mode:* ${session.data.mode}\n\nReply \`yes\` to queue APPLY_TEMPLATE.`,
+        status: 'CONFIRMATION_REQUIRED',
+      };
+    }
+    if (session.step === 'confirm') {
+      if (!['yes', 'y', 'confirm'].includes(lower)) return { response: 'Attach not confirmed. Reply `yes` to queue it or `cancel` to stop.', status: 'CONFIRMATION_REQUIRED' };
+      clearWaSession(senderId);
+      return createEaCommandFromIntent({
+        type: 'attach',
+        templateRef: session.data.templateRef,
+        symbol: session.data.symbol,
+        timeframe: session.data.timeframe,
+        mode: session.data.mode,
+      }, 'WHATSAPP_BAILEYS', senderId, { channel: 'WHATSAPP' });
+    }
+  }
+
+  return null;
+}
+
+async function handleWaCommand(text: string, senderId?: string): Promise<{ response: string; status: string; commandId?: string }> {
   const raw = text.trim().toLowerCase();
   const first = raw.split(' ')[0];
   const cmd = raw.startsWith('/') ? first : raw.split(' ').slice(0, 2).join('_').replace(' ', '_');
 
   if (BLOCKED_WA.has(raw) || BLOCKED_WA.has(raw.split(' ')[0])) {
-    return { response: 'Remote trading execution is disabled.', status: 'REJECTED' };
+    return { response: 'Remote manual trade execution is disabled for safety. Use signal approval mode instead.', status: 'REJECTED' };
   }
 
   let response = 'Unknown command. Send /help for available commands.';
   let status = 'EXECUTED';
+  let commandId: string | undefined;
 
   try {
+    if (senderId && (isEaBotText(text) || /^\d+$/.test(raw) || ['yes', 'y', 'confirm', 'cancel', 'back'].includes(raw))) {
+      const guided = await handleEaBotInput('WHATSAPP', senderId, { text });
+      return { response: guided.response, status: guided.status, commandId: guided.commandId };
+    }
+
+    const sessionResult = await handleWaSession(senderId, text);
+    if (sessionResult) return sessionResult;
+
+    if (raw === 'menu' || raw === '/menu') {
+      setWaSession(senderId, { flow: 'menu', step: 'choose', data: {} });
+      return { response: buildMainMenu('WHATSAPP'), status: 'SUCCESS' };
+    }
+
+    if (raw === 'cleanup' || raw === '/cleanup') {
+      setWaSession(senderId, { flow: 'cleanup', step: 'confirm', data: {} });
+      return createEaCommandFromIntent({ type: 'cleanup', confirmed: false }, 'WHATSAPP_BAILEYS', senderId, { channel: 'WHATSAPP' });
+    }
+
+    if (['symbols', 'charts', 'logs', 'config'].includes(first) || raw.startsWith('symbols ') || raw.startsWith('screenshot ') || raw.startsWith('attach ') || raw.startsWith('pause ') || raw.startsWith('resume ')) {
+      const ea = await createEaCommandFromIntent(parseEaControlIntent(text), 'WHATSAPP_BAILEYS', senderId, { channel: 'WHATSAPP' });
+      if (ea.handled) return { response: ea.response, status: ea.status, commandId: ea.commandId };
+    }
+
     if (raw === '/help' || raw === 'help') {
-      response = `*ReplayFX Journal Bot*\n\nAvailable commands:\n• /balance or balance\n• /equity or equity\n• /status or status\n• /today or today\n• /open_trades or open trades\n• /last_trade or last trade\n• /pending or pending\n• /detail <setupId> or detail <setupId>\n• /acc <setupId> or acc <setupId>\n• /reject <setupId> or reject <setupId>\n• /help`;
+      response = formatHelp('WHATSAPP');
     } else if (raw === '/status' || raw === 'status') {
-      const accounts = await prisma.tradingAccount.count({ where: { status: 'Active' } });
-      const open = await prisma.liveTrade.count({ where: { status: 'OPEN' } });
-      response = `🟢 *Server Online*\nActive accounts: ${accounts}\nOpen trades: ${open}`;
+      const ea = await createEaCommandFromIntent({ type: 'status' }, 'WHATSAPP_BAILEYS', senderId, { channel: 'WHATSAPP' });
+      response = ea.response;
+      status = ea.status;
+    } else if (raw === '/signals' || raw === 'signals') {
+      const signals = await prisma.eaSignalProposal.findMany({ where: { status: 'PENDING' }, orderBy: { createdAt: 'desc' }, take: 10 });
+      setWaSession(senderId, { flow: 'signals', step: 'choose', data: {} });
+      response = buildWhatsAppPendingSignalsList(signals);
+      status = 'SUCCESS';
     } else if (raw === '/balance' || raw === 'balance' || raw === '/equity' || raw === 'equity') {
       const accounts = await prisma.tradingAccount.findMany({ where: { status: 'Active' }, take: 10 });
       response = accounts.length === 0 ? 'No active accounts.' :
@@ -102,8 +441,23 @@ async function handleWaCommand(text: string): Promise<{ response: string; status
       const review = await handleSetupReviewCommand(text, 'WHATSAPP_BAILEYS');
       if (review.handled) {
         response = review.response;
-        status = review.status === 'IGNORED' ? 'EXECUTED' : review.status;
+        status = review.status === 'IGNORED' ? 'SUCCESS' : review.status;
         await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_REVIEW_COMMAND', status === 'REJECTED' ? 'WARNING' : 'INFO', `Review command: ${first}`);
+      }
+      if (!review.handled || (first.includes('reject') && /\sSIG/i.test(text))) {
+        const ea = await handleEaControlCommand(text, 'WHATSAPP_BAILEYS');
+        if (ea.handled) {
+          response = ea.response;
+          status = ea.status;
+          if (ea.commandId) commandId = ea.commandId;
+        }
+      }
+    } else {
+      const ea = await handleEaControlCommand(text, 'WHATSAPP_BAILEYS');
+      if (ea.handled) {
+        response = ea.response;
+        status = ea.status;
+        if (ea.commandId) commandId = ea.commandId;
       }
     }
   } catch (err: any) {
@@ -111,7 +465,7 @@ async function handleWaCommand(text: string): Promise<{ response: string; status
     status = 'FAILED';
   }
 
-  return { response, status };
+  return { response, status, commandId };
 }
 
 export class BaileysService {
@@ -436,7 +790,7 @@ export class BaileysService {
           await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_MESSAGE_SKIPPED', 'INFO', 'Self command skipped because self mode disabled', { upsertType, messageId: msgId, remoteJid, fromMe, senderNumber, textPreview: textPreview(text), reason: 'self_mode_disabled', fix: 'Enable Self Commands in Integrations > WhatsApp' });
           return;
         }
-        if (!isCommandLike(text)) {
+        if (!getWaSession(senderNumber || remoteJid) && !isCommandLike(text)) {
           this.skippedMessageCount++;
           await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_MESSAGE_SKIPPED', 'INFO', 'Self message skipped because it is not command-like', { upsertType, messageId: msgId, remoteJid, fromMe, senderNumber, textPreview: textPreview(text), reason: 'not_command_like' });
           return;
@@ -455,7 +809,7 @@ export class BaileysService {
           return;
         }
         // Only process if it looks like a command
-        if (!isCommandLike(text)) {
+        if (!getWaSession(senderNumber || remoteJid) && !isCommandLike(text)) {
           this.skippedMessageCount++;
           await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_MESSAGE_SKIPPED', 'INFO', 'External message skipped because it is not command-like', { upsertType, messageId: msgId, remoteJid, fromMe, senderNumber, textPreview: textPreview(text), reason: 'not_command_like' });
           return;
@@ -468,16 +822,21 @@ export class BaileysService {
 
       await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_COMMAND_RECEIVED', 'INFO', `Command from ${senderNumber || remoteJid}: ${text}`, { upsertType, messageId: msgId, remoteJid, fromMe, senderNumber, textPreview: textPreview(text) });
 
-      const { response, status } = await handleWaCommand(text);
+      const { response, status, commandId } = await handleWaCommand(text, senderNumber || remoteJid);
       const markedResponse = `[ReplayFX]\n${response}`;
+
+      if (commandId && ['QUEUED', 'WAITING_CONTROLLER', 'BLOCKED_BY_ACTIVE_COMMAND'].includes(status)) {
+        startCommandWatcher(commandId, 'WHATSAPP_BAILEYS', { chatId: senderNumber || remoteJid, jid: remoteJid });
+      }
 
       // Send reply
       try {
-        await sock.sendMessage(remoteJid, { text: markedResponse });
+        await sock.sendMessage(remoteJid, { text: markedResponse, contextInfo: replayFxContextInfo() });
         this.lastResponse = response;
         this.processedMessageCount++;
         await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_SEND_REPLY_SUCCESS', 'SUCCESS', `Reply sent to ${senderNumber || remoteJid}`, { upsertType, messageId: msgId, remoteJid, fromMe, senderNumber });
-        await logIntegration('WHATSAPP_BAILEYS', status === 'REJECTED' ? 'WHATSAPP_COMMAND_REJECTED' : 'WHATSAPP_COMMAND_EXECUTED', status === 'REJECTED' ? 'WARNING' : 'INFO', `Command handled: ${text.split(' ')[0]}`, { status, remoteJid, fromMe, senderNumber, source: fromMe ? 'self' : 'external', response: 'sent' });
+        const statusLabel = status === 'QUEUED' ? 'QUEUED' : status === 'REJECTED' ? 'REJECTED' : status === 'FAILED' ? 'FAILED' : status === 'SUCCESS' ? 'SUCCESS' : 'PROCESSED';
+        await logIntegration('WHATSAPP_BAILEYS', status === 'REJECTED' ? 'WHATSAPP_COMMAND_REJECTED' : 'WHATSAPP_COMMAND_PROCESSED', status === 'FAILED' ? 'ERROR' : status === 'REJECTED' ? 'WARNING' : 'INFO', status === 'REJECTED' ? `Rejected: ${text.split(' ')[0]}` : status === 'QUEUED' ? `Queued: ${text.split(' ')[0]}` : `Processed: ${text.split(' ')[0]}`, { status: statusLabel, remoteJid, fromMe, senderNumber, source: fromMe ? 'self' : 'external', response: 'sent' });
       } catch (sendErr: any) {
         this.lastCommandError = sendErr.message;
         await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_SEND_REPLY_FAILED', 'ERROR', `Send failed: ${sendErr.message}`, { upsertType, messageId: msgId, remoteJid, fromMe, senderNumber });
@@ -608,7 +967,21 @@ export class BaileysService {
     if (!this.isConnected || !this.sock) return false;
     const target = jid.includes('@') ? jid : `${jid}@s.whatsapp.net`;
     try {
-      await this.sock.sendMessage(target, { text });
+      await this.sock.sendMessage(target, { text, contextInfo: replayFxContextInfo() });
+      this.lastMessageSentAt = new Date().toISOString();
+      this.lastMessageError = null;
+      return true;
+    } catch (error: any) {
+      this.lastMessageError = error.message;
+      return false;
+    }
+  }
+
+  public async sendImage(jid: string, buffer: Buffer, caption?: string) {
+    if (!this.isConnected || !this.sock) return false;
+    const target = jid.includes('@') ? jid : `${jid}@s.whatsapp.net`;
+    try {
+      await this.sock.sendMessage(target, { image: buffer, caption: caption || '', contextInfo: replayFxContextInfo() });
       this.lastMessageSentAt = new Date().toISOString();
       this.lastMessageError = null;
       return true;

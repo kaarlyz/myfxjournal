@@ -40,3 +40,38 @@ server/fixtures/
 # local upload/session storage
 server/uploads/
 server/storage/
+
+# local env / secrets
+.env
+*.env
+server/.env
+client/.env
+
+# dependencies
+node_modules/
+server/node_modules/
+client/node_modules/
+deepseek-cli/.venv/
+
+# local db / runtime
+*.db
+server/*.db
+server/prisma/*.db
+server/uploads/
+uploads/
+
+# logs / backups
+*.log
+logs/
+.codex_backups/
+*.tar.gz
+*.zip
+
+# MT5 compiled binaries
+*.ex5
+*.ex4
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/

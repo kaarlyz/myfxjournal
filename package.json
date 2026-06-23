@@ -8,6 +8,7 @@
     "install:server": "npm install --prefix server",
     "install:client": "npm install --prefix client",
     "dev": "concurrently -n \"server,client\" -c \"cyan,magenta\" \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "dev:clean": "fuser -k 5000/tcp 2>/dev/null || true; fuser -k 3000/tcp 2>/dev/null || true; npm run dev",
     "prisma:generate": "npm run prisma:generate --prefix server",
     "prisma:push": "npm run prisma:push --prefix server",
     "prisma:studio": "npm run prisma:studio --prefix server"

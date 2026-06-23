@@ -432,6 +432,173 @@ model CommandQueue {
   updatedAt     DateTime @updatedAt
 }
 
+model EaTemplate {
+  id               String   @id @default(uuid())
+  name             String
+  fileName         String   @unique
+  templateName     String?
+  category         String?
+  description      String?
+  defaultSymbol    String?
+  defaultTimeframe String?
+  defaultMode      String   @default("NOTIFY_ONLY")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([name])
+}
+
+model EaInstance {
+  id              String   @id @default(uuid())
+  templateId      String?
+  terminalId      String
+  accountNumber   String?
+  symbol          String
+  timeframe       String
+  chartId         String?
+  mode            String   @default("NOTIFY_ONLY")
+  status          String   @default("UNKNOWN")
+  lastHeartbeatAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([terminalId])
+  @@index([templateId])
+  @@index([symbol, timeframe])
+}
+
+model EaRuntimeConfig {
+  id                     String   @id @default(uuid())
+  instanceId             String   @unique
+  mode                   String   @default("NOTIFY_ONLY")
+  riskPercent            Float?
+  rr                     Float?
+  allowBuy               Boolean  @default(true)
+  allowSell              Boolean  @default(true)
+  maxSpread              Float?
+  maxDailyLoss           Float?
+  maxTradesPerDay        Int?
+  takeScreenshotOnSignal Boolean  @default(true)
+  panelWidth             Int?
+  compactPanel           Boolean  @default(false)
+  showZones              Boolean  @default(true)
+  showStats              Boolean  @default(true)
+  customParamsJson       String?
+  updatedAt              DateTime @updatedAt
+}
+
+model EaCommandQueue {
+  id                   String   @id @default(uuid())
+  terminalId           String
+  commandType          String
+  payloadJson          String?
+  status               String   @default("PENDING")
+  confirmationCode     String?
+  requiresConfirmation Boolean  @default(false)
+  source               String   @default("WEBSITE")
+  createdAt            DateTime @default(now())
+  executionId          String?
+  pickToken            String?
+  pickedAt             DateTime?
+  executedAt           DateTime?
+  resultAt             DateTime?
+  expiredAt            DateTime?
+  cancelledAt          DateTime?
+  expiresAt            DateTime?
+  resultJson           String?
+
+  @@index([terminalId, status])
+  @@index([pickToken])
+  @@index([createdAt])
+  @@index([expiresAt])
+}
+
+model EaSignalProposal {
+  id            String    @id @default(uuid())
+  instanceId    String?
+  eaName        String
+  symbol        String
+  timeframe     String
+  side          String
+  entry         Float?
+  sl            Float?
+  tp            Float?
+  rr            Float?
+  riskPercent   Float?
+  lot           Float?
+  reason        String?
+  status        String    @default("PENDING")
+  approvalCode  String    @unique
+  screenshotId  String?
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime?
+  decidedAt     DateTime?
+
+  @@index([status])
+  @@index([instanceId])
+}
+
+model EaScreenshot {
+  id           String   @id @default(uuid())
+  instanceId   String?
+  signalId     String?
+  terminalId   String?
+  commandId    String?
+  filePath     String?
+  localFilePath String?
+  url          String?
+  requestedSymbol String?
+  requestedTimeframe String?
+  actualSymbol String?
+  actualTimeframe String?
+  chartId      String?
+  symbol       String?
+  timeframe    String?
+  status       String?
+  createdAt    DateTime @default(now())
+
+  @@index([instanceId])
+  @@index([signalId])
+  @@index([terminalId])
+  @@index([commandId])
+}
+
+model EaTerminalHeartbeat {
+  id            String   @id @default(uuid())
+  terminalId    String
+  accountNumber String?
+  broker        String?
+  eaName        String?
+  symbol        String?
+  timeframe     String?
+  chartId       String?
+  mode          String?
+  status        String?
+  balance       Float?
+  equity        Float?
+  freeMargin    Float?
+  payloadJson   String?
+  timestamp     DateTime @default(now())
+
+  @@index([terminalId])
+  @@index([timestamp])
+}
+
+model EaCommandLog {
+  id          String   @id @default(uuid())
+  source      String
+  command     String
+  status      String
+  senderId    String?
+  terminalId  String?
+  payloadJson String?
+  resultJson  String?
+  createdAt   DateTime @default(now())
+
+  @@index([source])
+  @@index([createdAt])
+}
+
 model IntegrationLog {
   id        String   @id @default(uuid())
   source    String   // MT5 | TELEGRAM | WHATSAPP_BAILEYS | WHATSAPP_CLOUD | SYSTEM

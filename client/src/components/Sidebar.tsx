@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Home, PlusCircle, UploadCloud, BarChart3, Settings as SettingsIcon,
-  BookOpen, TrendingUp, Zap, Layers, Wallet, Calculator, Link2, FileSearch
+  BookOpen, TrendingUp, Zap, Layers, Wallet, Calculator, Link2, FileSearch, Bot
 } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
 import { formatPnL } from '../utils/numberUtils';
@@ -21,6 +21,7 @@ export default function Sidebar() {
     { path: '/live-journal',   name: 'Live Journal',     icon: BookOpen,      group: 'LIVE'     },
     { path: '/accounts',       name: 'Accounts',         icon: Wallet,        group: 'LIVE'     },
     { path: '/risk-calculator',name: 'Risk Calculator',  icon: Calculator,    group: 'TOOLS'    },
+    { path: '/ea-control',      name: 'EA Control Center',icon: Bot,           group: 'TOOLS'    },
     { path: '/integrations',   name: 'Integrations',     icon: Link2,         group: 'TOOLS'    },
     { path: '/settings',       name: 'Pengaturan',       icon: SettingsIcon,  group: 'SYSTEM'   },
   ];

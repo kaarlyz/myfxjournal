@@ -19,6 +19,7 @@ import integrationLogsRouter from './routes/integration-logs';
 import tradingViewRouter from './routes/tradingview';
 import journalNotesRouter from './routes/journal-notes';
 import mt5ReportsRouter from './routes/mt5-reports';
+import eaControlRouter from './routes/ea-control';
 import { logIntegration } from './utils/logger';
 
 // Load environment variables
@@ -58,6 +59,7 @@ app.use('/api/integrations/tradingview', tradingViewRouter);
 app.use('/api/journal-notes', journalNotesRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/mt5-reports', mt5ReportsRouter);
+app.use('/api/ea-control', eaControlRouter);
 
 // Handle 404 for API routes
 app.use('/api', (req: Request, res: Response) => {
@@ -72,6 +74,17 @@ app.use('/api', (req: Request, res: Response) => {
 
 // Global Error Handler
 app.use((err: any, req: Request, res: Response, next: express.NextFunction) => {
+  if (err?.type === 'entity.parse.failed') {
+    console.warn('Invalid JSON request body:', {
+      path: req.originalUrl,
+      method: req.method,
+      message: err.message,
+    });
+    return res.status(400).json({
+      ok: false,
+      error: 'Invalid JSON request body',
+    });
+  }
   console.error('Global Error Handler:', err);
   res.status(err.status || 500).json({
     ok: false,

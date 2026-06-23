@@ -3,6 +3,7 @@ import { prisma } from '../prisma';
 import { getSettings } from './settings';
 import { EventEmitter } from 'events';
 import { logIntegration } from '../utils/logger';
+import { notifyTradeLifecycle } from '../services/tradeNotifier';
 
 // Global Event Emitter for SSE
 export const mt5Events = new EventEmitter();
@@ -236,6 +237,11 @@ router.post('/trade-event', rateLimiter, authMiddleware, async (req: Request, re
       const remainingLot = liveTrade.lot - closedLot;
       
       const isFullClose = eventType === 'CLOSE' || remainingLot <= 0.001; // floating point safe
+      const closeReason = (!comment ? '' : String(comment)).toLowerCase().includes('tp') || (liveTrade.takeProfit != null && Math.abs(parseFloat(price) - liveTrade.takeProfit) <= Math.max(Math.abs(liveTrade.takeProfit) * 0.0002, 0.00001))
+        ? 'TP hit'
+        : isFullClose
+          ? 'Closed'
+          : 'Partial close';
       
       liveTrade = await prisma.liveTrade.update({
         where: { positionId: String(positionId) },
@@ -249,6 +255,38 @@ router.post('/trade-event', rateLimiter, authMiddleware, async (req: Request, re
           swap: (liveTrade.swap || 0) + (swap ? parseFloat(swap) : 0),
         }
       });
+
+      if (isFullClose || eventType === 'PARTIAL_CLOSE') {
+        await notifyTradeLifecycle({
+          id: liveTrade.id,
+          symbol: liveTrade.symbol,
+          side: liveTrade.side,
+          lot: liveTrade.lot,
+          entryPrice: liveTrade.entryPrice,
+          closePrice: parseFloat(price),
+          stopLoss: liveTrade.stopLoss,
+          takeProfit: liveTrade.takeProfit,
+          openTime: liveTrade.openTime,
+          closeTime: parsedTime,
+          profit: liveTrade.profit || 0,
+          profitCurrency: account.currency,
+          riskMoney: liveTrade.riskMoney,
+          riskPercent: liveTrade.riskPercent,
+          rMultiple: liveTrade.rMultiple,
+          status: liveTrade.status,
+          notes: liveTrade.notes,
+          strategyTag: liveTrade.strategyTag,
+          emotionTag: liveTrade.emotionTag,
+          mistakeTag: liveTrade.mistakeTag,
+          source: liveTrade.source,
+          positionId: liveTrade.positionId,
+          closeReason,
+          eventType: closeReason === 'TP hit' && isFullClose ? 'TP' : eventType === 'PARTIAL_CLOSE' ? 'PARTIAL_CLOSE' : 'CLOSE',
+          accountName: account.name,
+          accountNumber: account.accountNumber,
+          broker: account.broker,
+        }).catch(err => console.error('Failed to send MT5 trade notification:', err));
+      }
     }
 
     await prisma.webhookEvent.update({
