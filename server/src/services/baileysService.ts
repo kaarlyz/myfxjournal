@@ -6,15 +6,10 @@ import { Boom } from '@hapi/boom';
 import { logIntegration } from './../utils/logger';
 import { prisma } from '../prisma';
 import { handleSetupReviewCommand } from './setupReviewService';
-import {
-  buildMainMenu,
-  createEaCommandFromIntent,
-  formatHelp,
-  handleEaControlCommand,
-  parseEaControlIntent,
-} from './eaControlService';
-import { startCommandWatcher } from './eaCommandWatcher';
+import { createEaCommandFromIntent, parseEaControlIntent, handleEaControlCommand, buildMainMenu, formatHelp } from './eaControlService';
 import { handleEaBotInput, isEaBotText } from './eaMenuService';
+import { getEaSession } from './eaSessionService';
+import { startCommandWatcher } from './eaCommandWatcher';
 
 const QR_TTL_MS = 50000;
 
@@ -158,7 +153,7 @@ async function getWaSettings(): Promise<{ allowedNumbers: string[]; selfCommands
   };
 }
 
-async function handleWaSession(senderId: string | undefined, text: string): Promise<{ response: string; status: string; commandId?: string } | null> {
+async function handleWaSession(senderId: string | undefined, text: string): Promise<{ response: string; status: string; commandId?: string; mediaPath?: string | null } | null> {
   const session = getWaSession(senderId);
   if (!session) return null;
   const value = text.trim();
@@ -374,7 +369,7 @@ async function handleWaSession(senderId: string | undefined, text: string): Prom
   return null;
 }
 
-async function handleWaCommand(text: string, senderId?: string): Promise<{ response: string; status: string; commandId?: string }> {
+async function handleWaCommand(text: string, senderId?: string): Promise<{ response: string; status: string; commandId?: string; mediaPath?: string | null }> {
   const raw = text.trim().toLowerCase();
   const first = raw.split(' ')[0];
   const cmd = raw.startsWith('/') ? first : raw.split(' ').slice(0, 2).join('_').replace(' ', '_');
@@ -386,11 +381,17 @@ async function handleWaCommand(text: string, senderId?: string): Promise<{ respo
   let response = 'Unknown command. Send /help for available commands.';
   let status = 'EXECUTED';
   let commandId: string | undefined;
+  let mediaPath: string | null | undefined;
 
   try {
-    if (senderId && (isEaBotText(text) || /^\d+$/.test(raw) || ['yes', 'y', 'confirm', 'cancel', 'back'].includes(raw))) {
-      const guided = await handleEaBotInput('WHATSAPP', senderId, { text });
-      return { response: guided.response, status: guided.status, commandId: guided.commandId };
+    if (senderId) {
+      const hasEaSession = !!getEaSession('WHATSAPP', senderId);
+      if (hasEaSession || isEaBotText(text)) {
+        const guided = await handleEaBotInput('WHATSAPP', senderId, { text });
+        if (guided) {
+          return { response: guided.response, status: guided.status, commandId: guided.commandId, mediaPath: guided.mediaPath };
+        }
+      }
     }
 
     const sessionResult = await handleWaSession(senderId, text);
@@ -408,7 +409,7 @@ async function handleWaCommand(text: string, senderId?: string): Promise<{ respo
 
     if (['symbols', 'charts', 'logs', 'config'].includes(first) || raw.startsWith('symbols ') || raw.startsWith('screenshot ') || raw.startsWith('attach ') || raw.startsWith('pause ') || raw.startsWith('resume ')) {
       const ea = await createEaCommandFromIntent(parseEaControlIntent(text), 'WHATSAPP_BAILEYS', senderId, { channel: 'WHATSAPP' });
-      if (ea.handled) return { response: ea.response, status: ea.status, commandId: ea.commandId };
+      if (ea.handled) return { response: ea.response, status: ea.status, commandId: ea.commandId, mediaPath: (ea as any).mediaPath };
     }
 
     if (raw === '/help' || raw === 'help') {
@@ -447,17 +448,19 @@ async function handleWaCommand(text: string, senderId?: string): Promise<{ respo
       if (!review.handled || (first.includes('reject') && /\sSIG/i.test(text))) {
         const ea = await handleEaControlCommand(text, 'WHATSAPP_BAILEYS');
         if (ea.handled) {
-          response = ea.response;
-          status = ea.status;
-          if (ea.commandId) commandId = ea.commandId;
+      response = ea.response;
+      status = ea.status;
+      if (ea.commandId) commandId = ea.commandId;
+      mediaPath = (ea as any).mediaPath;
         }
       }
     } else {
       const ea = await handleEaControlCommand(text, 'WHATSAPP_BAILEYS');
       if (ea.handled) {
-        response = ea.response;
-        status = ea.status;
-        if (ea.commandId) commandId = ea.commandId;
+      response = ea.response;
+      status = ea.status;
+      if (ea.commandId) commandId = ea.commandId;
+      mediaPath = (ea as any).mediaPath;
       }
     }
   } catch (err: any) {
@@ -465,7 +468,7 @@ async function handleWaCommand(text: string, senderId?: string): Promise<{ respo
     status = 'FAILED';
   }
 
-  return { response, status, commandId };
+  return { response, status, commandId, mediaPath };
 }
 
 export class BaileysService {
@@ -473,10 +476,20 @@ export class BaileysService {
   private sock: any = null;
   private sessionId: string = 'primary_session';
 
+  private connectPromise: Promise<void> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
+  private connectionGeneration = 0;
+  private isConnecting = false;
+  private connectionState: 'idle' | 'connecting' | 'open' | 'closed' | 'reconnecting' | 'error' = 'idle';
+
+  private latestQr: string | null = null;
   private qrDataUrl: string | null = null;
   private qrUpdatedAt: string | null = null;
   private qrExpiresAt: number | null = null;
   private lastQrError: string | null = null;
+  private lastDisconnectReason: string | null = null;
+  private lastDisconnectStatusCode: number | null = null;
 
   private status: 'not_started' | 'starting' | 'connecting' | 'qr_waiting' | 'qr_ready' | 'pairing_requested' | 'pairing_ready' | 'connected' | 'disconnected' | 'error' = 'not_started';
   private isConnected = false;
@@ -504,8 +517,6 @@ export class BaileysService {
   private lastRawMessageText: string | null = null;
   private processedMessageCount = 0;
   private skippedMessageCount = 0;
-
-  private autoReconnect = true;
 
   private constructor() {}
 
@@ -589,6 +600,11 @@ export class BaileysService {
       lastCommandError: this.lastCommandError,
       processedMessageCount: this.processedMessageCount,
       skippedMessageCount: this.skippedMessageCount,
+      lastDisconnectAt: this.lastDisconnectAt,
+      lastError: this.lastError,
+      qrAvailable: !!this.qrDataUrl,
+      authenticatedSessionExists: fs.existsSync(this.getAuthFolder(this.sessionId)),
+      needsQr: !this.isConnected && !fs.existsSync(this.getAuthFolder(this.sessionId)),
     };
   }
 
@@ -618,114 +634,168 @@ export class BaileysService {
     return path.join(process.cwd(), 'storage', 'baileys-auth', sid);
   }
 
-  private async closeSocket() {
-    this.autoReconnect = false;
-    if (this.sock) {
-      try { this.sock.ev.removeAllListeners(); } catch {}
-      try { this.sock.ws?.close(); } catch {}
-      this.sock = null;
+  private clearReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
-    this.autoReconnect = true;
   }
 
-  public async connect(sessionId: string = 'primary_session') {
-    if (this.status === 'starting' || this.status === 'connecting' || this.status === 'connected') return;
+  private async closeSocket() {
+    this.clearReconnectTimer();
+    const sock = this.sock;
+    this.sock = null;
+    this.isConnecting = false;
+    this.connectionState = 'closed';
+    if (sock) {
+      try { sock.ev.removeAllListeners(); } catch {}
+      try { sock.ws?.close(); } catch {}
+    }
+  }
+
+  private scheduleReconnect(sessionId: string) {
+    if (this.reconnectAttempts >= 6) {
+      this.status = 'error';
+      this.connectionState = 'error';
+      return;
+    }
+    this.clearReconnectTimer();
+    const delay = Math.min(30000, 2000 * Math.pow(2, this.reconnectAttempts));
+    this.reconnectAttempts += 1;
+    this.connectionState = 'reconnecting';
+    const generation = this.connectionGeneration;
+    this.reconnectTimer = setTimeout(() => {
+      if (generation !== this.connectionGeneration) return;
+      void this.connect(sessionId).catch(() => {});
+    }, delay);
+  }
+
+  public async connect(sessionId: string = 'primary_session', opts?: { force?: boolean }) {
+    if (!opts?.force && (this.sock || this.isConnecting || this.connectPromise || this.status === 'connected' || this.status === 'connecting' || this.status === 'starting')) {
+      return this.connectPromise || Promise.resolve();
+    }
+
     this.sessionId = sessionId;
     this.status = 'starting';
+    this.isConnecting = true;
+    this.connectionState = 'connecting';
+    this.connectionGeneration += 1;
+    const generation = this.connectionGeneration;
+    this.latestQr = null;
     this.qrDataUrl = null;
     this.qrUpdatedAt = null;
     this.qrExpiresAt = null;
     this.pairingCode = null;
+    this.pairingCodeExpiresAt = null;
     this.lastQrError = null;
+    this.lastPairingError = null;
 
-    logIntegration('WHATSAPP_BAILEYS', 'WA_START_SESSION', 'INFO', `Starting Baileys session: ${sessionId}`);
+    if (this.connectPromise) return this.connectPromise;
 
-    const authFolder = this.getAuthFolder(sessionId);
-    if (!fs.existsSync(authFolder)) fs.mkdirSync(authFolder, { recursive: true });
+    this.connectPromise = (async () => {
+      logIntegration('WHATSAPP_BAILEYS', 'WA_START_SESSION', 'INFO', `Starting Baileys session: ${sessionId}`);
+      const authFolder = this.getAuthFolder(sessionId);
+      if (!fs.existsSync(authFolder)) fs.mkdirSync(authFolder, { recursive: true });
+      const { state, saveCreds } = await useMultiFileAuthState(authFolder);
+      if (generation !== this.connectionGeneration) return;
 
-    const { state, saveCreds } = await useMultiFileAuthState(authFolder);
+      const sock = makeWASocket({
+        auth: state,
+        browser: Browsers.macOS('Desktop'),
+        syncFullHistory: false,
+      });
 
-    const sock = makeWASocket({
-      auth: state,
-      printQRInTerminal: true,
-      browser: Browsers.macOS('Desktop'),
-      syncFullHistory: false,
-    });
+      this.sock = sock;
 
-    sock.ev.on('connection.update', async (update: any) => {
-      const { connection, lastDisconnect, qr } = update;
-      if (connection === 'connecting') this.status = 'connecting';
-
-      if (qr) {
-        this.status = 'qr_ready';
-        try {
-          this.qrDataUrl = await QRCode.toDataURL(qr);
-          this.qrUpdatedAt = new Date().toISOString();
-          this.qrExpiresAt = Date.now() + QR_TTL_MS;
-          this.lastQrError = null;
-          logIntegration('WHATSAPP_BAILEYS', 'WA_QR_READY', 'INFO', 'QR code generated');
-        } catch (e: any) {
-          this.lastQrError = e.message;
+      sock.ev.on('connection.update', async (update: any) => {
+        const { connection, lastDisconnect, qr } = update;
+        if (generation !== this.connectionGeneration) return;
+        if (connection === 'connecting') {
+          this.status = 'connecting';
+          this.connectionState = 'connecting';
         }
-      }
-
-      if (connection === 'close') {
-        this.isConnected = false;
-        this.lastDisconnectAt = new Date().toISOString();
-        const error = (lastDisconnect?.error as Boom);
-        this.lastError = error?.message || 'Connection closed';
-        const shouldReconnect = error?.output?.statusCode !== DisconnectReason.loggedOut;
-        logIntegration('WHATSAPP_BAILEYS', 'WA_DISCONNECTED', 'WARNING', `Closed: ${this.lastError}`);
-
-        if (shouldReconnect && this.autoReconnect) {
-          this.status = 'disconnected';
-          setTimeout(() => this.connect(sessionId), 5000);
-        } else {
-          this.status = 'not_started';
+        if (qr) {
+          this.status = 'qr_ready';
+          this.connectionState = 'connecting';
+          try {
+            this.latestQr = qr;
+            this.qrDataUrl = await QRCode.toDataURL(qr);
+            this.qrUpdatedAt = new Date().toISOString();
+            this.qrExpiresAt = Date.now() + QR_TTL_MS;
+            this.lastQrError = null;
+            logIntegration('WHATSAPP_BAILEYS', 'WA_QR_READY', 'INFO', 'QR code generated');
+          } catch (e: any) {
+            this.lastQrError = e?.message || 'Failed to render QR';
+          }
+        }
+        if (connection === 'open') {
+          this.isConnected = true;
+          this.isConnecting = false;
+          this.status = 'connected';
+          this.connectionState = 'open';
+          this.reconnectAttempts = 0;
+          this.lastConnectedAt = new Date().toISOString();
+          this.lastError = null;
+          this.latestQr = null;
+          this.qrDataUrl = null;
+          this.qrExpiresAt = null;
+          this.pairingCode = null;
+          const id = sock.user?.id;
+          if (id) {
+            this.userJid = id;
+            this.phoneNumber = id.split(':')[0];
+            this.pushName = sock.user?.name || null;
+          }
+          logIntegration('WHATSAPP_BAILEYS', 'WA_CONNECTED', 'SUCCESS', `Connected as ${this.phoneNumber || this.userJid}`);
+        }
+        if (connection === 'close') {
+          this.isConnected = false;
+          this.isConnecting = false;
+          this.lastDisconnectAt = new Date().toISOString();
+          const error = (lastDisconnect?.error as Boom);
+          this.lastDisconnectReason = error?.message || 'Connection closed';
+          this.lastDisconnectStatusCode = error?.output?.statusCode || null;
+          this.lastError = this.lastDisconnectReason;
+          const shouldReconnect = this.lastDisconnectStatusCode !== DisconnectReason.loggedOut;
+          this.status = shouldReconnect ? 'disconnected' : 'not_started';
+          this.connectionState = shouldReconnect ? 'closed' : 'idle';
+          logIntegration('WHATSAPP_BAILEYS', 'WA_DISCONNECTED', 'WARNING', `Closed: ${this.lastDisconnectReason}`);
+          this.sock = null;
           if (!shouldReconnect) {
             const af = this.getAuthFolder(sessionId);
             if (fs.existsSync(af)) fs.rmSync(af, { recursive: true, force: true });
+            this.reconnectAttempts = 0;
+            return;
           }
+          this.scheduleReconnect(sessionId);
         }
-      } else if (connection === 'open') {
-        this.isConnected = true;
-        this.status = 'connected';
-        this.lastConnectedAt = new Date().toISOString();
-        this.lastError = null;
-        this.qrDataUrl = null;
-        this.qrExpiresAt = null;
-        this.pairingCode = null;
-        const id = sock.user?.id;
-        if (id) {
-          this.userJid = id;
-          this.phoneNumber = id.split(':')[0];
-          this.pushName = sock.user?.name || null;
-        }
-        logIntegration('WHATSAPP_BAILEYS', 'WA_CONNECTED', 'SUCCESS', `Connected as ${this.phoneNumber || this.userJid}`);
-      }
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('messages.upsert', async (upsert: any) => {
-      this.lastUpsertAt = new Date().toISOString();
-      await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_UPSERT_RECEIVED', 'INFO', `Upsert received: ${upsert.type}`, {
-        upsertType: upsert.type,
-        messageCount: Array.isArray(upsert.messages) ? upsert.messages.length : 0,
       });
-      if (upsert.type !== 'notify') {
-        await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_MESSAGE_SKIPPED', 'INFO', `Non-notify upsert logged only: ${upsert.type}`, {
+
+      sock.ev.on('creds.update', saveCreds);
+      sock.ev.on('messages.upsert', async (upsert: any) => {
+        this.lastUpsertAt = new Date().toISOString();
+        await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_UPSERT_RECEIVED', 'INFO', `Upsert received: ${upsert.type}`, {
           upsertType: upsert.type,
-          reason: 'non_notify_upsert',
+          messageCount: Array.isArray(upsert.messages) ? upsert.messages.length : 0,
         });
-        return;
-      }
-      for (const msg of upsert.messages || []) {
-        await this.processIncomingMessage(sock, msg, upsert.type);
-      }
+        if (upsert.type !== 'notify') {
+          await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_MESSAGE_SKIPPED', 'INFO', `Non-notify upsert logged only: ${upsert.type}`, {
+            upsertType: upsert.type,
+            reason: 'non_notify_upsert',
+          });
+          return;
+        }
+        for (const msg of upsert.messages || []) {
+          await this.processIncomingMessage(sock, msg, upsert.type);
+        }
+      });
+    })().finally(() => {
+      this.connectPromise = null;
+      this.isConnecting = false;
+      if (this.status === 'starting') this.status = this.isConnected ? 'connected' : 'disconnected';
     });
 
-    this.sock = sock;
+    return this.connectPromise;
   }
 
   private async processIncomingMessage(sock: any, msg: any, upsertType: string = 'notify') {
@@ -822,7 +892,7 @@ export class BaileysService {
 
       await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_COMMAND_RECEIVED', 'INFO', `Command from ${senderNumber || remoteJid}: ${text}`, { upsertType, messageId: msgId, remoteJid, fromMe, senderNumber, textPreview: textPreview(text) });
 
-      const { response, status, commandId } = await handleWaCommand(text, senderNumber || remoteJid);
+      const { response, status, commandId, mediaPath } = await handleWaCommand(text, senderNumber || remoteJid);
       const markedResponse = `[ReplayFX]\n${response}`;
 
       if (commandId && ['QUEUED', 'WAITING_CONTROLLER', 'BLOCKED_BY_ACTIVE_COMMAND'].includes(status)) {
@@ -831,7 +901,18 @@ export class BaileysService {
 
       // Send reply
       try {
-        await sock.sendMessage(remoteJid, { text: markedResponse, contextInfo: replayFxContextInfo() });
+        if (mediaPath && fs.existsSync(mediaPath)) {
+          // Image + full menu text as caption in ONE message
+          try {
+            await sock.sendMessage(remoteJid, { image: fs.readFileSync(mediaPath), caption: markedResponse, contextInfo: replayFxContextInfo() });
+          } catch (bannerErr: any) {
+            // Image failed — fall back to text-only
+            await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_BANNER_FAILED', 'WARNING', `Banner send failed, falling back to text: ${bannerErr.message}`, { remoteJid });
+            await sock.sendMessage(remoteJid, { text: markedResponse, contextInfo: replayFxContextInfo() });
+          }
+        } else {
+          await sock.sendMessage(remoteJid, { text: markedResponse, contextInfo: replayFxContextInfo() });
+        }
         this.lastResponse = response;
         this.processedMessageCount++;
         await logIntegration('WHATSAPP_BAILEYS', 'WHATSAPP_SEND_REPLY_SUCCESS', 'SUCCESS', `Reply sent to ${senderNumber || remoteJid}`, { upsertType, messageId: msgId, remoteJid, fromMe, senderNumber });
@@ -917,6 +998,20 @@ export class BaileysService {
     this.userJid = null;
     this.phoneNumber = null;
     await this.connect(this.sessionId);
+  }
+
+  public async logoutSession(): Promise<void> {
+    logIntegration('WHATSAPP_BAILEYS', 'WA_SOCKET_LOGOUT', 'INFO', 'Session logout requested');
+    await this.closeSocket();
+    const af = this.getAuthFolder(this.sessionId);
+    if (fs.existsSync(af)) fs.rmSync(af, { recursive: true, force: true });
+    this.isConnected = false;
+    this.status = 'not_started';
+    this.qrDataUrl = null;
+    this.qrExpiresAt = null;
+    this.pairingCode = null;
+    this.userJid = null;
+    this.phoneNumber = null;
   }
 
   public async reconnectExistingSession(): Promise<void> {

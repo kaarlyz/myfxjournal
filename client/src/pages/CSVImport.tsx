@@ -7,8 +7,6 @@ import {
   AlertTriangle, 
   Info, 
   Play, 
-  Trash2, 
-  HelpCircle,
   BarChart3
 } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
@@ -18,13 +16,14 @@ import { HelpCard, PageGuide } from '../components/help/HelpSystem';
 import { SymbolSelect } from '../components/forms/SymbolSelect';
 import { TimeframeSelect } from '../components/forms/TimeframeSelect';
 import { MarketCategorySelect } from '../components/forms/MarketCategorySelect';
+import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { Button } from '../components/ui/Button';
 
 export default function CSVImport() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { sessions, fetchSessions, selectSession, settings, fetchSettings } = useJournalStore();
 
-  // CSV parsing states
   const [file, setFile] = useState<File | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [parseResult, setParseResult] = useState<{
@@ -38,11 +37,9 @@ export default function CSVImport() {
   } | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
 
-  // Import destination configuration states
   const [importMode, setImportMode] = useState<'NEW' | 'REPLACE' | 'APPEND' | 'SMART_MERGE'>('NEW');
   const [existingSessionId, setExistingSessionId] = useState<string>('');
   
-  // New session details state (in case importMode === 'NEW')
   const [sessionName, setSessionName] = useState('');
   const [symbol, setSymbol] = useState('XAUUSD');
   const [customSymbol, setCustomSymbol] = useState('');
@@ -73,7 +70,6 @@ export default function CSVImport() {
     }
   }, [searchParams]);
 
-  // Prepopulate rate and risk parameters when global settings load
   useEffect(() => {
     if (settings) {
       setUsdIdrRate(String(settings.usdIdrRate));
@@ -82,31 +78,22 @@ export default function CSVImport() {
     }
   }, [settings]);
 
-  // Prepopulate active existing session option if sessions list is not empty
   useEffect(() => {
     if (sessions.length > 0 && !existingSessionId) {
       setExistingSessionId(sessions[0].id);
     }
   }, [sessions, existingSessionId]);
 
-  // Handle Drag-and-Drop file uploads
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const droppedFiles = e.dataTransfer.files;
-    if (droppedFiles.length > 0) {
-      processFile(droppedFiles[0]);
-    }
+    if (droppedFiles.length > 0) processFile(droppedFiles[0]);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const chosenFiles = e.target.files;
-    if (chosenFiles && chosenFiles.length > 0) {
-      processFile(chosenFiles[0]);
-    }
+    if (chosenFiles && chosenFiles.length > 0) processFile(chosenFiles[0]);
   };
 
   const processFile = async (selectedFile: File) => {
@@ -137,11 +124,9 @@ export default function CSVImport() {
       const data = await res.json();
       setParseResult(data);
       
-      // Default new session name to file name (sans extension)
       const baseName = selectedFile.name.replace(/\.[^/.]+$/, "");
       setSessionName(`Backtest ${baseName}`);
 
-      // Try to guess symbol from file name (e.g. "XAUUSD_Strategy" -> XAUUSD)
       const guessSymbol = baseName.split(/[_\-\s]/)[0]?.toUpperCase();
       if (guessSymbol && guessSymbol.length >= 6 && guessSymbol.length <= 8) {
         setSymbol(guessSymbol);
@@ -222,14 +207,14 @@ export default function CSVImport() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Import CSV TradingView</h1>
-          <p className="text-xs text-[#707a8a] mt-1">
-            Unggah file CSV hasil export list of trades Strategy Tester TradingView untuk diolah secara otomatis.
-          </p>
-        </div>
+    <div className="space-y-8 max-w-7xl mx-auto">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
+        <PageHeader 
+          label="Data Import"
+          title="Import CSV TradingView"
+          subtitle="Unggah file CSV hasil export list of trades Strategy Tester TradingView untuk diolah secara otomatis."
+          labelColor="blue"
+        />
         <PageGuide
           title="Import CSV TradingView"
           purpose="Gunakan halaman ini untuk memasukkan hasil Strategy Tester TradingView ke ReplayFX agar bisa dianalisis sebagai dashboard backtest."
@@ -251,90 +236,77 @@ export default function CSVImport() {
         />
       </div>
 
-      <HelpCard title="CSV vs MT5 Report">
+      <HelpCard title="CSV vs MT5 Report" tone="neutral">
         CSV TradingView cocok untuk strategi Pine/TradingView. Untuk EA MT5, gunakan Import MT5 Report karena file XLSX berisi statistik Strategy Tester dan graph CSV berisi kurva balance/equity asli.
       </HelpCard>
 
-      {/* Success Card */}
       {importSuccess && (
-        <div className="rounded-xl border border-[rgba(14,203,129,0.3)] bg-[rgba(14,203,129,0.06)] p-6 space-y-5">
-          <div className="flex items-center space-x-3">
-            <CheckCircle className="w-8 h-8 text-[#0ecb81] shrink-0" />
+        <div className="bg-white border-4 border-[var(--profit)] p-6 md:p-8 shadow-[8px_8px_0px_0px_var(--profit)] flex flex-col space-y-6">
+          <div className="flex items-center space-x-4">
+            <div className="bg-[var(--profit)] text-white p-3 border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212]">
+              <CheckCircle className="w-8 h-8 shrink-0" strokeWidth={2.5} />
+            </div>
             <div>
-              <h2 className="text-lg font-bold text-white">CSV imported successfully.</h2>
-              <p className="text-xs text-[#0ecb81] font-semibold">{importSuccess.sessionName}</p>
+              <h2 className="text-[20px] font-black text-[#121212] uppercase tracking-wide">CSV Imported Successfully</h2>
+              <p className="text-[14px] text-[var(--profit)] font-bold">{importSuccess.sessionName}</p>
             </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              {[
-                { label: 'Mode', value: importSuccess.mode },
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+            {[
+              { label: 'Mode', value: importSuccess.mode },
               { label: 'Previous Trades', value: importSuccess.previousTradeCount ?? 0 },
               { label: 'Valid Trades', value: importSuccess.validTrades },
               { label: 'Inserted', value: importSuccess.insertedTrades },
-              { label: 'Skipped Duplikat', value: importSuccess.skippedDuplicates ?? 0 },
+              { label: 'Skipped', value: importSuccess.skippedDuplicates ?? 0 },
               { label: 'Invalid Rows', value: importSuccess.invalidRows },
               { label: 'Total Trades', value: importSuccess.newTotalTrades },
               { label: 'Winrate', value: importSuccess.winrate !== undefined ? formatPercent(importSuccess.winrate) : '-' },
               { label: 'Net PnL', value: importSuccess.netPnlUsd !== undefined ? formatUsd(importSuccess.netPnlUsd) : '-' },
-              { label: 'Trade Date Range', value: importSuccess.earliestTradeDate && importSuccess.latestTradeDate ? `${importSuccess.earliestTradeDate} -> ${importSuccess.latestTradeDate}` : '-' },
+              { label: 'Date Range', value: importSuccess.earliestTradeDate && importSuccess.latestTradeDate ? `${importSuccess.earliestTradeDate} -> ${importSuccess.latestTradeDate}` : '-' },
               { label: 'Date Source', value: importSuccess.dateSource || '-' },
             ].map(item => (
-              <div key={item.label} className="bg-[#1e2329] border border-[#2b3139] rounded-lg p-3 text-center">
-                <div className="text-[10px] text-[#707a8a] font-semibold uppercase mb-1">{item.label}</div>
-                <div className="text-sm font-bold text-white">{item.value}</div>
+              <div key={item.label} className="bg-white border-2 border-[#121212] p-3 shadow-[4px_4px_0px_0px_#121212] flex flex-col justify-center">
+                <div className="text-[10px] text-[#717182] font-extrabold uppercase tracking-widest mb-1">{item.label}</div>
+                <div className="text-[14px] font-black text-[#121212] leading-none">{item.value}</div>
               </div>
             ))}
           </div>
-          <div className="flex flex-wrap gap-3 pt-1">
-            <button
-              onClick={() => { selectSession(importSuccess.sessionId); navigate(`/dashboard?sessionId=${importSuccess.sessionId}`); }}
-              className="flex items-center space-x-2 px-6 py-3 bg-[#fcd535] hover:bg-[#f0b90b] text-[#181a20] font-bold rounded-xl text-sm transition"
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>View Analysis Dashboard</span>
-            </button>
-            <button
-              onClick={() => { selectSession(importSuccess.sessionId); navigate(`/sessions`); }}
-              className="px-5 py-3 bg-[#2b3139] hover:bg-[#363e47] text-white font-semibold rounded-xl text-sm transition"
-            >
+          <div className="flex flex-wrap gap-4 pt-4 border-t-4 border-[#121212]">
+            <Button variant="profit" onClick={() => { selectSession(importSuccess.sessionId); navigate(`/dashboard?sessionId=${importSuccess.sessionId}`); }}>
+              <BarChart3 className="w-4 h-4 mr-2" /> View Dashboard
+            </Button>
+            <Button variant="secondary" onClick={() => { selectSession(importSuccess.sessionId); navigate(`/sessions`); }}>
               View Session
-            </button>
-            <button
-              onClick={() => { setImportSuccess(null); setFile(null); setParseResult(null); setParseError(null); setImportError(null); }}
-              className="px-5 py-3 bg-[#2b3139] hover:bg-[#363e47] text-white font-semibold rounded-xl text-sm transition"
-            >
-              Import CSV Lain
-            </button>
-            <Link
-              to={`/csv-import?sessionId=${importSuccess.sessionId}&history=1`}
-              className="px-5 py-3 bg-[#2b3139] hover:bg-[#363e47] text-white font-semibold rounded-xl text-sm transition"
-            >
-              View Import History
+            </Button>
+            <Button variant="secondary" onClick={() => { setImportSuccess(null); setFile(null); setParseResult(null); setParseError(null); setImportError(null); }}>
+              Import Another
+            </Button>
+            <Link to={`/csv-import?sessionId=${importSuccess.sessionId}&history=1`} className="px-6 py-3 bg-white border-2 border-[#121212] text-[#121212] font-extrabold uppercase tracking-widest text-[12px] shadow-[4px_4px_0px_0px_#121212] hover:bg-[#F0F0F0] hover:-translate-y-0.5 transition-all">
+              View History
             </Link>
           </div>
         </div>
       )}
 
       {parseError && (
-        <div className="bg-[rgba(246,70,93,0.08)] border border-[rgba(246,70,93,0.2)] rounded-xl p-4 text-xs font-semibold text-[#f6465d] flex items-center space-x-2">
-          <AlertTriangle className="w-5 h-5 shrink-0" />
+        <div className="bg-[var(--loss)] border-4 border-[#121212] p-5 text-[14px] font-bold text-white shadow-[4px_4px_0px_0px_#121212] flex items-center space-x-3">
+          <AlertTriangle className="w-6 h-6 shrink-0" strokeWidth={2.5} />
           <span>{parseError}</span>
         </div>
       )}
 
       {importError && (
-        <div className="bg-[rgba(246,70,93,0.08)] border border-[rgba(246,70,93,0.2)] rounded-xl p-4 text-xs font-semibold text-[#f6465d] flex items-center space-x-2">
-          <AlertTriangle className="w-5 h-5 shrink-0" />
+        <div className="bg-[var(--loss)] border-4 border-[#121212] p-5 text-[14px] font-bold text-white shadow-[4px_4px_0px_0px_#121212] flex items-center space-x-3">
+          <AlertTriangle className="w-6 h-6 shrink-0" strokeWidth={2.5} />
           <span>{importError}</span>
         </div>
       )}
 
-      {/* Step 1: Upload Zone */}
       {!parseResult && !isParsing && !importSuccess && (
         <div 
           onDragOver={handleDragOver}
           onDrop={handleDrop}
-          className=" rounded-xl border-2 border-dashed border-[#2b3139] hover:border-[rgba(14,203,129,0.3)] p-12 text-center transition duration-300 group cursor-pointer max-w-2xl mx-auto space-y-4"
+          className="bg-white border-4 border-dashed border-[#121212] hover:border-[#1040C0] p-16 text-center transition-colors group cursor-pointer max-w-3xl mx-auto shadow-[8px_8px_0px_0px_#121212]"
         >
           <input 
             type="file" 
@@ -343,155 +315,151 @@ export default function CSVImport() {
             onChange={handleFileChange}
             className="hidden"
           />
-          <label htmlFor="csv-file-input" className="cursor-pointer block space-y-4">
-            <div className="w-16 h-16 bg-[#1e2329] text-[#929aa5] group-hover:text-[#0ecb81] rounded-full flex items-center justify-center mx-auto transition duration-300">
-              <Upload className="w-8 h-8" />
+          <label htmlFor="csv-file-input" className="cursor-pointer block space-y-6">
+            <div className="w-20 h-20 bg-[#F0F0F0] border-4 border-[#121212] text-[#121212] group-hover:bg-[#1040C0] group-hover:text-white group-hover:border-[#1040C0] shadow-[6px_6px_0px_0px_#121212] group-hover:shadow-none group-hover:translate-x-[6px] group-hover:translate-y-[6px] flex items-center justify-center mx-auto transition-all">
+              <Upload className="w-10 h-10" strokeWidth={2.5} />
             </div>
-            <div className="space-y-1.5">
-              <h3 className="text-sm font-bold text-white group-hover:text-[#0ecb81] transition">
-                Tarik & Lepas File CSV di Sini
+            <div className="space-y-2">
+              <h3 className="text-[20px] font-black text-[#121212] uppercase tracking-wide">
+                Drag & Drop CSV File Here
               </h3>
-              <p className="text-xs text-[#707a8a]">
-                Atau klik untuk menelusuri file dari penyimpanan lokal
+              <p className="text-[12px] font-bold text-[#717182] uppercase tracking-wider">
+                Or click to browse
               </p>
             </div>
-            <div className="text-[10px] text-[#707a8a] bg-[#1e2329]/30 border border-gray-850 rounded-lg p-2 max-w-sm mx-auto flex items-center space-x-1.5 justify-center">
-              <FileSpreadsheet className="w-3.5 h-3.5 text-[#707a8a]" />
-              <span>Format: Trade number, Type, Date and time, Price USD...</span>
+            <div className="text-[11px] font-bold text-[#717182] uppercase tracking-wider bg-[#F0F0F0] border-2 border-[#121212] p-3 max-w-sm mx-auto flex items-center space-x-2 justify-center shadow-[4px_4px_0px_0px_#121212]">
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Format: Trade number, Type, Date...</span>
             </div>
           </label>
         </div>
       )}
 
-      {/* Parsing progress loader */}
       {isParsing && !importSuccess && (
-        <div className=" rounded-xl border border-[#2b3139] p-12 text-center max-w-md mx-auto space-y-4">
-          <div className="w-10 h-10 border-4 border-accentCyan border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs text-[#929aa5] font-semibold animate-pulse">
-            Membaca dan memproses struktur kolom CSV Strategy Tester...
+        <div className="bg-white border-4 border-[#121212] p-16 text-center max-w-md mx-auto space-y-6 shadow-[8px_8px_0px_0px_#121212]">
+          <div className="w-12 h-12 border-4 border-[#1040C0] border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-[14px] font-black text-[#121212] uppercase tracking-widest animate-pulse">
+            Reading CSV...
           </p>
         </div>
       )}
 
-      {/* Step 2: Show preview & Session configuration details */}
       {parseResult && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left panel: Preview & Audit table */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Visual Header Summary */}
-            <div className=" rounded-xl p-5 border border-[#2b3139] flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <div className="bg-[rgba(14,203,129,0.08)] text-[#0ecb81] p-3 rounded-xl ">
-                  <FileSpreadsheet className="w-6 h-6" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-8">
+            <div className="bg-white border-4 border-[#121212] p-6 shadow-[8px_8px_0px_0px_#121212] flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center space-x-5">
+                <div className="bg-[#1040C0] text-white p-4 border-4 border-[#121212] shadow-[4px_4px_0px_0px_#121212]">
+                  <FileSpreadsheet className="w-8 h-8" strokeWidth={2.5} />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-white truncate max-w-xs md:max-w-md">
+                  <h4 className="text-[18px] font-black text-[#121212] truncate max-w-xs md:max-w-md uppercase tracking-wide">
                     {file?.name}
                   </h4>
-                  <p className="text-[10px] text-[#707a8a] font-semibold uppercase mt-0.5">
-                    Hasil parsing: {parseResult.validCount} Valid • {parseResult.invalidCount} Invalid
+                  <p className="text-[12px] text-[#717182] font-extrabold uppercase tracking-widest mt-1">
+                    Found: <span className="text-[var(--profit)]">{parseResult.validCount} Valid</span> • <span className="text-[var(--warning)]">{parseResult.invalidCount} Invalid</span>
                   </p>
                 </div>
               </div>
-              <button 
-                onClick={clearUpload}
-                className="text-xs font-semibold text-[#707a8a] hover:text-[#f6465d] hover:bg-[#2b3139] px-3 py-1.5 rounded-lg transition"
-              >
-                Ganti File
-              </button>
+              <Button variant="secondary" onClick={clearUpload}>
+                Change File
+              </Button>
             </div>
 
-            {/* Preview Tabs */}
-            <div className=" rounded-xl border border-[#2b3139] overflow-hidden">
-              <div className="flex border-b border-[#2b3139] bg-[#1e2329]/20">
+            <div className="bg-white border-4 border-[#121212] shadow-[8px_8px_0px_0px_#121212] flex flex-col">
+              <div className="flex border-b-4 border-[#121212] bg-[#F0F0F0]">
                 <button
                   onClick={() => setActivePreviewTab('valid')}
-                  className={`flex-1 py-3 text-xs font-bold border-b-2 flex items-center justify-center space-x-1.5 transition ${
+                  className={`flex-1 py-4 text-[12px] font-black uppercase tracking-widest flex items-center justify-center space-x-2 transition-all ${
                     activePreviewTab === 'valid'
-                      ? 'border-accentEmerald text-[#0ecb81] bg-accentEmerald/5'
-                      : 'border-transparent text-[#929aa5] hover:text-gray-200'
+                      ? 'bg-white text-[#121212] shadow-inner border-b-4 border-b-[var(--profit)]'
+                      : 'text-[#717182] hover:bg-white hover:text-[#121212]'
                   }`}
                 >
-                  <CheckCircle className="w-4 h-4 text-[#0ecb81]" />
-                  <span>Trade Valid ({parseResult.validCount})</span>
+                  <CheckCircle className={`w-5 h-5 ${activePreviewTab === 'valid' ? 'text-[var(--profit)]' : ''}`} />
+                  <span>Valid Trades ({parseResult.validCount})</span>
                 </button>
+                <div className="w-1 bg-[#121212]" />
                 <button
                   onClick={() => setActivePreviewTab('invalid')}
-                  className={`flex-1 py-3 text-xs font-bold border-b-2 flex items-center justify-center space-x-1.5 transition ${
+                  className={`flex-1 py-4 text-[12px] font-black uppercase tracking-widest flex items-center justify-center space-x-2 transition-all ${
                     activePreviewTab === 'invalid'
-                      ? 'border-transparent text-[#929aa5] hover:text-gray-200'
-                      : 'border-orange-500 text-orange-400 bg-orange-500/5'
+                      ? 'bg-white text-[#121212] shadow-inner border-b-4 border-b-[var(--warning)]'
+                      : 'text-[#717182] hover:bg-white hover:text-[#121212]'
                   }`}
                 >
-                  <AlertTriangle className="w-4 h-4 text-orange-400" />
-                  <span>Trade Bermasalah ({parseResult.invalidCount})</span>
+                  <AlertTriangle className={`w-5 h-5 ${activePreviewTab === 'invalid' ? 'text-[var(--warning)]' : ''}`} />
+                  <span>Invalid Trades ({parseResult.invalidCount})</span>
                 </button>
               </div>
 
-              <div className="p-4 max-h-[400px] overflow-y-auto">
+              <div className="max-h-[600px] overflow-y-auto custom-scrollbar p-0">
                 {activePreviewTab === 'valid' ? (
                   parseResult.validCount === 0 ? (
-                    <p className="text-center text-xs text-[#707a8a] py-8">Tidak ada trade valid.</p>
+                    <p className="text-center text-[12px] font-bold text-[#717182] uppercase tracking-widest py-12 bg-white">No valid trades found.</p>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-[11px] border-collapse">
+                    <div>
+                      <table className="w-full text-left border-collapse font-outfit text-[13px]">
                         <thead>
-                          <tr className="border-b border-[#2b3139] text-[#707a8a]">
-                            <th className="pb-2">No. Trade</th>
-                            <th className="pb-2">Arah</th>
-                            <th className="pb-2 text-right">Harga Entry</th>
-                            <th className="pb-2 text-right">Harga Exit</th>
-                            <th className="pb-2 text-right">PnL USD</th>
-                            <th className="pb-2 text-right">PnL %</th>
+                          <tr>
+                            <th className="p-4 text-[10px] font-extrabold text-[#717182] uppercase tracking-widest border-b-4 border-[#121212] bg-[#F0F0F0] sticky top-0 z-10">Trade #</th>
+                            <th className="p-4 text-[10px] font-extrabold text-[#717182] uppercase tracking-widest border-b-4 border-[#121212] bg-[#F0F0F0] sticky top-0 z-10">Side</th>
+                            <th className="p-4 text-[10px] font-extrabold text-[#717182] uppercase tracking-widest border-b-4 border-[#121212] bg-[#F0F0F0] text-right sticky top-0 z-10">Entry</th>
+                            <th className="p-4 text-[10px] font-extrabold text-[#717182] uppercase tracking-widest border-b-4 border-[#121212] bg-[#F0F0F0] text-right sticky top-0 z-10">Exit</th>
+                            <th className="p-4 text-[10px] font-extrabold text-[#717182] uppercase tracking-widest border-b-4 border-[#121212] bg-[#F0F0F0] text-right sticky top-0 z-10">PnL USD</th>
+                            <th className="p-4 text-[10px] font-extrabold text-[#717182] uppercase tracking-widest border-b-4 border-[#121212] bg-[#F0F0F0] text-right sticky top-0 z-10">PnL %</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {parseResult.validTrades.slice(0, 30).map((t: any) => (
-                            <tr key={t.tradeNumber} className="border-b border-gray-900/60 py-1 text-[#eaecef] hover:bg-[#2b3139]/20">
-                              <td className="py-1.5 font-semibold">#{t.tradeNumber}</td>
-                              <td className="py-1.5">
-                                <span className={`px-1 py-0.2 rounded text-[9px] font-bold ${
-                                  t.side === 'LONG' ? 'bg-[rgba(14,203,129,0.08)] text-[#0ecb81]' : 'bg-orange-500/10 text-orange-400'
+                          {parseResult.validTrades.slice(0, 50).map((t: any) => (
+                            <tr key={t.tradeNumber} className="border-b-2 border-[#121212]/10 hover:bg-[#F0F0F0]">
+                              <td className="p-4 font-black text-[#121212] text-[14px]">#{t.tradeNumber}</td>
+                              <td className="p-4">
+                                <span className={`px-2 py-1 border-2 border-[#121212] text-[10px] font-black uppercase tracking-widest ${
+                                  t.side === 'LONG' || t.side === 'BUY' ? 'bg-[var(--profit)] text-white' : 'bg-[var(--loss)] text-white'
                                 }`}>
                                   {t.side}
                                 </span>
                               </td>
-                              <td className="py-1.5 text-right font-medium">{t.entryPrice.toLocaleString()}</td>
-                              <td className="py-1.5 text-right font-medium">{t.exitPrice.toLocaleString()}</td>
-                              <td className={`py-1.5 text-right font-bold ${t.netPnlUsd >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
+                              <td className="p-4 text-right font-black text-[#121212] font-number">{t.entryPrice.toLocaleString()}</td>
+                              <td className="p-4 text-right font-black text-[#121212] font-number">{t.exitPrice.toLocaleString()}</td>
+                              <td className={`p-4 text-right font-black font-number text-[14px] ${t.netPnlUsd >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
                                 {formatPnL(t.netPnlUsd, 'USD')}
                               </td>
-                              <td className={`py-1.5 text-right font-semibold ${t.netPnlUsd >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
+                              <td className={`p-4 text-right font-black font-number text-[14px] ${t.netPnlUsd >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
                                 {formatPercent(t.netPnlPct)}
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
-                      {parseResult.validCount > 30 && (
-                        <p className="text-center text-[10px] text-[#707a8a] italic mt-3">
-                          Hanya menampilkan 30 trade teratas di kolom preview.
-                        </p>
+                      {parseResult.validCount > 50 && (
+                        <div className="bg-[#F0F0F0] p-4 border-t-4 border-[#121212] text-center">
+                          <p className="text-[11px] font-black text-[#717182] uppercase tracking-wider">
+                            Showing top 50 trades in preview.
+                          </p>
+                        </div>
                       )}
                     </div>
                   )
                 ) : (
                   parseResult.invalidCount === 0 ? (
-                    <p className="text-center text-xs text-[#707a8a] py-8">Semua trade terbaca lengkap!</p>
+                    <p className="text-center text-[12px] font-bold text-[#717182] uppercase tracking-widest py-12 bg-white">All trades parsed perfectly!</p>
                   ) : (
-                    <div className="space-y-3">
+                    <div className="p-6 space-y-4 bg-white">
                       {parseResult.invalidTrades.map((it: any, index: number) => (
-                        <div key={index} className="bg-orange-500/5 border border-orange-500/10 rounded-xl p-3.5 space-y-2">
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="font-bold text-orange-400">Trade #{it.tradeNumber || 'Tidak Diketahui'}</span>
-                            <span className="text-[10px] text-[#707a8a] font-medium bg-[#1e2329] border border-gray-850 px-2 py-0.5 rounded">
+                        <div key={index} className="bg-[#F0F0F0] border-4 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212] flex flex-col space-y-3">
+                          <div className="flex justify-between items-center border-b-2 border-[#121212] pb-3">
+                            <span className="font-black text-[14px] text-[#121212] uppercase tracking-wide">Trade #{it.tradeNumber || '?'}</span>
+                            <span className="text-[10px] text-white font-black bg-[var(--warning)] px-2 py-1 border-2 border-[#121212] uppercase tracking-widest shadow-[2px_2px_0px_0px_#121212]">
                               Invalid Row
                             </span>
                           </div>
-                          <p className="text-xs text-[#eaecef] leading-relaxed font-medium">
-                            <span className="text-[#707a8a]">Alasan:</span> {it.reason}
+                          <p className="text-[13px] text-[#121212] font-bold">
+                            <span className="text-[#1040C0] uppercase text-[10px] tracking-widest font-black mr-2">Reason:</span> 
+                            {it.reason}
                           </p>
-                          <div className="text-[10px] text-[#707a8a] bn-card  p-2 rounded border border-gray-900 font-mono overflow-x-auto truncate">
+                          <div className="text-[11px] text-[#121212] font-bold bg-white p-3 border-2 border-[#121212] font-mono overflow-x-auto shadow-inner">
                             {JSON.stringify(it.rawRows)}
                           </div>
                         </div>
@@ -503,166 +471,167 @@ export default function CSVImport() {
             </div>
           </div>
 
-          {/* Right panel: Destination Session Form settings */}
           <div className="space-y-6">
-            <div className=" rounded-xl border border-[#2b3139] p-5 space-y-5">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Tujuan Jurnal</h3>
+            <div className="bg-white border-4 border-[#121212] shadow-[8px_8px_0px_0px_#121212] p-6 md:p-8 space-y-8">
+              <h3 className="text-[18px] font-black text-[#121212] uppercase tracking-wide border-b-4 border-[#121212] pb-4">Import Settings</h3>
 
-              {/* Destination Mode */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-[#707a8a] uppercase">Tindakan</label>
+              <div className="space-y-2">
+                <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">Action</label>
                 <select
                   value={importMode}
                   onChange={(e: any) => setImportMode(e.target.value)}
-                  className="w-full bg-[#1e2329] border border-[#2b3139] outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
+                  className="w-full bg-[#F0F0F0] border-4 border-[#121212] py-3 px-4 text-[#121212] font-black uppercase tracking-wider outline-none focus:border-[#1040C0] cursor-pointer appearance-none shadow-[4px_4px_0px_0px_#121212]"
                 >
-                  <option value="NEW">Buat Sesi Backtest Baru</option>
+                  <option value="NEW">Create New Session</option>
                   {sessions.length > 0 && (
                     <>
-                      <option value="REPLACE">Tumpuk / Ganti Sesi Terpilih</option>
-                      <option value="APPEND">Tambahkan ke Sesi Terpilih</option>
-                      <option value="SMART_MERGE">Smart Merge (Skip Duplikat)</option>
+                      <option value="REPLACE">Replace Selected Session</option>
+                      <option value="APPEND">Append to Selected Session</option>
+                      <option value="SMART_MERGE">Smart Merge (Skip Duplicates)</option>
                     </>
                   )}
                 </select>
               </div>
 
-              {/* Choose Existing Session */}
               {importMode !== 'NEW' && (
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-[#707a8a] uppercase">Pilih Sesi Terdaftar</label>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">Target Session</label>
                   <select
                     value={existingSessionId}
                     onChange={(e) => setExistingSessionId(e.target.value)}
-                    className="w-full bg-[#1e2329] border border-[#2b3139] outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
+                    className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black uppercase tracking-wider outline-none focus:border-[#1040C0] cursor-pointer appearance-none shadow-[4px_4px_0px_0px_#121212]"
                   >
                     {sessions.map((s) => (
                       <option key={s.id} value={s.id}>{s.name} ({s.symbol})</option>
                     ))}
                   </select>
                   {importMode === 'REPLACE' && (
-                    <div className="bg-[rgba(246,70,93,0.08)] border border-[rgba(246,70,93,0.2)] text-[#f6465d] p-3 rounded-lg text-[10px] font-semibold leading-relaxed flex items-start space-x-1.5">
-                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                      <span>PERINGATAN: Opsi ini akan menghapus permanen semua data trade lama di sesi terpilih sebelum mengunggah.</span>
+                    <div className="bg-[var(--loss)] border-4 border-[#121212] text-white p-4 text-[12px] font-bold mt-4 shadow-[4px_4px_0px_0px_#121212] flex gap-3">
+                      <AlertTriangle className="w-5 h-5 shrink-0" strokeWidth={2.5} />
+                      <span>WARNING: This will permanently overwrite all existing trades in the selected session.</span>
                     </div>
                   )}
                   {importMode === 'SMART_MERGE' && (
-                    <div className="bg-[rgba(252,213,53,0.06)] border border-[rgba(252,213,53,0.2)] text-[#fcd535] p-3 rounded-lg text-[10px] font-semibold leading-relaxed flex items-start space-x-1.5">
-                      <Info className="w-4 h-4 shrink-0 mt-0.5" />
-                      <span>Smart Merge: hanya trade baru yang ditambahkan. Trade duplikat (berdasarkan fingerprint) akan dilewati otomatis.</span>
+                    <div className="bg-[var(--warning)] border-4 border-[#121212] text-[#121212] p-4 text-[12px] font-bold mt-4 shadow-[4px_4px_0px_0px_#121212] flex gap-3">
+                      <Info className="w-5 h-5 shrink-0" strokeWidth={2.5} />
+                      <span>Smart Merge: New trades will be added. Duplicates will be skipped.</span>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Session Settings form (only visible if NEW session is selected) */}
               {importMode === 'NEW' && (
-                <div className="space-y-4 border-t border-gray-850 pt-4">
-                  {/* Name */}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-[#707a8a] uppercase">Nama Sesi Baru</label>
+                <div className="space-y-6 border-t-4 border-[#121212] pt-6">
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">Session Name</label>
                     <input
                       type="text"
-                      placeholder="Simpan dengan nama..."
+                      placeholder="e.g. Breakout Strategy v1"
                       value={sessionName}
                       onChange={(e) => setSessionName(e.target.value)}
-                      className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
+                      className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black outline-none focus:border-[#1040C0] shadow-[4px_4px_0px_0px_#121212]"
                     />
                   </div>
 
-                  {/* Symbol & Timeframe */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-[#707a8a] uppercase">Symbol</label>
-                      <SymbolSelect value={symbol} onChange={setSymbol} customValue={customSymbol} onCustomChange={setCustomSymbol} />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">Symbol</label>
+                      <div className="border-4 border-[#121212] bg-white shadow-[4px_4px_0px_0px_#121212] focus-within:border-[#1040C0] transition-colors">
+                        <SymbolSelect value={symbol} onChange={setSymbol} customValue={customSymbol} onCustomChange={setCustomSymbol} />
+                      </div>
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-[#707a8a] uppercase">Timeframe</label>
-                      <TimeframeSelect value={timeframe} onChange={setTimeframe} />
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">Timeframe</label>
+                      <div className="border-4 border-[#121212] bg-white shadow-[4px_4px_0px_0px_#121212] focus-within:border-[#1040C0] transition-colors">
+                        <TimeframeSelect value={timeframe} onChange={setTimeframe} />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Balance details */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-[#707a8a] uppercase">Modal Awal</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">Init Balance</label>
                       <input
                         type="number"
                         value={initialBalance}
                         onChange={(e) => setInitialBalance(e.target.value)}
-                        className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
+                        className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black font-number outline-none focus:border-[#1040C0] shadow-[4px_4px_0px_0px_#121212]"
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-[#707a8a] uppercase">Kategori Market</label>
-                      <MarketCategorySelect value={marketType} onChange={setMarketType} />
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">Market</label>
+                      <div className="border-4 border-[#121212] bg-white shadow-[4px_4px_0px_0px_#121212] focus-within:border-[#1040C0] transition-colors">
+                        <MarketCategorySelect value={marketType} onChange={setMarketType} />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Risk Parameters */}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-[#707a8a] uppercase">Model Resiko (R)</label>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">Risk Model</label>
                     <select
                       value={riskMode}
                       onChange={(e: any) => setRiskMode(e.target.value)}
-                      className="w-full bg-[#1e2329] border border-[#2b3139] outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
+                      className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black uppercase tracking-wider outline-none focus:border-[#1040C0] cursor-pointer appearance-none shadow-[4px_4px_0px_0px_#121212]"
                     >
-                      <option value="FIXED_USD">Fixed Risk USD per Trade</option>
-                      <option value="FIXED_PCT">Fixed Risk % dari Initial Balance</option>
+                      <option value="FIXED_USD">Fixed Risk USD / Trade</option>
+                      <option value="FIXED_PCT">Fixed Risk % of Init Balance</option>
                       <option value="NO_R">No R Calculation</option>
                     </select>
                   </div>
 
                   {riskMode !== 'NO_R' && (
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-[#707a8a] uppercase">
-                        Nilai Resiko ({riskMode === 'FIXED_USD' ? 'USD' : '%'})
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">
+                        Risk Value ({riskMode === 'FIXED_USD' ? 'USD' : '%'})
                       </label>
                       <input
                         type="number"
                         value={riskValue}
                         onChange={(e) => setRiskValue(e.target.value)}
-                        className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
+                        className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black font-number outline-none focus:border-[#1040C0] shadow-[4px_4px_0px_0px_#121212]"
                       />
                     </div>
                   )}
 
-                  {/* Currency converter */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-[#707a8a] uppercase">Mata Uang Sesi</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">Currency</label>
                       <select
                         value={balanceCurrency}
                         onChange={(e: any) => setBalanceCurrency(e.target.value)}
-                        className="w-full bg-[#1e2329] border border-[#2b3139] outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
+                        className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black uppercase tracking-wider outline-none focus:border-[#1040C0] cursor-pointer appearance-none shadow-[4px_4px_0px_0px_#121212]"
                       >
                         <option value="USD">USD</option>
-                        <option value="CENT">CENT (Cents)</option>
+                        <option value="CENT">CENT</option>
                         <option value="IDR">IDR</option>
                       </select>
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-[#707a8a] uppercase">Kurs USD ke IDR</label>
+                    <div className="space-y-2">
+                      <label className="text-[11px] font-extrabold text-[#717182] uppercase tracking-widest block">USD-IDR Rate</label>
                       <input
                         type="number"
                         value={usdIdrRate}
                         onChange={(e) => setUsdIdrRate(e.target.value)}
-                        className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
+                        className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black font-number outline-none focus:border-[#1040C0] shadow-[4px_4px_0px_0px_#121212]"
                       />
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Commit Action trigger */}
-              <button
-                onClick={handleConfirmImport}
-                disabled={isImporting}
-                className="w-full py-3 bg-gradient-to-r from-accentCyan to-accentBlue hover:from-accentCyan/90 hover:to-accentBlue/90 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5  transition disabled:opacity-50"
-              >
-                <Play className="w-4 h-4" />
-                <span>{isImporting ? 'Mengimpor Data...' : 'Konfirmasi Import'}</span>
-              </button>
+              <div className="pt-4 border-t-4 border-[#121212]">
+                <Button
+                  variant="dark"
+                  onClick={handleConfirmImport}
+                  disabled={isImporting}
+                  isLoading={isImporting}
+                  fullWidth
+                  className="py-4 text-[14px]"
+                >
+                  <Play className="w-5 h-5 mr-2" />
+                  <span>Confirm Import</span>
+                </Button>
+              </div>
             </div>
           </div>
         </div>

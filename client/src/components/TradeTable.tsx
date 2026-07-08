@@ -1,22 +1,25 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  Search, 
-  Filter, 
-  ArrowUpDown, 
-  Trash2, 
-  Edit3, 
-  Download, 
-  ExternalLink 
+import {
+  Search,
+  ArrowUpDown,
+  Trash2,
+  Edit3,
+  Download,
+  ExternalLink
 } from 'lucide-react';
 import { Trade } from '../shared/types';
-import { 
-  formatUsd, 
-  formatIdr, 
-  formatPercent, 
-  formatR, 
-  formatDate, 
-  formatDuration 
+import {
+  formatUsd,
+  formatIdr,
+  formatPercent,
+  formatR,
+  formatDate,
+  formatDuration
 } from '../utils/formatters';
+
+import { Button } from './ui/Button';
+import { Select } from './ui/Input';
+import { Badge } from './ui/Badge';
 
 interface TradeTableProps {
   trades: Trade[];
@@ -36,7 +39,7 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
   const [filterResult, setFilterResult] = useState<string>('ALL');
   const [filterSide, setFilterSide] = useState<string>('ALL');
   const [filterSetup, setFilterSetup] = useState<string>('ALL');
-  
+
   // Sorting States
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -126,6 +129,16 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
     return resultTrades;
   }, [trades, search, filterSource, filterSymbol, filterTimeframe, filterResult, filterSide, filterSetup, sortField, sortOrder]);
 
+  // Pagination state
+  const [displayCount, setDisplayCount] = useState(100);
+
+  // Reset display count when filters or search change
+  React.useEffect(() => {
+    setDisplayCount(100);
+  }, [search, filterSource, filterSymbol, filterTimeframe, filterResult, filterSide, filterSetup, sortField, sortOrder]);
+
+  const visibleTrades = filteredAndSortedTrades.slice(0, displayCount);
+
   // Export handlers
   const exportToCSV = () => {
     const headers = 'Trade Number,Source,Symbol,Timeframe,Side,Status,Entry Time,Exit Time,Entry Price,Exit Price,Net PnL (USD),Net PnL (%),Net PnL (IDR),R Multiple,Setup,Notes\n';
@@ -155,268 +168,203 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-fade-in">
       {/* Search & Export Buttons */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         {/* Search */}
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3.5 top-3 w-4.5 h-4.5 text-[#707a8a]" />
+          <Search className="absolute left-3.5 top-2.5 w-4.5 h-4.5 text-[#717182]" />
           <input
             type="text"
-            placeholder="Cari trade number, symbol, signal, setup, notes..."
+            placeholder="Cari trade number, symbol, signal, setup..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg py-2 pl-10 pr-4 text-sm text-gray-200 transition-all font-medium"
+            className="input pl-10 border-2 border-[#121212] focus:shadow-[4px_4px_0px_0px_#1040C0]"
           />
         </div>
 
         {/* Exports */}
         <div className="flex items-center space-x-2 self-end md:self-auto">
-          <button
-            onClick={exportToCSV}
-            className="bg-[#2b3139] hover:bg-[#363e47] text-[#eaecef] px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
-            title="Ekspor ke CSV"
-          >
+          <Button variant="secondary" onClick={exportToCSV} title="Ekspor ke CSV" size="sm">
             <Download className="w-3.5 h-3.5" />
             <span>CSV</span>
-          </button>
-          <button
-            onClick={exportToJSON}
-            className="bg-[#2b3139] hover:bg-[#363e47] text-[#eaecef] px-3 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
-            title="Ekspor ke JSON"
-          >
+          </Button>
+          <Button variant="secondary" onClick={exportToJSON} title="Ekspor ke JSON" size="sm">
             <Download className="w-3.5 h-3.5" />
             <span>JSON</span>
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Grid Multi-Filter Section */}
-      <div className=" rounded-xl p-4 border border-[#2b3139] grid grid-cols-2 md:grid-cols-6 gap-3">
-        {/* Source */}
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Sumber</label>
-          <select
-            value={filterSource}
-            onChange={(e) => setFilterSource(e.target.value)}
-            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
-          >
-            <option value="ALL">Semua Sumber</option>
-            <option value="CSV">CSV</option>
-            <option value="WEBHOOK">Webhook</option>
-            <option value="MANUAL">Manual</option>
-          </select>
-        </div>
+      <div className="bg-white border-2 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212] grid grid-cols-2 md:grid-cols-6 gap-3">
+        <Select label="Sumber" value={filterSource} onChange={(e) => setFilterSource(e.target.value)}>
+          <option value="ALL">Semua Sumber</option>
+          <option value="CSV">CSV</option>
+          <option value="WEBHOOK">Webhook</option>
+          <option value="MT5">MT5</option>
+          <option value="MANUAL">Manual</option>
+        </Select>
 
-        {/* Symbol */}
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Symbol</label>
-          <select
-            value={filterSymbol}
-            onChange={(e) => setFilterSymbol(e.target.value)}
-            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
-          >
-            <option value="ALL">Semua Symbol</option>
-            {uniqueSymbols.map((sym) => (
-              <option key={sym} value={sym}>{sym}</option>
-            ))}
-          </select>
-        </div>
+        <Select label="Symbol" value={filterSymbol} onChange={(e) => setFilterSymbol(e.target.value)}>
+          <option value="ALL">Semua Symbol</option>
+          {uniqueSymbols.map((sym) => (
+            <option key={sym} value={sym}>{sym}</option>
+          ))}
+        </Select>
 
-        {/* Timeframe */}
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Timeframe</label>
-          <select
-            value={filterTimeframe}
-            onChange={(e) => setFilterTimeframe(e.target.value)}
-            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
-          >
-            <option value="ALL">Semua TF</option>
-            {uniqueTimeframes.map((tf) => (
-              <option key={tf} value={tf}>{tf}</option>
-            ))}
-          </select>
-        </div>
+        <Select label="Timeframe" value={filterTimeframe} onChange={(e) => setFilterTimeframe(e.target.value)}>
+          <option value="ALL">Semua TF</option>
+          {uniqueTimeframes.map((tf) => (
+            <option key={tf} value={tf}>{tf}</option>
+          ))}
+        </Select>
 
-        {/* Result */}
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Hasil</label>
-          <select
-            value={filterResult}
-            onChange={(e) => setFilterResult(e.target.value)}
-            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
-          >
-            <option value="ALL">Semua Hasil</option>
-            <option value="WIN">WIN</option>
-            <option value="LOSS">LOSS</option>
-            <option value="BE">BE (Break Even)</option>
-          </select>
-        </div>
+        <Select label="Hasil" value={filterResult} onChange={(e) => setFilterResult(e.target.value)}>
+          <option value="ALL">Semua Hasil</option>
+          <option value="WIN">WIN</option>
+          <option value="LOSS">LOSS</option>
+          <option value="BE">BE (Break Even)</option>
+        </Select>
 
-        {/* Side */}
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Sisi</label>
-          <select
-            value={filterSide}
-            onChange={(e) => setFilterSide(e.target.value)}
-            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
-          >
-            <option value="ALL">Semua Arah</option>
-            <option value="LONG">LONG (Beli)</option>
-            <option value="SHORT">SHORT (Jual)</option>
-          </select>
-        </div>
+        <Select label="Sisi" value={filterSide} onChange={(e) => setFilterSide(e.target.value)}>
+          <option value="ALL">Semua Arah</option>
+          <option value="LONG">LONG (Beli)</option>
+          <option value="SHORT">SHORT (Jual)</option>
+        </Select>
 
-        {/* Setup */}
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-[#707a8a] uppercase">Setup Tag</label>
-          <select
-            value={filterSetup}
-            onChange={(e) => setFilterSetup(e.target.value)}
-            className="w-full bg-gray-950 border border-[#2b3139] outline-none rounded p-1.5 text-xs text-[#eaecef] font-medium"
-          >
-            <option value="ALL">Semua Setup</option>
-            {uniqueSetups.map((s) => (
-              <option key={s || ''} value={s || ''}>{s}</option>
-            ))}
-          </select>
-        </div>
+        <Select label="Setup Tag" value={filterSetup} onChange={(e) => setFilterSetup(e.target.value)}>
+          <option value="ALL">Semua Setup</option>
+          {uniqueSetups.map((s) => (
+            <option key={s || ''} value={s || ''}>{s}</option>
+          ))}
+        </Select>
       </div>
 
       {/* Trade Table Ledger */}
-      <div className=" rounded-xl border border-[#2b3139] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+      <div className="bg-white border-2 border-[#121212] shadow-[6px_6px_0px_0px_#121212] overflow-hidden">
+        <div className="table-scroll">
+          <table className="data-table">
             <thead>
-              <tr className="bg-[#1e2329]/40 border-b border-[#2b3139] text-[#929aa5] font-semibold select-none">
-                <th 
+              <tr>
+                <th
                   onClick={() => toggleSort('number')}
-                  className="py-3.5 px-4 cursor-pointer hover:text-white transition"
+                  className="cursor-pointer hover:text-[#121212] transition"
                 >
                   <div className="flex items-center space-x-1">
                     <span>Trade #</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </div>
                 </th>
-                <th className="py-3.5 px-4">Info</th>
-                <th className="py-3.5 px-4">Arah</th>
-                <th 
+                <th>Info</th>
+                <th>Arah</th>
+                <th
                   onClick={() => toggleSort('date')}
-                  className="py-3.5 px-4 cursor-pointer hover:text-white transition"
+                  className="cursor-pointer hover:text-[#121212] transition"
                 >
                   <div className="flex items-center space-x-1">
                     <span>Waktu Exit (Lokal)</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </div>
                 </th>
-                <th className="py-3.5 px-4 text-right">Harga Entry / Exit</th>
-                <th 
+                <th className="text-right">Harga Entry / Exit</th>
+                <th
                   onClick={() => toggleSort('pnl')}
-                  className="py-3.5 px-4 text-right cursor-pointer hover:text-white transition"
+                  className="text-right cursor-pointer hover:text-[#121212] transition"
                 >
                   <div className="flex items-center space-x-1 justify-end">
                     <span>PnL USD</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </div>
                 </th>
-                <th className="py-3.5 px-4 text-right">PnL % / IDR</th>
-                <th 
+                <th className="text-right">PnL % / IDR</th>
+                <th
                   onClick={() => toggleSort('r')}
-                  className="py-3.5 px-4 text-right cursor-pointer hover:text-white transition"
+                  className="text-right cursor-pointer hover:text-[#121212] transition"
                 >
                   <div className="flex items-center space-x-1 justify-end">
                     <span>R</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </div>
                 </th>
-                <th 
+                <th
                   onClick={() => toggleSort('duration')}
-                  className="py-3.5 px-4 cursor-pointer hover:text-white transition"
+                  className="cursor-pointer hover:text-[#121212] transition"
                 >
                   <div className="flex items-center space-x-1">
                     <span>Durasi</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </div>
                 </th>
-                <th className="py-3.5 px-4">Setup</th>
-                <th className="py-3.5 px-4 text-center">Aksi</th>
+                <th>Setup</th>
+                <th className="text-center">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {filteredAndSortedTrades.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-[#707a8a] font-medium">
+                  <td colSpan={11} className="py-12 text-center text-[#717182] font-medium font-[Outfit]">
                     Tidak ditemukan data trade yang cocok dengan kriteria pencarian/filter.
                   </td>
                 </tr>
               ) : (
-                filteredAndSortedTrades.map((t) => {
-                  const durationMs = t.entryTime && t.exitTime 
-                    ? new Date(t.exitTime).getTime() - new Date(t.entryTime).getTime() 
+                visibleTrades.map((t) => {
+                  const durationMs = t.entryTime && t.exitTime
+                    ? new Date(t.exitTime).getTime() - new Date(t.entryTime).getTime()
                     : 0;
 
                   return (
-                    <tr 
-                      key={t.id} 
-                      className={`border-b border-[#2b3139] hover:bg-[#2b3139]/25 transition cursor-pointer ${
-                        t.status === 'OPEN' ? 'bg-accentCyan/5 border-l-2 border-l-accentCyan' : ''
-                      }`}
+                    <tr
+                      key={t.id}
+                      className={`cursor-pointer ${t.status === 'OPEN' ? 'bg-[var(--accent-blue)]/5 border-l-4 border-l-[var(--accent-blue)]' : ''}`}
                       onClick={() => onSelectTrade(t)}
                     >
                       {/* Trade Number */}
-                      <td className="py-3.5 px-4 font-semibold text-[#eaecef]">
+                      <td className="font-extrabold text-[#121212]">
                         {t.status === 'OPEN' ? (
-                          <span className="px-1.5 py-0.5 rounded bg-[rgba(14,203,129,0.1)] text-[#0ecb81] text-[9px] font-extrabold uppercase animate-pulse">
-                            OPEN
-                          </span>
+                          <Badge variant="blue" className="animate-pulse">OPEN</Badge>
                         ) : (
                           `#${t.tradeNumber || '-'}`
                         )}
                       </td>
 
                       {/* Info Symbol & Timeframe & Source */}
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-gray-200">{t.symbol}</div>
-                        <div className="flex items-center space-x-1 text-[10px] text-[#707a8a] mt-0.5 font-medium">
+                      <td>
+                        <div className="font-extrabold text-[#121212] font-display">{t.symbol}</div>
+                        <div className="flex items-center space-x-1 text-[10px] text-[#717182] mt-0.5 font-bold uppercase tracking-wider">
                           <span>{t.timeframe}</span>
                           <span>•</span>
-                          <span className="capitalize">{t.source.toLowerCase()}</span>
+                          <span className="text-[#1040C0]">{t.source}</span>
                         </div>
                       </td>
 
                       {/* Side */}
-                      <td className="py-3.5 px-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold tracking-wider ${
-                          t.side === 'LONG' 
-                            ? 'bg-[rgba(14,203,129,0.08)] text-[#0ecb81] border border-[rgba(14,203,129,0.2)]' 
-                            : 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
-                        }`}>
-                          {t.side}
-                        </span>
+                      <td>
+                        <Badge variant={t.side === 'LONG' ? 'profit' : 'loss'}>{t.side}</Badge>
                       </td>
 
                       {/* Exit Time */}
-                      <td className="py-3.5 px-4 text-[#929aa5]">
+                      <td className="text-[#717182] font-semibold text-[11px]">
                         {t.exitTime ? formatDate(t.exitTime) : (t.entryTime ? `Open: ${formatDate(t.entryTime)}` : '-')}
                       </td>
 
                       {/* Entry & Exit Prices */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="font-bold text-[#eaecef]">{formatNumber(t.entryPrice, 4)}</div>
-                        <div className="text-[10px] text-[#707a8a] mt-0.5">{t.exitPrice ? formatNumber(t.exitPrice, 4) : 'Running'}</div>
+                      <td className="text-right font-number">
+                        <div className="font-bold text-[#121212]">{formatNumber(t.entryPrice, 4)}</div>
+                        <div className="text-[10px] text-[#717182] font-bold mt-0.5">{t.exitPrice ? formatNumber(t.exitPrice, 4) : 'Running'}</div>
                       </td>
 
                       {/* Net PnL USD */}
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="text-right font-number">
                         {t.status === 'OPEN' ? (
-                          <span className="text-[#707a8a] italic text-[11px]">Running</span>
+                          <span className="text-[#717182] italic text-[11px] font-bold">Running</span>
                         ) : (
-                          <span className={`font-bold text-sm ${
-                            (t.netPnlUsd || 0) > 0 
-                              ? 'text-[#0ecb81]' 
-                              : (t.netPnlUsd || 0) < 0 
-                              ? 'text-[#f6465d]' 
-                              : 'text-[#929aa5]'
+                          <span className={`font-bold text-[15px] ${
+                            (t.netPnlUsd || 0) > 0
+                              ? 'text-[var(--profit)]'
+                              : (t.netPnlUsd || 0) < 0
+                              ? 'text-[var(--loss)]'
+                              : 'text-[var(--text-muted)]'
                           }`}>
                             {(t.netPnlUsd || 0) > 0 ? '+' : ''}{formatUsd(t.netPnlUsd)}
                           </span>
@@ -424,68 +372,66 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
                       </td>
 
                       {/* Net PnL % / IDR */}
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="text-right font-number">
                         {t.status === 'OPEN' ? (
-                          <span className="text-[#707a8a]">-</span>
+                          <span className="text-[#717182]">-</span>
                         ) : (
                           <>
-                            <div className={`font-semibold text-[11px] ${
-                              (t.netPnlUsd || 0) >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'
+                            <div className={`font-bold text-[11px] ${
+                              (t.netPnlUsd || 0) >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'
                             }`}>
                               {(t.netPnlUsd || 0) > 0 ? '+' : ''}{formatPercent(t.netPnlPct)}
                             </div>
-                            <div className="text-[10px] text-[#707a8a] mt-0.5">{formatIdr(t.netPnlIdr)}</div>
+                            <div className="text-[10px] text-[#717182] font-bold mt-0.5">{formatIdr(t.netPnlIdr)}</div>
                           </>
                         )}
                       </td>
 
                       {/* R-multiple */}
-                      <td className="py-3.5 px-4 text-right font-bold text-[#eaecef]">
+                      <td className="text-right font-extrabold font-number text-[14px]">
                         {t.rMultiple !== null && t.rMultiple !== undefined ? (
-                          <span className={t.rMultiple >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}>
+                          <span className={t.rMultiple >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}>
                             {formatR(t.rMultiple)}
                           </span>
                         ) : (
-                          <span className="text-[#707a8a]">-</span>
+                          <span className="text-[#717182]">-</span>
                         )}
                       </td>
 
                       {/* Duration */}
-                      <td className="py-3.5 px-4 text-[#929aa5] font-medium">
+                      <td className="text-[#717182] font-bold text-[11px] uppercase tracking-wider">
                         {t.status === 'OPEN' ? '-' : formatDuration(durationMs)}
                       </td>
 
                       {/* Setup Tag */}
-                      <td className="py-3.5 px-4">
+                      <td>
                         {t.setupTag ? (
-                          <span className="px-2 py-1 rounded bg-[#2b3139] text-[#eaecef] text-[10px] font-medium border border-[#3a4149]">
-                            {t.setupTag}
-                          </span>
+                          <Badge variant="neutral">{t.setupTag}</Badge>
                         ) : (
-                          <span className="text-[#707a8a] font-medium italic text-[11px]">Tanpa Tag</span>
+                          <span className="text-[#717182] font-bold italic text-[10px]">TANPA TAG</span>
                         )}
                       </td>
 
                       {/* Actions */}
-                      <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-center space-x-2">
+                      <td className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center space-x-1">
                           {t.screenshotUrl && (
                             <a
                               href={t.screenshotUrl}
                               target="_blank"
                               rel="noreferrer"
-                              className="p-1.5 hover:bg-[#2b3139] text-[#929aa5] hover:text-[#0ecb81] rounded transition"
+                              className="p-1.5 hover:bg-[#E0E0E0] text-[#1040C0] rounded transition"
                               title="Lihat Screenshot"
                             >
-                              <ExternalLink className="w-3.5 h-3.5" />
+                              <ExternalLink className="w-4 h-4" />
                             </a>
                           )}
                           <button
                             onClick={() => onSelectTrade(t)}
-                            className="p-1.5 hover:bg-[#2b3139] text-[#929aa5] hover:text-white rounded transition"
+                            className="p-1.5 hover:bg-[#E0E0E0] text-[#717182] hover:text-[#121212] rounded transition"
                             title="Edit Catatan"
                           >
-                            <Edit3 className="w-3.5 h-3.5" />
+                            <Edit3 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => {
@@ -493,10 +439,10 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
                                 onDeleteTrade(t.id);
                               }
                             }}
-                            className="p-1.5 hover:bg-[#2b3139] text-[#707a8a] hover:text-[#f6465d] rounded transition"
+                            className="p-1.5 hover:bg-[#E0E0E0] text-[#717182] hover:text-[var(--loss)] rounded transition"
                             title="Hapus Trade"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -507,6 +453,18 @@ export default function TradeTable({ trades, onSelectTrade, onDeleteTrade }: Tra
             </tbody>
           </table>
         </div>
+        {/* Load More Button */}
+        {displayCount < filteredAndSortedTrades.length && (
+          <div className="p-4 border-t-2 border-[#121212] bg-[#F0F0F0] text-center">
+            <Button
+              variant="secondary"
+              onClick={() => setDisplayCount(d => d + 100)}
+              className="px-8"
+            >
+              Load More Trades (Showing {displayCount} of {filteredAndSortedTrades.length})
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

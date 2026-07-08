@@ -189,8 +189,7 @@ router.post('/baileys/request-pairing-code', async (req: Request, res: Response)
 // POST /baileys/logout
 router.post('/baileys/logout', async (req: Request, res: Response) => {
   try {
-    const authFolder = require('path').join(process.cwd(), 'storage', 'baileys-auth', 'primary_session');
-    if (require('fs').existsSync(authFolder)) require('fs').rmSync(authFolder, { recursive: true, force: true });
+    await baileysService.logoutSession();
     await logIntegration('WHATSAPP_BAILEYS', 'WA_LOGOUT', 'INFO', 'Session auth cleared via logout');
     res.json({ ok: true, message: 'Session cleared. Restart backend or click Start to reconnect.' });
   } catch (error: any) {

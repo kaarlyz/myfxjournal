@@ -11,6 +11,14 @@ import { useJournalStore } from '../store/useJournalStore';
 import { buildExportFilename, exportElementAsPng } from '../utils/exportImage';
 import { formatNumber, formatPercent, formatUsd } from '../utils/formatters';
 import { HelpCard, PageGuide } from '../components/help/HelpSystem';
+import { Button } from '../components/ui/Button';
+import { SectionLabel } from '../components/ui/SectionLabel';
+
+import RiskRecalculationTab from '../components/AnalyticsTabs/RiskRecalculationTab';
+import RRLabTab from '../components/AnalyticsTabs/RRLabTab';
+import TimingAnalyticsTab from '../components/AnalyticsTabs/TimingAnalyticsTab';
+import StreaksTab from '../components/AnalyticsTabs/StreaksTab';
+import PairBreakdownTab from '../components/AnalyticsTabs/PairBreakdownTab';
 
 export default function MT5ReportDashboard() {
   const navigate = useNavigate();
@@ -22,6 +30,7 @@ export default function MT5ReportDashboard() {
   const [exporting, setExporting] = useState<string | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const summaryExportRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'RISK' | 'RR_LAB' | 'TIMING' | 'STREAKS' | 'PAIR'>('OVERVIEW');
 
   const sessionId = searchParams.get('sessionId') || activeSessionId;
 
@@ -74,24 +83,24 @@ export default function MT5ReportDashboard() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">MT5 Report Analyzer</h1>
-          <p className="text-xs text-[#707a8a] mt-1">Pilih sesi MT5 report atau import report baru.</p>
+          <h1 className="text-3xl font-extrabold text-[#121212] font-display uppercase tracking-tight">MT5 Report Analyzer</h1>
+          <p className="text-[13px] font-bold text-[#717182] mt-1">Pilih sesi MT5 report atau import report baru.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {sessions.filter((s) => s.sourceMode === 'MT5_REPORT').map((s) => (
-            <button key={s.id} onClick={() => { selectSession(s.id); navigate(`/mt5-report?sessionId=${s.id}`); }} className="bn-card p-4 text-left hover:border-[#fcd535]">
-              <h3 className="text-sm font-bold text-white">{s.name}</h3>
-              <p className="text-xs text-[#707a8a] mt-1">{s.symbol} · {s.timeframe}</p>
+            <button key={s.id} onClick={() => { selectSession(s.id); navigate(`/mt5-report?sessionId=${s.id}`); }} className="bg-white border-2 border-[#121212] p-5 text-left hover:bg-[#F0F0F0] hover:-translate-y-1 transition-transform shadow-[4px_4px_0px_0px_#121212]">
+              <h3 className="text-[15px] font-extrabold text-[#121212] uppercase tracking-wide">{s.name}</h3>
+              <p className="text-[11px] font-bold text-[#717182] uppercase tracking-wider mt-2 bg-[#F0F0F0] inline-block px-2 py-0.5 border-2 border-[#121212]/10">{s.symbol} · {s.timeframe}</p>
             </button>
           ))}
         </div>
-        <Link to="/mt5-import" className="btn-primary inline-flex">Import MT5 Report</Link>
+        <Button variant="blue" onClick={() => navigate('/mt5-import')}>Import MT5 Report</Button>
       </div>
     );
   }
 
-  if (loading) return <div className="py-20 text-center text-[#707a8a]">Memuat MT5 Report Analyzer...</div>;
-  if (error) return <div className="bn-card p-6 text-[#f6465d]">{error} <Link to="/mt5-import" className="text-[#fcd535] ml-2">Import report</Link></div>;
+  if (loading) return <div className="py-20 text-center text-[#121212] font-extrabold text-xl animate-pulse font-display uppercase tracking-widest">Memuat MT5 Report Analyzer...</div>;
+  if (error) return <div className="bg-[var(--loss-dim)] border-2 border-[var(--loss)] p-6 text-[13px] font-bold text-[var(--loss)] shadow-[4px_4px_0px_0px_var(--loss)] flex items-center justify-between">{error} <Link to="/mt5-import" className="text-[#121212] font-extrabold hover:underline">Import report</Link></div>;
   if (!data) return null;
 
   const exportPng = async (type: 'dashboard' | 'summary') => {
@@ -109,14 +118,14 @@ export default function MT5ReportDashboard() {
 
   return (
     <div className="space-y-6" ref={exportRef} id="mt5-report-export-root">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
         <div>
-          <button onClick={() => navigate('/sessions')} className="flex items-center gap-1 text-xs text-[#707a8a] hover:text-[#fcd535] mb-2">
-            <ChevronLeft className="w-4 h-4" /> Semua Sesi
+          <button onClick={() => navigate('/sessions')} className="flex items-center gap-1 text-[11px] font-bold text-[#717182] hover:text-[#121212] uppercase tracking-wider mb-3 bg-[#F0F0F0] px-2 py-1 border-2 border-[#121212]/10 w-fit transition-colors">
+            <ChevronLeft className="w-3 h-3" strokeWidth={3} /> Semua Sesi
           </button>
-          <h1 className="text-2xl font-bold text-white">MT5 Report Analyzer / EA Backtest Report</h1>
-          <p className="text-xs text-[#707a8a] mt-1">
-            {summary?.expertName || '-'} · {summary?.symbol || '-'} · {summary?.timeframe || '-'} · {summary?.periodStart ? String(summary.periodStart).slice(0, 10) : '-'} {'->'} {summary?.periodEnd ? String(summary.periodEnd).slice(0, 10) : '-'}
+          <h1 className="text-3xl font-extrabold text-[#121212] font-display uppercase tracking-tight">MT5 Analyzer / EA Backtest Report</h1>
+          <p className="text-[13px] font-bold text-[#717182] mt-2 bg-[#F0F0F0] px-3 py-1 border-2 border-[#121212]/10 inline-flex items-center gap-2">
+            <span className="text-[#121212]">{summary?.expertName || '-'}</span> • <span>{summary?.symbol || '-'}</span> • <span>{summary?.timeframe || '-'}</span> • <span>{summary?.periodStart ? String(summary.periodStart).slice(0, 10) : '-'} {'->'} {summary?.periodEnd ? String(summary.periodEnd).slice(0, 10) : '-'}</span>
           </p>
         </div>
         <div className="flex flex-wrap gap-2" data-export-hide>
@@ -141,12 +150,11 @@ export default function MT5ReportDashboard() {
             ]}
             nextAction="Kalau verdict Dangerous/Weak, optimasi filter entry/risk dulu lalu test periode lebih panjang."
           />
-          <button onClick={() => exportPng('summary')} disabled={!!exporting} className="btn-secondary inline-flex items-center gap-2"><Image className="w-4 h-4" /> {exporting === 'summary' ? 'Exporting...' : 'Export Summary PNG'}</button>
-          <button onClick={() => exportPng('dashboard')} disabled={!!exporting} className="btn-secondary inline-flex items-center gap-2"><Camera className="w-4 h-4" /> {exporting === 'dashboard' ? 'Exporting...' : 'Export Dashboard PNG'}</button>
-          <button onClick={() => window.open(`/reports/mt5/${sessionId}/print`, '_blank')} className="btn-secondary inline-flex items-center gap-2"><FileText className="w-4 h-4" /> Preview PDF Report</button>
-          <button onClick={() => navigate(`/dashboard?sessionId=${sessionId}`)} className="btn-secondary">Analysis Dashboard</button>
-          <button onClick={() => navigate(`/dashboard?sessionId=${sessionId}#calendar`)} className="btn-secondary">Journal Calendar</button>
-          <button onClick={() => navigate('/mt5-import')} className="btn-primary">Import Another</button>
+          <Button variant="secondary" onClick={() => exportPng('summary')} disabled={!!exporting} className="inline-flex items-center gap-2 px-3 py-2 text-[10px]"><Image className="w-4 h-4" /> {exporting === 'summary' ? 'Exporting...' : 'Export Summary PNG'}</Button>
+          <Button variant="secondary" onClick={() => exportPng('dashboard')} disabled={!!exporting} className="inline-flex items-center gap-2 px-3 py-2 text-[10px]"><Camera className="w-4 h-4" /> {exporting === 'dashboard' ? 'Exporting...' : 'Export Dashboard PNG'}</Button>
+          <Button variant="secondary" onClick={() => window.open(`/reports/mt5/${sessionId}/print`, '_blank')} className="inline-flex items-center gap-2 px-3 py-2 text-[10px]"><FileText className="w-4 h-4" /> Preview PDF Report</Button>
+          <Button variant="blue" onClick={() => navigate(`/dashboard?sessionId=${sessionId}`)} className="px-3 py-2 text-[10px]">Analysis Dashboard</Button>
+          <Button variant="secondary" onClick={() => navigate(`/dashboard?sessionId=${sessionId}#calendar`)} className="px-3 py-2 text-[10px]">Journal Calendar</Button>
         </div>
       </div>
 
@@ -175,37 +183,83 @@ export default function MT5ReportDashboard() {
         <MetricCard title="Deals / Orders" value={`${data.deals?.length || 0} / ${data.orders?.length || 0}`} icon={BarChart3} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <BreakdownCard title="Long vs Short Performance" rows={[
-          ['Long trades', tradeBreakdown.longCount],
-          ['Long PnL', formatUsd(tradeBreakdown.longPnl)],
-          ['Short trades', tradeBreakdown.shortCount],
-          ['Short PnL', formatUsd(tradeBreakdown.shortPnl)],
-        ]} />
-        <BreakdownCard title="Profit/Loss Distribution" rows={[
-          ['Winning trades', tradeBreakdown.wins],
-          ['Losing trades', tradeBreakdown.losses],
-          ['Average win', formatUsd(tradeBreakdown.averageWin)],
-          ['Average loss', formatUsd(tradeBreakdown.averageLoss)],
-        ]} />
-        <BreakdownCard title="Backtest Range" rows={[
-          ['EA', summary?.expertName || '-'],
-          ['Symbol', summary?.symbol || '-'],
-          ['Timeframe', summary?.timeframe || '-'],
-          ['Period', `${summary?.periodStart ? String(summary.periodStart).slice(0, 10) : '-'} -> ${summary?.periodEnd ? String(summary.periodEnd).slice(0, 10) : '-'}`],
-        ]} />
+      {/* TABS NAVIGATION */}
+      <div className="flex overflow-x-auto border-b-4 border-[#121212] mt-8 mb-6 pb-2 scrollbar-hide gap-2">
+        {(['OVERVIEW', 'RISK', 'RR_LAB', 'TIMING', 'STREAKS', 'PAIR'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`whitespace-nowrap px-4 py-2 text-[12px] font-extrabold uppercase tracking-widest transition-all ${
+              activeTab === tab 
+                ? 'bg-[#121212] text-white shadow-[2px_2px_0px_0px_#1040C0]' 
+                : 'bg-white text-[#717182] border-2 border-[#121212] hover:bg-[#F0F0F0] shadow-[2px_2px_0px_0px_#121212]'
+            }`}
+          >
+            {tab === 'OVERVIEW' && 'Overview'}
+            {tab === 'RISK' && 'Risk Recalculation'}
+            {tab === 'RR_LAB' && 'RR Lab'}
+            {tab === 'TIMING' && 'Timing Analytics'}
+            {tab === 'STREAKS' && 'Streaks'}
+            {tab === 'PAIR' && 'Pair Breakdown'}
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="xl:col-span-2 space-y-4">
-          <Mt5EquityCurve points={data.equityPoints || []} />
-          <Mt5DailyPnlChart daily={data.analysis?.dailyReview || []} />
+      {activeTab === 'RISK' && (
+        <div className="animate-fade-in"><RiskRecalculationTab sessionId={sessionId!} session={data.session || {}} metrics={data.metrics} trades={data.trades || []} /></div>
+      )}
+      
+      {activeTab === 'RR_LAB' && (
+        <div className="animate-fade-in"><RRLabTab metrics={data.metrics} trades={data.trades || []} /></div>
+      )}
+      
+      {activeTab === 'TIMING' && (
+        <div className="animate-fade-in"><TimingAnalyticsTab metrics={data.metrics} trades={data.trades || []} /></div>
+      )}
+      
+      {activeTab === 'STREAKS' && (
+        <div className="animate-fade-in"><StreaksTab metrics={data.metrics} trades={data.trades || []} /></div>
+      )}
+      
+      {activeTab === 'PAIR' && (
+        <div className="animate-fade-in"><PairBreakdownTab metrics={data.metrics} /></div>
+      )}
+
+      {activeTab === 'OVERVIEW' && (
+        <div className="space-y-6 animate-fade-in">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <BreakdownCard title="Long vs Short Performance" rows={[
+              ['Long trades', tradeBreakdown.longCount],
+              ['Long PnL', formatUsd(tradeBreakdown.longPnl)],
+              ['Short trades', tradeBreakdown.shortCount],
+              ['Short PnL', formatUsd(tradeBreakdown.shortPnl)],
+            ]} />
+            <BreakdownCard title="Profit/Loss Distribution" rows={[
+              ['Winning trades', tradeBreakdown.wins],
+              ['Losing trades', tradeBreakdown.losses],
+              ['Average win', formatUsd(tradeBreakdown.averageWin)],
+              ['Average loss', formatUsd(tradeBreakdown.averageLoss)],
+            ]} />
+            <BreakdownCard title="Backtest Range" rows={[
+              ['EA', summary?.expertName || '-'],
+              ['Symbol', summary?.symbol || '-'],
+              ['Timeframe', summary?.timeframe || '-'],
+              ['Period', `${summary?.periodStart ? String(summary.periodStart).slice(0, 10) : '-'} -> ${summary?.periodEnd ? String(summary.periodEnd).slice(0, 10) : '-'}`],
+            ]} />
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="xl:col-span-2 space-y-6">
+              <Mt5EquityCurve points={data.equityPoints || []} />
+              <Mt5DailyPnlChart daily={data.analysis?.dailyReview || []} />
+            </div>
+            <div className="space-y-6">
+              <SectionLabel label="Mistake Detector" shape="diamond" color="red" />
+              <Mt5FindingsPanel findings={data.analysis?.findings || []} />
+            </div>
+          </div>
         </div>
-        <div>
-          <h2 className="text-lg font-bold text-white mb-3">Mistake Detector</h2>
-          <Mt5FindingsPanel findings={data.analysis?.findings || []} />
-        </div>
-      </div>
+      )}
 
       <JournalCalendar
         mode="BACKTEST"
@@ -218,29 +272,30 @@ export default function MT5ReportDashboard() {
         contextId={sessionId}
       />
 
-      <div className="bn-card p-5 space-y-4">
-        <h2 className="text-lg font-bold text-white">Auto Analysis</h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="bg-white border-2 border-[#121212] p-6 shadow-[6px_6px_0px_0px_#121212] space-y-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-16 h-full bg-[#1040C0] opacity-10 transform skew-x-12" />
+        <SectionLabel label="Auto Analysis" shape="square" color="blue" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative z-10">
           {Object.entries(data.analysis?.sections || {}).map(([key, value]) => (
-            <div key={key} className="bg-[#181a20] border border-[#2b3139] rounded-lg p-4">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-[#fcd535] mb-2">{key.replace(/([A-Z])/g, ' $1')}</h3>
-              <p className="text-sm text-[#eaecef] leading-6">{String(value)}</p>
+            <div key={key} className="bg-[#F0F0F0] border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212]">
+              <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-[#1040C0] mb-3 bg-white px-3 py-1 inline-block border-2 border-[#121212]">{key.replace(/([A-Z])/g, ' $1')}</h3>
+              <p className="text-[13px] font-bold text-[#121212] leading-relaxed">{String(value)}</p>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <KeyValueTable title="Settings / EA Inputs" rows={data.raw?.settings || {}} />
         <KeyValueTable title="Results Summary Table" rows={data.raw?.results || {}} />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <TradeList title="Best Trades" rows={plDistribution.best} />
         <TradeList title="Worst Trades" rows={plDistribution.worst} />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <ReviewTable title="Daily Review" rows={data.analysis?.dailyReview || []} />
         <WeeklyTable rows={data.analysis?.weeklyReview || []} />
       </div>
@@ -269,24 +324,24 @@ function ProfessionalVerdictPanel({ summary, analysis }: { summary: any; analysi
   ];
 
   return (
-    <div className="bn-card p-5 border border-[rgba(246,70,93,0.35)] bg-[rgba(246,70,93,0.04)]">
-      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+    <div className="bg-[var(--loss-dim)] border-4 border-[var(--loss)] p-6 shadow-[8px_8px_0px_0px_var(--loss)] relative">
+      <div className="absolute top-0 right-0 p-4 border-l-4 border-b-4 border-[var(--loss)] bg-white text-center shadow-[-4px_4px_0px_0px_var(--loss)]">
+        <div className="text-[10px] text-[var(--loss)] uppercase font-extrabold tracking-widest mb-1">Score</div>
+        <div className="text-3xl font-black text-[#121212] font-display">{score}/100</div>
+      </div>
+      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6 pr-32">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-[#f6465d]">EA Evaluation Verdict</p>
-          <h2 className="text-2xl font-bold text-white mt-1">{label}</h2>
-          <p className="text-sm text-[#eaecef] leading-6 mt-2 max-w-4xl">
+          <p className="text-[11px] font-extrabold uppercase tracking-widest text-[#121212] bg-white px-2 py-0.5 inline-block border-2 border-[#121212] mb-3">EA Evaluation Verdict</p>
+          <h2 className="text-3xl font-black text-[#121212] font-display uppercase tracking-tight leading-none">{label}</h2>
+          <p className="text-[14px] font-bold text-[#121212] leading-relaxed mt-4 max-w-4xl">
             EA ini belum layak dipakai live. Net profit negatif, profit factor di bawah 1, expected payoff negatif,
             dan drawdown equity hampir 50%.
           </p>
         </div>
-        <div className="rounded-xl border border-[#2b3139] bg-[#181a20] p-4 min-w-36 text-center">
-          <div className="text-[10px] text-[#707a8a] uppercase font-bold">Score</div>
-          <div className="text-3xl font-black text-[#f6465d]">{score}/100</div>
-        </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2 mt-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 mt-6">
         {bullets.map((bullet) => (
-          <div key={bullet} className="rounded-lg border border-[#2b3139] bg-[#181a20] p-3 text-xs text-[#c7ccd4] leading-5">
+          <div key={bullet} className="bg-white border-2 border-[var(--loss)] p-4 text-[12px] font-bold text-[#121212] shadow-[2px_2px_0px_0px_var(--loss)] leading-snug">
             {bullet}
           </div>
         ))}
@@ -308,29 +363,29 @@ function SummaryPngCard({ refEl, summary, analysis, equityPoints }: { refEl: Rea
 
   return (
     <div className="fixed -left-[9999px] top-0" aria-hidden="true">
-      <div ref={refEl} className="w-[1200px] h-[675px] bg-[#0b0e11] text-white p-12 border border-[#2b3139]">
+      <div ref={refEl} className="w-[1200px] h-[675px] bg-[#FFFFFF] text-[#121212] p-12 border-8 border-[#121212] font-sans">
         <div className="flex items-start justify-between">
           <div>
-            <div className="inline-flex bg-[#fcd535] text-[#181a20] rounded-lg px-4 py-2 text-sm font-black">ReplayFX Journal</div>
-            <h1 className="text-4xl font-black mt-5">MT5 Backtest Report</h1>
-            <p className="text-[#929aa5] mt-2">{summary?.expertName || '-'} · {summary?.symbol || '-'} · {summary?.timeframe || '-'}</p>
+            <div className="inline-flex bg-[#1040C0] text-white border-4 border-[#121212] rounded-none px-4 py-2 text-sm font-black uppercase tracking-widest shadow-[4px_4px_0px_0px_#121212]">KAFX Journal</div>
+            <h1 className="text-5xl font-black mt-6 font-display uppercase tracking-tight">MT5 Backtest Report</h1>
+            <p className="text-[#717182] font-bold mt-3 text-lg bg-[#F0F0F0] inline-block px-4 py-1 border-2 border-[#121212]">{summary?.expertName || '-'} · {summary?.symbol || '-'} · {summary?.timeframe || '-'}</p>
           </div>
-          <div className="text-right">
-            <div className="text-sm text-[#707a8a]">Verdict</div>
-            <div className="text-4xl font-black text-[#f6465d]">{analysis?.rating?.label || 'N/A'}</div>
-            <div className="text-[#929aa5]">{analysis?.rating?.score ?? 'N/A'}/100</div>
+          <div className="text-right border-4 border-[#121212] p-6 shadow-[8px_8px_0px_0px_#121212] bg-[#F0F0F0]">
+            <div className="text-sm font-bold text-[#717182] uppercase tracking-widest mb-1">Verdict</div>
+            <div className="text-5xl font-black text-[var(--loss)] font-display">{analysis?.rating?.label || 'N/A'}</div>
+            <div className="text-2xl font-black text-[#121212] mt-2 bg-white inline-block px-3 py-1 border-2 border-[#121212]">{analysis?.rating?.score ?? 'N/A'}/100</div>
           </div>
         </div>
-        <div className="grid grid-cols-4 gap-4 mt-10">
+        <div className="grid grid-cols-4 gap-6 mt-10">
           <SummaryMetric label="Net Profit" value={formatUsd(summary?.totalNetProfit)} danger />
           <SummaryMetric label="Profit Factor" value={formatNumber(summary?.profitFactor, 4)} danger />
           <SummaryMetric label="Winrate" value={formatPercent(summary?.winrate)} />
           <SummaryMetric label="Max Equity DD" value={formatPercent(summary?.equityDrawdownPct)} danger />
         </div>
-        <svg className="mt-10 w-full h-64 rounded-xl bg-[#181a20] border border-[#2b3139]" viewBox="0 0 1200 280">
-          <text x="60" y="38" fill="#929aa5" fontSize="16">Mini equity curve</text>
-          {points && <polyline points={points} fill="none" stroke="#fcd535" strokeWidth="4" />}
-          <text x="60" y="258" fill="#707a8a" fontSize="14">Generated {new Date().toISOString().slice(0, 10)}</text>
+        <svg className="mt-10 w-full h-64 bg-[#F0F0F0] border-4 border-[#121212] shadow-[8px_8px_0px_0px_#121212]" viewBox="0 0 1200 280">
+          <text x="60" y="38" fill="#121212" fontSize="16" fontWeight="bold" fontFamily="Outfit">MINI EQUITY CURVE</text>
+          {points && <polyline points={points} fill="none" stroke="#1040C0" strokeWidth="6" />}
+          <text x="60" y="258" fill="#717182" fontSize="14" fontWeight="bold" fontFamily="Outfit">GENERATED {new Date().toISOString().slice(0, 10)}</text>
         </svg>
       </div>
     </div>
@@ -339,22 +394,22 @@ function SummaryPngCard({ refEl, summary, analysis, equityPoints }: { refEl: Rea
 
 function SummaryMetric({ label, value, danger }: { label: string; value: any; danger?: boolean }) {
   return (
-    <div className="rounded-xl bg-[#181a20] border border-[#2b3139] p-5">
-      <div className="text-xs uppercase tracking-widest text-[#707a8a]">{label}</div>
-      <div className={`text-2xl font-black mt-2 ${danger ? 'text-[#f6465d]' : 'text-white'}`}>{value}</div>
+    <div className="bg-white border-4 border-[#121212] p-6 shadow-[6px_6px_0px_0px_#121212]">
+      <div className="text-xs font-bold uppercase tracking-widest text-[#717182]">{label}</div>
+      <div className={`text-3xl font-black mt-3 font-number ${danger ? 'text-[var(--loss)]' : 'text-[#121212]'}`}>{value}</div>
     </div>
   );
 }
 
 function BreakdownCard({ title, rows }: { title: string; rows: Array<[string, any]> }) {
   return (
-    <div className="bn-card p-4">
-      <h3 className="text-sm font-bold text-white mb-3">{title}</h3>
-      <div className="space-y-2">
+    <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212]">
+      <h3 className="text-[14px] font-extrabold text-[#121212] uppercase tracking-wide mb-4 border-b-2 border-[#121212] pb-2">{title}</h3>
+      <div className="space-y-3">
         {rows.map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between gap-3 border-b border-[#2b3139] pb-2 text-xs">
-            <span className="text-[#929aa5]">{label}</span>
-            <span className="font-semibold text-white text-right">{value ?? '-'}</span>
+          <div key={label} className="flex items-center justify-between gap-3 text-[12px] font-bold">
+            <span className="text-[#717182] uppercase tracking-wider">{label}</span>
+            <span className="text-[#121212] text-right bg-[#F0F0F0] px-2 py-0.5 border border-[#121212]/10">{value ?? '-'}</span>
           </div>
         ))}
       </div>
@@ -365,16 +420,18 @@ function BreakdownCard({ title, rows }: { title: string; rows: Array<[string, an
 function KeyValueTable({ title, rows }: { title: string; rows: Record<string, any> }) {
   const entries = Object.entries(rows || {}).filter(([, value]) => value !== null && value !== undefined && String(value) !== '');
   return (
-    <div className="bn-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-[#2b3139] text-sm font-bold text-white">{title}</div>
-      <div className="max-h-96 overflow-auto">
+    <div className="bg-white border-2 border-[#121212] shadow-[6px_6px_0px_0px_#121212] overflow-hidden flex flex-col">
+      <div className="px-5 py-4 border-b-4 border-[#121212] bg-[#F0F0F0]">
+        <h3 className="text-[14px] font-extrabold text-[#121212] uppercase tracking-wide">{title}</h3>
+      </div>
+      <div className="max-h-96 overflow-auto bg-white p-2 flex-1">
         {entries.map(([key, value]) => (
-          <div key={key} className="grid grid-cols-2 gap-3 px-4 py-2 border-b border-[#2b3139] text-xs">
-            <span className="text-[#929aa5]">{key}</span>
-            <span className="text-[#eaecef] break-words">{String(value)}</span>
+          <div key={key} className="grid grid-cols-2 gap-4 px-4 py-3 border-b-2 border-dashed border-[#121212]/10 text-[12px] font-bold hover:bg-[#F0F0F0] transition-colors">
+            <span className="text-[#717182] uppercase tracking-wider">{key}</span>
+            <span className="text-[#121212] break-words">{String(value)}</span>
           </div>
         ))}
-        {!entries.length && <div className="p-4 text-xs text-[#707a8a]">No rows parsed.</div>}
+        {!entries.length && <div className="p-6 text-center text-[11px] font-bold text-[#717182] uppercase tracking-widest bg-[#F0F0F0]">No rows parsed.</div>}
       </div>
     </div>
   );
@@ -383,33 +440,34 @@ function KeyValueTable({ title, rows }: { title: string; rows: Record<string, an
 function OrdersTable({ rows }: { rows: any[] }) {
   const visibleRows = (rows || []).slice(0, 250);
   return (
-    <div className="bn-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-[#2b3139] flex items-center justify-between">
-        <h3 className="text-sm font-bold text-white">Orders</h3>
-        <span className="text-xs text-[#707a8a]">{rows?.length || 0} rows</span>
+    <div className="bg-white border-4 border-[#121212] shadow-[8px_8px_0px_0px_#121212] mt-6 mb-6 overflow-hidden relative pt-12">
+      <div className="absolute top-0 left-0 right-0 h-[4px] bg-[#121212]" />
+      <SectionLabel label="MT5 Raw Orders" shape="square" color="blue" className="absolute top-4 left-4" />
+      <div className="absolute top-4 right-4 bg-[#F0F0F0] border-2 border-[#121212] px-2 py-1 text-[11px] font-bold uppercase tracking-widest text-[#121212] shadow-[2px_2px_0px_0px_#121212]">
+        {rows?.length || 0} rows
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead className="bg-[#181a20] text-[#707a8a]">
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
             <tr>
               {['Time', 'Order', 'Symbol', 'Type', 'Volume', 'Price', 'SL', 'TP', 'State', 'Comment'].map((h) => (
-                <th key={h} className="text-left px-3 py-2 font-semibold">{h}</th>
+                <th key={h}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {visibleRows.map((o) => (
-              <tr key={o.id || o.orderId} className="border-t border-[#2b3139] hover:bg-white/[0.02]">
-                <td className="px-3 py-2 text-[#929aa5] whitespace-nowrap">{String(o.openTime || '').slice(0, 16) || '-'}</td>
-                <td className="px-3 py-2 text-white">{o.orderId || '-'}</td>
-                <td className="px-3 py-2">{o.symbol || '-'}</td>
-                <td className="px-3 py-2">{o.type || '-'}</td>
-                <td className="px-3 py-2 font-number">{formatNumber(o.volume, 2)}</td>
-                <td className="px-3 py-2 font-number">{formatNumber(o.price, 2)}</td>
-                <td className="px-3 py-2 font-number">{formatNumber(o.sl, 2)}</td>
-                <td className="px-3 py-2 font-number">{formatNumber(o.tp, 2)}</td>
-                <td className="px-3 py-2">{o.state || '-'}</td>
-                <td className="px-3 py-2 max-w-xs truncate text-[#707a8a]">{o.comment || '-'}</td>
+              <tr key={o.id || o.orderId} className="hover:bg-[#F0F0F0] transition-colors">
+                <td className="text-[11px] font-bold text-[#717182] uppercase tracking-wider whitespace-nowrap">{String(o.openTime || '').slice(0, 16) || '-'}</td>
+                <td className="font-extrabold text-[#121212] font-display text-[13px]">{o.orderId || '-'}</td>
+                <td className="font-extrabold text-[#121212]">{o.symbol || '-'}</td>
+                <td className="text-[11px] font-bold text-[#121212] uppercase tracking-wider">{o.type || '-'}</td>
+                <td className="font-bold text-[#121212] font-number">{formatNumber(o.volume, 2)}</td>
+                <td className="font-bold text-[#121212] font-number">{formatNumber(o.price, 2)}</td>
+                <td className="font-bold text-[#121212] font-number">{formatNumber(o.sl, 2)}</td>
+                <td className="font-bold text-[#121212] font-number">{formatNumber(o.tp, 2)}</td>
+                <td className="text-[11px] font-bold text-[#121212] uppercase tracking-wider bg-[#F0F0F0] px-1 border border-[#121212]/20">{o.state || '-'}</td>
+                <td className="text-[12px] text-[#717182] font-semibold max-w-xs truncate">{o.comment || '-'}</td>
               </tr>
             ))}
           </tbody>
@@ -421,14 +479,18 @@ function OrdersTable({ rows }: { rows: any[] }) {
 
 function TradeList({ title, rows }: { title: string; rows: any[] }) {
   return (
-    <div className="bn-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-[#2b3139] text-sm font-bold text-white">{title}</div>
-      {rows.map((t) => (
-        <div key={t.id} className="px-4 py-2 border-b border-[#2b3139] flex justify-between text-xs">
-          <span className="text-[#929aa5]">{String(t.exitTime || '').slice(0, 16)} · {t.side}</span>
-          <span className="font-number font-bold" style={{ color: Number(t.netPnlUsd || 0) >= 0 ? '#0ecb81' : '#f6465d' }}>{formatUsd(t.netPnlUsd)}</span>
-        </div>
-      ))}
+    <div className="bg-white border-2 border-[#121212] shadow-[6px_6px_0px_0px_#121212] overflow-hidden">
+      <div className="px-5 py-4 border-b-4 border-[#121212] bg-[#F0F0F0]">
+        <h3 className="text-[14px] font-extrabold text-[#121212] uppercase tracking-wide">{title}</h3>
+      </div>
+      <div className="p-2 space-y-2">
+        {rows.map((t) => (
+          <div key={t.id} className="px-4 py-3 border-2 border-[#121212] flex justify-between items-center text-[12px] font-bold shadow-[2px_2px_0px_0px_#121212] bg-white">
+            <span className="text-[#121212] bg-[#F0F0F0] px-2 py-1 uppercase tracking-wider">{String(t.exitTime || '').slice(0, 16)} · <span className={t.side === 'LONG' || t.side === 'BUY' ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}>{t.side}</span></span>
+            <span className={`font-number font-extrabold text-[14px] px-2 py-1 ${Number(t.netPnlUsd || 0) >= 0 ? 'bg-[var(--profit-dim)] text-[var(--profit)]' : 'bg-[var(--loss-dim)] text-[var(--loss)]'}`}>{formatUsd(t.netPnlUsd)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -460,20 +522,21 @@ function RebuiltTradesTable({ rows }: { rows: any[] }) {
     }, {});
   }, [filteredRows]);
   return (
-    <div className="bn-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-[#2b3139] space-y-3">
+    <div className="bg-white border-4 border-[#121212] shadow-[8px_8px_0px_0px_#121212] mt-6 mb-6 overflow-hidden relative pt-4">
+      <div className="absolute top-0 left-0 right-0 h-[4px] bg-[var(--profit)]" />
+      <div className="px-5 py-4 border-b-4 border-[#121212] space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-sm font-bold text-white">Rebuilt Trades Ledger</h3>
-          <span className="text-xs text-[#707a8a]">
-            Showing {filteredRows.length} of {rows?.length || 0} trades · {filter} · visible PnL <span className={visiblePnl >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}>{formatUsd(visiblePnl)}</span>
+          <SectionLabel label="Rebuilt Trades Ledger" shape="diamond" color="yellow" />
+          <span className="text-[11px] font-bold text-[#121212] uppercase tracking-widest bg-[#F0F0F0] px-3 py-1.5 border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212]">
+            Showing {filteredRows.length} of {rows?.length || 0} trades · {filter} · visible PnL <span className={visiblePnl >= 0 ? 'text-[var(--profit)] font-number text-[13px] ml-1' : 'text-[var(--loss)] font-number text-[13px] ml-1'}>{formatUsd(visiblePnl)}</span>
           </span>
         </div>
-        <div className="flex flex-wrap gap-2" data-export-hide>
+        <div className="flex flex-wrap gap-2 pt-2" data-export-hide>
           {(['ALL', 'BEST', 'WORST', 'WIN', 'LOSS', 'LONG', 'SHORT', 'DAY'] as const).map((item) => (
             <button
               key={item}
               onClick={() => setFilter(item)}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${filter === item ? 'bg-[#fcd535] text-[#181a20]' : 'bg-[#2b3139] text-[#929aa5] hover:text-white'}`}
+              className={`px-3 py-1 text-[10px] font-extrabold uppercase tracking-widest border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] transition-colors active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${filter === item ? 'bg-[#121212] text-white' : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'}`}
             >
               {item === 'DAY' ? 'Group by day' : item}
             </button>
@@ -481,45 +544,49 @@ function RebuiltTradesTable({ rows }: { rows: any[] }) {
         </div>
       </div>
       {filter === 'DAY' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2 p-4 border-b border-[#2b3139]">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 p-5 bg-[#F0F0F0] border-b-4 border-[#121212]">
           {Object.entries(byDay).map(([day, stat]) => (
-            <div key={day} className="rounded-lg border border-[#2b3139] bg-[#181a20] p-3 text-xs">
-              <div className="font-bold text-white">{day}</div>
-              <div className={stat.pnl >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}>{formatUsd(stat.pnl)}</div>
-              <div className="text-[#707a8a]">{stat.count} trades · W{stat.wins}/L{stat.losses}</div>
+            <div key={day} className="bg-white border-2 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
+              <div className="font-extrabold text-[#121212] text-[13px] uppercase tracking-wide border-b-2 border-[#121212] pb-2 mb-2">{day}</div>
+              <div className={`text-[16px] font-black font-number mb-2 ${stat.pnl >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>{formatUsd(stat.pnl)}</div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-[#717182] bg-[#F0F0F0] inline-block px-2 py-1 border border-[#121212]/10">{stat.count} TR · W{stat.wins}/L{stat.losses}</div>
             </div>
           ))}
         </div>
       )}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead className="bg-[#181a20] text-[#707a8a]">
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
             <tr>
               {['#', 'Entry', 'Exit', 'Side', 'Entry Price', 'Exit Price', 'Volume', 'PnL', 'R', 'Notes'].map((h) => (
-                <th key={h} className="text-left px-3 py-2 font-semibold">{h}</th>
+                <th key={h}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {visibleRows.map((t) => (
-              <tr key={t.id || t.tradeId || t.tradeNumber} className="border-t border-[#2b3139] hover:bg-white/[0.02]">
-                <td className="px-3 py-2 text-white">{t.tradeNumber || '-'}</td>
-                <td className="px-3 py-2 text-[#929aa5] whitespace-nowrap">{String(t.entryTime || '').slice(0, 16) || '-'}</td>
-                <td className="px-3 py-2 text-[#929aa5] whitespace-nowrap">{String(t.exitTime || '').slice(0, 16) || '-'}</td>
-                <td className="px-3 py-2">{t.side || '-'}</td>
-                <td className="px-3 py-2 font-number">{formatNumber(t.entryPrice, 2)}</td>
-                <td className="px-3 py-2 font-number">{formatNumber(t.exitPrice, 2)}</td>
-                <td className="px-3 py-2 font-number">{formatNumber(t.qty, 2)}</td>
-                <td className="px-3 py-2 font-number font-bold" style={{ color: Number(t.netPnlUsd || 0) >= 0 ? '#0ecb81' : '#f6465d' }}>{formatUsd(t.netPnlUsd)}</td>
-                <td className="px-3 py-2 font-number">{t.rMultiple !== null && t.rMultiple !== undefined ? formatNumber(t.rMultiple, 2) : '-'}</td>
-                <td className="px-3 py-2 text-[#707a8a] max-w-sm truncate">{t.notes || '-'}</td>
+              <tr key={t.id || t.tradeId || t.tradeNumber} className="hover:bg-[#F0F0F0] transition-colors">
+                <td className="font-extrabold text-[#121212] font-display text-[13px]">#{t.tradeNumber || '-'}</td>
+                <td className="text-[11px] font-bold text-[#717182] uppercase tracking-wider whitespace-nowrap">{String(t.entryTime || '').slice(0, 16) || '-'}</td>
+                <td className="text-[11px] font-bold text-[#717182] uppercase tracking-wider whitespace-nowrap">{String(t.exitTime || '').slice(0, 16) || '-'}</td>
+                <td className="text-[11px] font-bold text-[#121212] uppercase tracking-wider">
+                   <span className={`px-2 py-0.5 border-2 border-[#121212] ${t.side === 'LONG' || t.side === 'BUY' ? 'bg-[var(--profit-dim)] text-[var(--profit)]' : 'bg-[var(--loss-dim)] text-[var(--loss)]'}`}>
+                     {t.side || '-'}
+                   </span>
+                </td>
+                <td className="font-bold text-[#121212] font-number">{formatNumber(t.entryPrice, 2)}</td>
+                <td className="font-bold text-[#121212] font-number">{formatNumber(t.exitPrice, 2)}</td>
+                <td className="font-bold text-[#121212] font-number">{formatNumber(t.qty, 2)}</td>
+                <td className={`font-extrabold font-number text-[13px] ${Number(t.netPnlUsd || 0) >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>{formatUsd(t.netPnlUsd)}</td>
+                <td className="font-bold text-[#121212] font-number">{t.rMultiple !== null && t.rMultiple !== undefined ? formatNumber(t.rMultiple, 2) : '-'}</td>
+                <td className="text-[12px] text-[#717182] font-semibold max-w-sm truncate">{t.notes || '-'}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       {(rows?.length || 0) > visibleRows.length && (
-        <div className="px-4 py-2 text-xs text-[#707a8a] border-t border-[#2b3139]">
+        <div className="px-5 py-4 bg-[#F0F0F0] border-t-4 border-[#121212] text-[11px] font-bold text-[#717182] uppercase tracking-wider text-center">
           Menampilkan 250 trade pertama.
         </div>
       )}
@@ -529,30 +596,45 @@ function RebuiltTradesTable({ rows }: { rows: any[] }) {
 
 function ReviewTable({ title, rows }: { title: string; rows: any[] }) {
   return (
-    <div className="bn-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-[#2b3139] text-sm font-bold text-white">{title}</div>
-      {rows.map((r) => (
-        <div key={r.date} className="px-4 py-2 border-b border-[#2b3139] grid grid-cols-4 gap-2 text-xs">
-          <span className="text-white">{r.date}</span>
-          <span className="font-number" style={{ color: r.dailyNetChange >= 0 ? '#0ecb81' : '#f6465d' }}>{formatUsd(r.dailyNetChange)}</span>
-          <span className="text-[#929aa5]">{r.tradeCount} trades</span>
-          <span className="text-[#707a8a]">{r.comment}</span>
-        </div>
-      ))}
+    <div className="bg-white border-2 border-[#121212] shadow-[6px_6px_0px_0px_#121212] overflow-hidden">
+      <div className="px-5 py-4 border-b-4 border-[#121212] bg-[#F0F0F0]">
+        <h3 className="text-[14px] font-extrabold text-[#121212] uppercase tracking-wide">{title}</h3>
+      </div>
+      <div className="flex flex-col">
+        {rows.map((r) => (
+          <div key={r.date} className="px-5 py-4 border-b-2 border-dashed border-[#121212]/10 grid grid-cols-4 gap-4 text-[12px] font-bold items-center hover:bg-[#F0F0F0] transition-colors">
+            <span className="text-[#121212] uppercase tracking-widest">{r.date}</span>
+            <span className={`font-number text-[14px] px-2 py-1 inline-block text-center ${r.dailyNetChange >= 0 ? 'bg-[var(--profit-dim)] text-[var(--profit)]' : 'bg-[var(--loss-dim)] text-[var(--loss)]'}`}>{formatUsd(r.dailyNetChange)}</span>
+            <span className="text-[#717182] uppercase tracking-widest">{r.tradeCount} TR</span>
+            <span className="text-[#121212] bg-white border border-[#121212]/10 p-1 px-2 truncate max-w-[150px]" title={r.comment}>{r.comment}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
 function WeeklyTable({ rows }: { rows: any[] }) {
   return (
-    <div className="bn-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-[#2b3139] text-sm font-bold text-white">Weekly Review</div>
-      {rows.map((r) => (
-        <div key={r.week} className="px-4 py-2 border-b border-[#2b3139] text-xs space-y-1">
-          <div className="flex justify-between"><span className="text-white">{r.week}</span><span className="font-number" style={{ color: r.totalPnl >= 0 ? '#0ecb81' : '#f6465d' }}>{formatUsd(r.totalPnl)}</span></div>
-          <div className="text-[#707a8a]">Best {r.bestDay || '-'} · Worst {r.worstDay || '-'} · Avg {formatUsd(r.averageDailyPnl)}</div>
-        </div>
-      ))}
+    <div className="bg-white border-2 border-[#121212] shadow-[6px_6px_0px_0px_#121212] overflow-hidden">
+      <div className="px-5 py-4 border-b-4 border-[#121212] bg-[#F0F0F0]">
+        <h3 className="text-[14px] font-extrabold text-[#121212] uppercase tracking-wide">Weekly Review</h3>
+      </div>
+      <div className="flex flex-col">
+        {rows.map((r) => (
+          <div key={r.week} className="px-5 py-4 border-b-2 border-dashed border-[#121212]/10 text-[12px] font-bold space-y-3 hover:bg-[#F0F0F0] transition-colors">
+            <div className="flex justify-between items-center">
+              <span className="text-[#121212] uppercase tracking-widest text-[13px]">{r.week}</span>
+              <span className={`font-number text-[15px] font-black px-2 py-0.5 border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] ${r.totalPnl >= 0 ? 'bg-[var(--profit)] text-white' : 'bg-[var(--loss)] text-white'}`}>{formatUsd(r.totalPnl)}</span>
+            </div>
+            <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider bg-white border-2 border-[#121212]/10 p-2 flex items-center justify-between">
+              <span>Best: <span className="text-[#121212]">{r.bestDay || '-'}</span></span>
+              <span>Worst: <span className="text-[#121212]">{r.worstDay || '-'}</span></span>
+              <span>Avg: <span className="text-[#121212]">{formatUsd(r.averageDailyPnl)}</span></span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

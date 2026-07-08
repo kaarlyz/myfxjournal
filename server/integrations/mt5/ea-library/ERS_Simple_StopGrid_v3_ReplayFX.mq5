@@ -564,14 +564,14 @@ bool PlaceGridCycle()
       string buyComment  = InpEAName + " BUY_STOP L" + IntegerToString(level);
       string sellComment = InpEAName + " SELL_STOP L" + IntegerToString(level);
 
-      if((!ReplayFX_Enable || ReplayFXCfgAllowBuy) && !trade.BuyStop(lot, buyPrice, _Symbol, 0.0, 0.0, ORDER_TIME_GTC, 0, buyComment))
+      if((!ReplayFX_Enable || (ReplayFXMode == REPLAYFX_AUTO && ReplayFXCfgAllowBuy)) && !trade.BuyStop(lot, buyPrice, _Symbol, 0.0, 0.0, ORDER_TIME_GTC, 0, buyComment))
       {
          allOk = false;
          Print("BuyStop L", level, " failed at ", buyPrice,
                " retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
       }
 
-      if((!ReplayFX_Enable || ReplayFXCfgAllowSell) && !trade.SellStop(lot, sellPrice, _Symbol, 0.0, 0.0, ORDER_TIME_GTC, 0, sellComment))
+      if((!ReplayFX_Enable || (ReplayFXMode == REPLAYFX_AUTO && ReplayFXCfgAllowSell)) && !trade.SellStop(lot, sellPrice, _Symbol, 0.0, 0.0, ORDER_TIME_GTC, 0, sellComment))
       {
          allOk = false;
          Print("SellStop L", level, " failed at ", sellPrice,

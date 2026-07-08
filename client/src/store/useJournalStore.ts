@@ -23,6 +23,7 @@ interface JournalStore {
   sessions: (BacktestSession & { tradeCount: number; invalidTradeCount: number; endingBalance: number; netPnlUsd: number; netPnlPct: number; winrate: number })[];
   activeSessionId: string | null;
   activeSessionDetails: ActiveSessionDetails | null;
+  activeSessionRequestId: number;
   settings: SystemSettings;
   loading: boolean;
   error: string | null;
@@ -50,6 +51,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   sessions: [],
   activeSessionId: null,
   activeSessionDetails: null,
+  activeSessionRequestId: 0,
   settings: {
     usdIdrRate: 16200,
     defaultRiskMode: 'FIXED_USD',
@@ -111,26 +113,37 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   },
 
   fetchActiveSession: async (id) => {
-    set({ loading: true, error: null });
+    const requestId = Date.now() + Math.floor(Math.random() * 1000) + 1;
+    set({ loading: true, error: null, activeSessionRequestId: requestId });
+
     try {
       const res = await fetch(apiUrl(`/sessions/${id}`));
       if (!res.ok) throw new Error('Sesi tidak ditemukan.');
       const data = await res.json();
+
+      if (get().activeSessionRequestId !== requestId || get().activeSessionId !== id) {
+        return;
+      }
+
       set({
         activeSessionDetails: data,
         activeSessionId: id,
         loading: false,
       });
     } catch (err: any) {
-      set({ error: err.message, loading: false, activeSessionDetails: null, activeSessionId: null });
+      if (get().activeSessionRequestId !== requestId || get().activeSessionId !== id) {
+        return;
+      }
+
+      set({ error: err.message, loading: false });
     }
   },
 
   selectSession: (id) => {
     if (id === null) {
-      set({ activeSessionId: null, activeSessionDetails: null, activeTab: 'home' });
+      set({ activeSessionId: null, activeSessionDetails: null, activeSessionRequestId: 0, activeTab: 'home' });
     } else {
-      set({ activeSessionId: id, activeTab: 'dashboard' });
+      set({ activeSessionId: id, activeSessionDetails: null, activeTab: 'dashboard' });
       get().fetchActiveSession(id);
     }
   },

@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Calculator, AlertTriangle, ShieldCheck, TrendingUp, Info } from 'lucide-react';
+import { Calculator, Info } from 'lucide-react';
 import { formatCurrency, formatNumber } from '../utils/numberUtils';
+import { Input, Select } from './ui/Input';
+import { SectionLabel } from './ui/SectionLabel';
+import { Badge } from './ui/Badge';
 
 interface RiskCalculatorProps {
   onClose?: () => void;
@@ -127,134 +130,141 @@ export default function RiskCalculator({ onClose }: RiskCalculatorProps) {
   };
 
   return (
-    <div className="bg-dark/80 backdrop-blur-md rounded-xl border border-[#2b3139] p-6 shadow-2xl relative overflow-hidden">
-      {/* Decorative glows */}
-      <div className="absolute -top-20 -right-20 w-40 h-40 bg-[rgba(14,203,129,0.12)] blur-[80px] rounded-full pointer-events-none" />
-      <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-[rgba(252,213,53,0.12)] blur-[80px] rounded-full pointer-events-none" />
+    <div className="bg-white border-4 border-[#121212] p-6 md:p-8 shadow-[8px_8px_0px_0px_#121212] relative overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 h-3 bg-[#1040C0]" />
 
-      <div className="flex items-center justify-between mb-6 relative z-10">
-        <div className="flex items-center space-x-3">
-          <div className="p-2 bg-gradient-to-br from-accentBlue/20 to-accentEmerald/20 rounded-xl border border-[#2b3139]">
-            <Calculator className="w-5 h-5 text-[#0ecb81]" />
+      <div className="flex items-center justify-between mb-8 mt-2">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-white border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212]">
+            <Calculator className="w-6 h-6 text-[#121212]" strokeWidth={2.5} />
           </div>
-          <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-            Risk & Lot Calculator
-          </h2>
+          <div>
+            <SectionLabel label="Tool" shape="square" color="blue" />
+            <h2 className="text-2xl font-extrabold text-[#121212] font-display uppercase tracking-wide">
+              Risk & Lot Calculator
+            </h2>
+          </div>
         </div>
         {onClose && (
-          <button onClick={onClose} className="text-[#929aa5] hover:text-white transition-colors">
-            ✕
+          <button onClick={onClose} className="bg-white border-2 border-[#121212] p-2 hover:bg-[#F0F0F0] active:translate-y-1 active:shadow-none transition-all shadow-[2px_2px_0px_0px_#121212]">
+            <span className="font-extrabold text-[#121212]">✕</span>
           </button>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative z-10">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#929aa5] mb-1">Account Balance</label>
-              <div className="relative">
-                <input type="number" value={balance} onChange={e => setBalance(Number(e.target.value))}
-                  className="w-full bn-card  border border-[#2b3139] rounded-xl py-2 px-3 text-white text-sm focus:border-[#fcd535] focus:ring-1 focus:ring-accentBlue/50 transition-all outline-none" />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#929aa5] mb-1">Risk Mode</label>
-              <select value={riskMode} onChange={e => setRiskMode(e.target.value as any)}
-                className="w-full bn-card  border border-[#2b3139] rounded-xl py-2 px-3 text-white text-sm focus:border-[#fcd535] focus:ring-1 focus:ring-accentBlue/50 transition-all outline-none appearance-none">
-                <option value="PERCENT">% of Balance</option>
-                <option value="MONEY">Fixed Money</option>
-              </select>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="space-y-5 bg-[#F0F0F0] p-6 border-2 border-[#121212]">
+          <div className="grid grid-cols-2 gap-4">
+            <Input 
+              label="Account Balance" 
+              type="number" 
+              value={balance} 
+              onChange={e => setBalance(Number(e.target.value))} 
+            />
+            <Select 
+              label="Risk Mode" 
+              value={riskMode} 
+              onChange={e => setRiskMode(e.target.value as any)}
+            >
+              <option value="PERCENT">% of Balance</option>
+              <option value="MONEY">Fixed Money</option>
+            </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#929aa5] mb-1">Risk Amount</label>
-              <div className="relative">
-                <input type="number" value={riskValue} onChange={e => setRiskValue(Number(e.target.value))}
-                  className="w-full bn-card  border border-[#2b3139] rounded-xl py-2 px-3 text-white text-sm focus:border-[#fcd535] transition-all outline-none" />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#929aa5] mb-1">Symbol</label>
-              <input type="text" value={symbol} onChange={e => setSymbol(e.target.value)}
-                className="w-full bn-card  border border-[#2b3139] rounded-xl py-2 px-3 text-white text-sm focus:border-[#fcd535] transition-all outline-none uppercase" />
-            </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input 
+              label="Risk Amount" 
+              type="number" 
+              value={riskValue} 
+              onChange={e => setRiskValue(Number(e.target.value))} 
+            />
+            <Input 
+              label="Symbol" 
+              type="text" 
+              value={symbol} 
+              onChange={e => setSymbol(e.target.value)} 
+              className="uppercase"
+            />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#929aa5] mb-1">Entry Price</label>
-              <input type="number" value={entryPrice} onChange={e => setEntryPrice(e.target.value ? Number(e.target.value) : '')} placeholder="Optional"
-                className="w-full bn-card  border border-[#2b3139] rounded-xl py-2 px-3 text-white text-sm focus:border-[#fcd535] transition-all outline-none" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#929aa5] mb-1">Stop Loss Price</label>
-              <input type="number" value={stopLoss} onChange={e => { setStopLoss(e.target.value ? Number(e.target.value) : ''); setSlPips(''); }} placeholder="Optional"
-                className="w-full bn-card  border border-[#2b3139] rounded-xl py-2 px-3 text-white text-sm focus:border-[#fcd535] transition-all outline-none" />
-            </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input 
+              label="Entry Price" 
+              type="number" 
+              value={entryPrice} 
+              onChange={e => setEntryPrice(e.target.value ? Number(e.target.value) : '')} 
+              placeholder="Optional" 
+            />
+            <Input 
+              label="Stop Loss Price" 
+              type="number" 
+              value={stopLoss} 
+              onChange={e => { setStopLoss(e.target.value ? Number(e.target.value) : ''); setSlPips(''); }} 
+              placeholder="Optional" 
+            />
           </div>
           
-          <div className="flex items-center space-x-4">
-            <div className="flex-1 border-t border-[#2b3139]"></div>
-            <span className="text-xs text-[#707a8a] font-medium">OR</span>
-            <div className="flex-1 border-t border-[#2b3139]"></div>
+          <div className="flex items-center gap-4 py-2">
+            <div className="flex-1 border-t-2 border-dashed border-[#121212]/20"></div>
+            <span className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest bg-white px-2 py-1 border-2 border-[#121212]/10">OR</span>
+            <div className="flex-1 border-t-2 border-dashed border-[#121212]/20"></div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#929aa5] mb-1">SL in Pips</label>
-              <input type="number" value={slPips} onChange={e => { setSlPips(e.target.value ? Number(e.target.value) : ''); setStopLoss(''); }} placeholder="e.g. 20"
-                className="w-full bn-card  border border-[#2b3139] rounded-xl py-2 px-3 text-white text-sm focus:border-[#fcd535] transition-all outline-none" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#929aa5] mb-1">Reward : Risk (R:R)</label>
-              <input type="number" value={rrTarget} onChange={e => setRrTarget(Number(e.target.value))} step="0.1"
-                className="w-full bn-card  border border-[#2b3139] rounded-xl py-2 px-3 text-white text-sm focus:border-[#fcd535] transition-all outline-none" />
-            </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input 
+              label="SL in Pips" 
+              type="number" 
+              value={slPips} 
+              onChange={e => { setSlPips(e.target.value ? Number(e.target.value) : ''); setStopLoss(''); }} 
+              placeholder="e.g. 20" 
+            />
+            <Input 
+              label="Reward : Risk (R:R)" 
+              type="number" 
+              value={rrTarget} 
+              onChange={e => setRrTarget(Number(e.target.value))} 
+              step="0.1" 
+            />
           </div>
         </div>
 
         {/* Results Panel */}
         <div className="space-y-6 flex flex-col justify-center">
-          <div className="bn-card  border border-[#2b3139] rounded-xl p-6 text-center shadow-2xl relative overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-br from-accentBlue/5 to-transparent opacity-0 group-hover:opacity-100 transition duration-500 pointer-events-none"></div>
-            <h3 className="text-sm font-bold text-[#929aa5] mb-2 uppercase tracking-wider">Recommended Lot Size</h3>
-            <div className="text-5xl md:text-6xl font-black text-white mb-2 tracking-tight">
+          <div className="bg-white border-4 border-[#121212] p-8 text-center shadow-[6px_6px_0px_0px_#121212] relative overflow-hidden group">
+            <div className="absolute top-0 left-0 right-0 h-2 bg-[#121212]" />
+            <h3 className="text-[12px] font-extrabold text-[#717182] mb-3 uppercase tracking-widest">Recommended Lot Size</h3>
+            <div className="text-6xl md:text-7xl font-black text-[#121212] mb-2 font-display">
               {formatNumber(results.finalLot, 2)}
             </div>
-            <p className="text-xs text-[#707a8a]">Raw calculation: {formatNumber(results.rawLot, 3)}</p>
+            <p className="text-[11px] font-bold text-[#717182] uppercase tracking-wider bg-[#F0F0F0] inline-block px-3 py-1 border-2 border-[#121212]/10 mt-2">Raw: {formatNumber(results.rawLot, 3)}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mt-6">
-            <div className="bg-white/5 border border-[#2b3139] rounded-xl p-4">
-              <p className="text-xs text-[#707a8a] mb-1">Money at Risk</p>
-              <p className="text-lg font-bold text-[#f6465d]">{formatCurrency(results.riskMoney, currency)}</p>
+          <div className="grid grid-cols-2 gap-4 mt-2">
+            <div className="bg-white border-2 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
+              <p className="text-[10px] font-bold text-[#717182] uppercase tracking-widest mb-1">Money at Risk</p>
+              <p className="text-xl font-black text-[var(--loss)] font-number">{formatCurrency(results.riskMoney, currency)}</p>
             </div>
             
-            <div className="bg-white/5 border border-[#2b3139] rounded-xl p-4">
-              <p className="text-xs text-[#707a8a] mb-1">Potential Profit</p>
-              <p className="text-lg font-bold text-[#0ecb81]">{formatCurrency(results.potentialProfit, currency)}</p>
+            <div className="bg-white border-2 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
+              <p className="text-[10px] font-bold text-[#717182] uppercase tracking-widest mb-1">Potential Profit</p>
+              <p className="text-xl font-black text-[var(--profit)] font-number">{formatCurrency(results.potentialProfit, currency)}</p>
             </div>
             
-            <div className="bg-white/5 border border-[#2b3139] rounded-xl p-4">
-              <p className="text-xs text-[#707a8a] mb-1">Stop Loss Distance</p>
-              <div className="flex items-end space-x-2">
-                <p className="text-lg font-semibold text-white">{formatNumber(results.slDistancePips, 1)} Pips</p>
-              </div>
+            <div className="bg-white border-2 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
+              <p className="text-[10px] font-bold text-[#717182] uppercase tracking-widest mb-1">Stop Loss Distance</p>
+              <p className="text-xl font-black text-[#121212] font-number">{formatNumber(results.slDistancePips, 1)} <span className="text-[12px] font-bold text-[#717182]">Pips</span></p>
             </div>
             
-            <div className="bg-white/5 border border-[#2b3139] rounded-xl p-4">
-              <p className="text-xs text-[#707a8a] mb-1">Target Price (TP)</p>
-              <p className="text-lg font-semibold text-white">{results.tpPrice > 0 ? formatNumber(results.tpPrice, 5) : '-'}</p>
+            <div className="bg-white border-2 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
+              <p className="text-[10px] font-bold text-[#717182] uppercase tracking-widest mb-1">Target Price (TP)</p>
+              <p className="text-xl font-black text-[#121212] font-number">{results.tpPrice > 0 ? formatNumber(results.tpPrice, 5) : '-'}</p>
             </div>
           </div>
 
           {results.warnings.map((w, i) => (
-            <div key={i} className="flex items-start space-x-2 text-xs text-yellow-500 bg-yellow-500/10 p-2 rounded-lg">
-              <Info className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{w}</span>
+            <div key={i} className="flex items-start gap-3 bg-[var(--warning-dim)] border-2 border-[var(--warning)] p-3 shadow-[2px_2px_0px_0px_var(--warning)]">
+              <Info className="w-4 h-4 shrink-0 mt-0.5 text-[var(--warning)]" strokeWidth={3} />
+              <span className="text-[12px] font-bold text-[var(--warning)]">{w}</span>
             </div>
           ))}
         </div>

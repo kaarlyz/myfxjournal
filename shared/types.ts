@@ -28,6 +28,8 @@ export interface Trade {
   exitTime?: string | null;
   entryPrice?: number | null;
   exitPrice?: number | null;
+  slPrice?: number | null;
+  tpPrice?: number | null;
   qty?: number | null;
   positionValue?: number | null;
   netPnlUsd?: number | null;
@@ -53,6 +55,22 @@ export interface Trade {
   updatedAt: string;
 }
 
+export interface EnrichedTrade extends Trade {
+  balanceBefore: number;
+  balanceAfter: number;
+  riskAmount: number | null;
+  slDistance: number | null;
+  tpDistance: number | null;
+  realizedRR: number | null;
+  recalculatedPnl: number;
+  holdingMinutes: number;
+  timeSincePreviousEntryMinutes: number | null;
+  dayKey: string;
+  weekKey: string;
+  monthKey: string;
+  tradingSession: string;
+}
+
 export interface WebhookEvent {
   id: string;
   receivedAt: string;
@@ -68,7 +86,7 @@ export interface InvalidTrade {
   sessionId: string;
   tradeNumber: number;
   reason: string;
-  rawRows: string; // JSON string representation of source rows
+  rawRows: string;
   createdAt: string;
 }
 
@@ -102,7 +120,33 @@ export interface DashboardMetrics {
   expectancyR: number | null;
   averageFavorableExcursionUsd: number;
   averageAdverseExcursionUsd: number;
-  averageTradeDurationMs: number; // in milliseconds
+  averageTradeDurationMs: number;
   longWinrate: number;
   shortWinrate: number;
+
+  // Analytics Engine Additions
+  netProfitRaw: number;
+  netProfitRecalculated: number;
+  growthPercent: number;
+  maxDrawdownRecalculated: number;
+  avgPlannedRR: number | null;
+  avgRealizedRR: number | null;
+  medianRR: number | null;
+  avgHoldingMinutes: number;
+  avgTimeBetweenEntries: number;
+  maxConsecutiveProfitableDays: number;
+  maxConsecutiveLosingDays: number;
+  tradesPerDay: number;
+  bestDay: string | null;
+  worstDay: string | null;
+  bestSession: string | null;
+  worstSession: string | null;
+  pairBreakdown: Record<string, {
+    trades: number;
+    winrate: number;
+    netPnl: number;
+    gp: number;
+    gl: number;
+    profitFactor: number;
+  }>;
 }

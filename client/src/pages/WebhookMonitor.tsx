@@ -12,6 +12,10 @@ import {
 } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
 import { formatDate, formatUsd, formatR } from '../utils/formatters';
+import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { Input } from '../components/ui/Input';
 
 interface WebhookSummary {
   openTrades: any[];
@@ -114,122 +118,115 @@ if (strategy.position_size < 0 and ta.crossover(close, ta.ema(close, 9)))
     alert('{"secret": "' + secretToken + '", "source": "tradingview", "event": "EXIT", "trade_id": "' + activeTradeId + '", "fill_price": ' + str.tostring(close) + ', "setup": "EMA Close SHORT"}', alert.freq_once_per_bar)`;
 
   return (
-    <div className="space-y-6">
-      {/* Title Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Webhook Developer Control</h1>
-          <p className="text-xs text-[#707a8a] mt-1">
-            Gunakan panel ini untuk memantau request real-time webhook TradingView Pine Script dan status mapping event.
-          </p>
-        </div>
-        
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="p-2 bg-[#2b3139] hover:bg-[#363e47] text-[#eaecef] rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          <span>Segarkan ({loading ? '...' : 'Refresh'})</span>
-        </button>
+    <div className="space-y-8 max-w-7xl mx-auto">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+        <PageHeader 
+          label="Webhooks"
+          title="Webhook Control"
+          subtitle="Pantau request real-time webhook TradingView Pine Script dan status pemetaan event."
+          labelColor="dark"
+        />
+        <Button onClick={fetchData} disabled={loading} variant="secondary">
+          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          Segarkan
+        </Button>
       </div>
 
-      {/* Integration configurations grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Side: Developer Instructions & URLs */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className=" rounded-xl p-5 border border-[#2b3139] space-y-5">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-1.5">
-              <Terminal className="w-4 h-4 text-[#0ecb81]" />
-              <span>Pengaturan Koneksi</span>
-            </h3>
+        <div className="lg:col-span-1 space-y-8">
+          <div className="bg-white border-4 border-[#121212] p-6 shadow-[6px_6px_0px_0px_#121212] relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-2 bottom-0 bg-[var(--profit)]" />
+            <div className="ml-2">
+              <SectionLabel label="Pengaturan Koneksi" shape="square" color="dark" className="mb-6" />
 
-            {/* Webhook Endpoint Destination */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-[#707a8a] uppercase block">URL Webhook</label>
-              <div className="flex bg-gray-950 border border-gray-850 rounded-lg overflow-hidden p-1">
-                <input
-                  type="text"
-                  readOnly
-                  value={webhookUrl}
-                  className="bg-transparent flex-1 text-xs outline-none px-2 font-mono text-[#eaecef]"
-                />
-                <button
-                  onClick={() => copyToClipboard(webhookUrl, 'url')}
-                  className="p-1.5 bg-[#1e2329] hover:bg-[#2b3139] rounded text-[#929aa5] hover:text-white transition"
-                >
-                  {copiedText === 'url' ? <span className="text-[10px] text-[#0ecb81] font-semibold px-1">Copied!</span> : <Copy className="w-3.5 h-3.5" />}
-                </button>
+              <div className="space-y-5">
+                {/* Webhook Endpoint Destination */}
+                <div>
+                  <label className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest block mb-2">URL Webhook</label>
+                  <div className="flex bg-[#F0F0F0] border-2 border-[#121212] overflow-hidden p-1 shadow-[2px_2px_0px_0px_#121212]">
+                    <input
+                      type="text"
+                      readOnly
+                      value={webhookUrl}
+                      className="bg-transparent flex-1 text-[12px] outline-none px-2 font-mono font-bold text-[#121212]"
+                    />
+                    <button
+                      onClick={() => copyToClipboard(webhookUrl, 'url')}
+                      className="p-2 bg-[#121212] text-white hover:bg-[#1040C0] transition-colors font-extrabold text-[10px] uppercase tracking-wider"
+                    >
+                      {copiedText === 'url' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Secret Authorization Token */}
+                <div>
+                  <label className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest block mb-2">Secret Token Webhook</label>
+                  <div className="flex bg-[#F0F0F0] border-2 border-[#121212] overflow-hidden p-1 shadow-[2px_2px_0px_0px_#121212]">
+                    <input
+                      type="text"
+                      readOnly
+                      value={settings?.secretToken}
+                      className="bg-transparent flex-1 text-[12px] outline-none px-2 font-mono font-bold text-[#121212]"
+                    />
+                    <button
+                      onClick={() => copyToClipboard(settings?.secretToken, 'token')}
+                      className="p-2 bg-[#121212] text-white hover:bg-[#1040C0] transition-colors font-extrabold text-[10px] uppercase tracking-wider"
+                    >
+                      {copiedText === 'token' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] font-bold text-[#717182] flex items-start space-x-1.5 mt-3 leading-tight">
+                    <Lock className="w-3 h-3 text-[#121212] shrink-0 mt-0.5" />
+                    <span>Masukkan token ini ke kolom JSON payload "secret" di TradingView Pine Script Anda.</span>
+                  </p>
+                </div>
               </div>
+
+              {/* Mini visual summary audit counts */}
+              {summary && (
+                <div className="mt-8 pt-6 border-t-2 border-dashed border-[#121212] grid grid-cols-3 gap-3 text-center">
+                  <div className="bg-[var(--profit-dim)] border-2 border-[var(--profit)] py-3 px-2 shadow-[2px_2px_0px_0px_var(--profit)]">
+                    <span className="text-[9px] font-extrabold text-[var(--profit)] block uppercase tracking-widest">Sukses</span>
+                    <span className="font-black text-[20px] text-[var(--profit)]">{summary.summaryCounts.success}</span>
+                  </div>
+                  <div className="bg-[var(--warning-dim)] border-2 border-[var(--warning)] py-3 px-2 shadow-[2px_2px_0px_0px_var(--warning)]">
+                    <span className="text-[9px] font-extrabold text-[var(--warning)] block uppercase tracking-widest">Orphan</span>
+                    <span className="font-black text-[20px] text-[var(--warning)]">{summary.summaryCounts.orphan}</span>
+                  </div>
+                  <div className="bg-[var(--loss-dim)] border-2 border-[var(--loss)] py-3 px-2 shadow-[2px_2px_0px_0px_var(--loss)]">
+                    <span className="text-[9px] font-extrabold text-[var(--loss)] block uppercase tracking-widest">Error</span>
+                    <span className="font-black text-[20px] text-[var(--loss)]">{summary.summaryCounts.error}</span>
+                  </div>
+                </div>
+              )}
             </div>
-
-            {/* Secret Authorization Token */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-[#707a8a] uppercase block">Secret Token Webhook</label>
-              <div className="flex bg-gray-950 border border-gray-850 rounded-lg overflow-hidden p-1">
-                <input
-                  type="text"
-                  readOnly
-                  value={settings?.secretToken}
-                  className="bg-transparent flex-1 text-xs outline-none px-2 font-mono text-[#eaecef]"
-                />
-                <button
-                  onClick={() => copyToClipboard(settings?.secretToken, 'token')}
-                  className="p-1.5 bg-[#1e2329] hover:bg-[#2b3139] rounded text-[#929aa5] hover:text-white transition"
-                >
-                  {copiedText === 'token' ? <span className="text-[10px] text-[#0ecb81] font-semibold px-1">Copied!</span> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-              <p className="text-[10px] text-[#707a8a] flex items-start space-x-1">
-                <Lock className="w-3 h-3 text-[#707a8a] shrink-0 mt-0.5" />
-                <span>Masukkan token ini ke kolom JSON payload "secret" di TradingView Pine Script Anda.</span>
-              </p>
-            </div>
-
-            {/* Mini visual summary audit counts */}
-            {summary && (
-              <div className="border-t border-gray-850 pt-4 grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="bg-accentEmerald/5 border border-accentEmerald/10 rounded-lg py-2">
-                  <span className="text-[10px] text-[#707a8a] block uppercase">Sukses</span>
-                  <span className="font-bold text-[#0ecb81]">{summary.summaryCounts.success}</span>
-                </div>
-                <div className="bg-orange-500/5 border border-orange-500/10 rounded-lg py-2">
-                  <span className="text-[10px] text-[#707a8a] block uppercase">Orphan</span>
-                  <span className="font-bold text-orange-400">{summary.summaryCounts.orphan}</span>
-                </div>
-                <div className="bg-lossRed/5 border border-lossRed/10 rounded-lg py-2">
-                  <span className="text-[10px] text-[#707a8a] block uppercase">Error</span>
-                  <span className="font-bold text-[#f6465d]">{summary.summaryCounts.error}</span>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Webhook Active Trade Lists */}
-          <div className=" rounded-xl p-5 border border-[#2b3139] space-y-4">
-            <h3 className="text-xs font-bold text-[#929aa5] uppercase tracking-wider">
-              Trade Webhook Berjalan ({summary?.openTrades.length || 0})
-            </h3>
+          <div className="bg-white border-4 border-[#121212] p-6 shadow-[6px_6px_0px_0px_#121212]">
+            <SectionLabel label={`Trade Webhook Berjalan (${summary?.openTrades.length || 0})`} shape="circle" color="blue" className="mb-6" />
             
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+            <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
               {!summary || summary.openTrades.length === 0 ? (
-                <p className="text-xs text-[#707a8a] italic py-4 text-center">Tidak ada trade open.</p>
+                <div className="py-8 text-center bg-[#F0F0F0] border-2 border-dashed border-[#121212]">
+                  <p className="text-[12px] font-bold text-[#717182] uppercase tracking-wide">Tidak ada trade open.</p>
+                </div>
               ) : (
                 summary.openTrades.map((t) => (
-                  <div key={t.id} className="bg-accentCyan/5 border border-accentCyan/15 rounded-xl p-3 space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-sm text-gray-200">{t.symbol}</span>
-                      <span className="text-[9px] font-bold bg-[rgba(14,203,129,0.12)] text-[#0ecb81] px-1.5 py-0.5 rounded animate-pulse">
-                        {t.side}
-                      </span>
+                  <div key={t.id} className="bg-white border-2 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212] hover:-translate-y-0.5 hover:shadow-[6px_6px_0px_0px_#121212] transition-all group">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="font-black text-[14px] text-[#121212] uppercase tracking-wide">{t.symbol}</span>
+                      <Badge variant={t.side === 'SELL' ? 'loss' : 'profit'} className="animate-pulse">{t.side}</Badge>
                     </div>
-                    <div className="flex justify-between text-[11px] text-[#929aa5]">
-                      <span>Harga Masuk: {t.entryPrice.toLocaleString()}</span>
-                      <span>TF: {t.timeframe}</span>
+                    <div className="flex justify-between text-[11px] font-bold text-[#717182] mb-1">
+                      <span>Harga Masuk: <span className="text-[#121212] font-number">{t.entryPrice.toLocaleString()}</span></span>
+                      <span>TF: <span className="text-[#121212]">{t.timeframe}</span></span>
                     </div>
-                    <div className="text-[10px] text-[#707a8a] flex justify-between">
+                    <div className="text-[10px] font-bold text-[#717182] flex justify-between border-t border-dashed border-[#121212]/30 pt-2 mt-2">
                       <span>{formatDate(t.entryTime)}</span>
-                      <span>Setup: {t.entrySignal}</span>
+                      <span className="truncate max-w-[120px]" title={t.entrySignal}>{t.entrySignal}</span>
                     </div>
                   </div>
                 ))
@@ -239,43 +236,39 @@ if (strategy.position_size < 0 and ta.crossover(close, ta.ema(close, 9)))
         </div>
 
         {/* Right Side: Pine Script Template & Event Audit Logs */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-8">
           {/* Pine Script Template */}
-          <div className=" rounded-xl p-5 border border-[#2b3139] space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-1.5">
-                <Terminal className="w-4 h-4 text-[#0ecb81]" />
-                <span>Contoh Pine Script v5</span>
-              </h3>
-              <button
+          <div className="bg-[#121212] border-4 border-[#121212] p-6 shadow-[8px_8px_0px_0px_#121212]">
+            <div className="flex justify-between items-center mb-6">
+              <SectionLabel label="Contoh Pine Script v5" shape="diamond" color="blue" inverse />
+              <Button
+                variant="secondary"
                 onClick={() => copyToClipboard(pineScriptCode, 'pine')}
-                className="px-2.5 py-1 bg-[#2b3139] hover:bg-[#363e47] text-[#eaecef] rounded text-xs font-semibold flex items-center space-x-1.5 transition"
               >
-                {copiedText === 'pine' ? <span>Copied!</span> : <span>Copy Kode</span>}
-              </button>
+                <Copy className="w-4 h-4 mr-1.5" />
+                {copiedText === 'pine' ? 'Copied!' : 'Copy Kode'}
+              </Button>
             </div>
-            <pre className="bg-gray-950 p-4 rounded-xl text-[10px] font-mono text-[#929aa5] overflow-x-auto border border-gray-850 max-h-48 leading-normal">
-              {pineScriptCode}
+            <pre className="bg-[#1e1e1e] p-5 border-2 border-[#F0F0F0]/10 text-[12px] font-mono font-bold text-[#a0a0a0] overflow-x-auto max-h-[300px] custom-scrollbar shadow-inner leading-relaxed">
+              <code className="text-[#dcdcaa]">{pineScriptCode}</code>
             </pre>
           </div>
 
           {/* Webhook Audit Log Feed */}
-          <div className=" rounded-xl border border-[#2b3139] overflow-hidden">
-            <div className="p-5 border-b border-[#2b3139] bg-[#1e2329]/10 flex justify-between items-center">
-              <h3 className="text-xs font-bold text-[#929aa5] uppercase tracking-wider flex items-center space-x-1.5">
-                <Clock className="w-4 h-4 text-[#929aa5]" />
-                <span>Log Aktivitas Webhook Terbaru</span>
-              </h3>
-              <span className="text-[9px] bg-[#2b3139] px-2 py-0.5 rounded text-[#707a8a] font-semibold uppercase">
-                100 Request Terakhir
-              </span>
+          <div className="bg-white border-4 border-[#121212] shadow-[8px_8px_0px_0px_#121212]">
+            <div className="p-6 border-b-4 border-[#121212] bg-[#F0F0F0] flex justify-between items-center">
+              <SectionLabel label="Log Aktivitas Webhook" shape="square" color="dark" />
+              <Badge variant="neutral">100 Request Terakhir</Badge>
             </div>
 
-            <div className="p-4 max-h-[300px] overflow-y-auto">
+            <div className="p-6 max-h-[450px] overflow-y-auto custom-scrollbar">
               {events.length === 0 ? (
-                <p className="text-center text-xs text-[#707a8a] py-12 italic">Belum ada request webhook yang masuk.</p>
+                <div className="py-16 text-center border-2 border-dashed border-[#121212]">
+                  <Clock className="w-10 h-10 text-[#717182] mx-auto mb-3" strokeWidth={1.5} />
+                  <p className="text-[13px] font-bold text-[#717182] uppercase tracking-wide">Belum ada request webhook yang masuk.</p>
+                </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {events.map((e) => {
                     const isSuccess = e.status === 'SUCCESS';
                     const isOrphan = e.status === 'ORPHAN';
@@ -283,45 +276,48 @@ if (strategy.position_size < 0 and ta.crossover(close, ta.ema(close, 9)))
                     return (
                       <div 
                         key={e.id} 
-                        className={`border rounded-xl p-3 text-xs space-y-2 ${
+                        className={`border-2 p-4 shadow-[4px_4px_0px_0px] transition-all hover:shadow-[6px_6px_0px_0px] ${
                           isSuccess 
-                            ? 'bg-accentEmerald/5 border-accentEmerald/10' 
+                            ? 'bg-[var(--profit-dim)] border-[var(--profit)] shadow-[var(--profit)]' 
                             : isOrphan 
-                            ? 'bg-orange-500/5 border-orange-500/10' 
-                            : 'bg-lossRed/5 border-lossRed/10'
+                            ? 'bg-[var(--warning-dim)] border-[var(--warning)] shadow-[var(--warning)]' 
+                            : 'bg-[var(--loss-dim)] border-[var(--loss)] shadow-[var(--loss)]'
                         }`}
                       >
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center space-x-2">
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3">
+                          <div className="flex items-center space-x-3">
+                            <span className={`px-2 py-1 border-2 font-extrabold uppercase tracking-widest text-[10px] ${
                               isSuccess 
-                                ? 'bg-accentEmerald/25 text-[#0ecb81]' 
+                                ? 'bg-[var(--profit)] text-white border-[var(--profit)]' 
                                 : isOrphan 
-                                ? 'bg-orange-500/25 text-orange-400' 
-                                : 'bg-lossRed/25 text-[#f6465d]'
+                                ? 'bg-[var(--warning)] text-[#121212] border-[var(--warning)]' 
+                                : 'bg-[var(--loss)] text-white border-[var(--loss)]'
                             }`}>
                               {e.status}
                             </span>
-                            <span className="font-semibold text-[#eaecef]">
-                              {e.eventType} (ID: {e.tradeId})
+                            <span className="font-black text-[13px] text-[#121212] uppercase tracking-wide">
+                              {e.eventType} <span className="text-[#717182] ml-1">({e.tradeId})</span>
                             </span>
                           </div>
-                          <span className="text-[10px] text-[#707a8a]">{formatDate(e.receivedAt)}</span>
+                          <span className="text-[10px] font-bold text-[#717182] uppercase tracking-wider bg-white px-2 py-1 border border-[#121212]">
+                            {formatDate(e.receivedAt)}
+                          </span>
                         </div>
 
                         {!isSuccess && e.errorMessage && (
-                          <p className="text-[11px] text-[#f6465d] font-semibold flex items-center space-x-1">
-                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                            <span>{e.errorMessage}</span>
-                          </p>
+                          <div className="mb-3 p-2 bg-white border border-[var(--loss)] flex items-start space-x-2 text-[var(--loss)]">
+                            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" strokeWidth={2.5} />
+                            <span className="text-[11px] font-extrabold uppercase tracking-wider">{e.errorMessage}</span>
+                          </div>
                         )}
 
-                        <details className="text-[10px] text-[#707a8a] font-mono">
-                          <summary className="cursor-pointer hover:text-[#eaecef] transition outline-none select-none font-semibold">
-                            Tampilkan Raw Payload JSON
+                        <details className="group">
+                          <summary className="cursor-pointer text-[#121212] font-extrabold text-[11px] uppercase tracking-widest hover:text-[#1040C0] transition outline-none select-none flex items-center">
+                            <span className="group-open:hidden">+ Tampilkan Raw Payload JSON</span>
+                            <span className="hidden group-open:inline">- Sembunyikan Raw Payload JSON</span>
                           </summary>
-                          <div className="mt-1.5 p-2 bn-card  rounded border border-gray-900 overflow-x-auto whitespace-pre-wrap leading-normal">
-                            {JSON.stringify(JSON.parse(e.rawPayload), null, 2)}
+                          <div className="mt-2 p-3 bg-[#121212] border-2 border-[#121212] overflow-x-auto text-[#0ecb81] font-mono text-[11px] font-bold leading-normal shadow-inner">
+                            <pre>{JSON.stringify(JSON.parse(e.rawPayload), null, 2)}</pre>
                           </div>
                         </details>
                       </div>

@@ -5,6 +5,8 @@ import { prisma } from '../prisma';
 import { debugMt5XlsxReport, parseMt5XlsxReport } from '../utils/mt5ReportParser';
 import { parseMt5TesterGraph } from '../utils/mt5TesterGraphParser';
 import { analyzeMt5Report } from '../utils/mt5ReportAnalyzer';
+import { calculateMetrics } from '../utils/calculations';
+import type { Trade as SharedTrade } from '../shared/types';
 
 const router = Router();
 const upload = multer({
@@ -483,6 +485,14 @@ router.get('/sessions/:sessionId', async (req: Request, res: Response) => {
       trades.map((t: any) => ({ exitTime: t.exitTime, profit: t.netPnlUsd }))
     );
 
+    const { metrics, enrichedTrades } = calculateMetrics(trades as unknown as SharedTrade[], {
+      initialBalance: session?.initialBalance || summary.initialDeposit || 0,
+      usdIdrRate: session?.usdIdrRate || 16200,
+      balanceCurrency: (session?.balanceCurrency || 'USD') as 'USD' | 'CENT' | 'IDR',
+      riskMode: (session?.riskMode || 'NO_R') as 'FIXED_USD' | 'FIXED_PCT' | 'NO_R',
+      riskValue: session?.riskValue || 0,
+    });
+
     return res.json({
       session,
       report,
@@ -492,7 +502,8 @@ router.get('/sessions/:sessionId', async (req: Request, res: Response) => {
       orders,
       equityPoints,
       findings,
-      trades,
+      trades: enrichedTrades,
+      metrics,
       raw: {
         settings: report.rawSettings ? JSON.parse(report.rawSettings) : {},
         results: report.rawResults ? JSON.parse(report.rawResults) : {},

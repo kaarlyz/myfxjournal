@@ -204,43 +204,211 @@ bool   GetB(string n,bool d)  { string v=ObjectGetString(0,PFX+n,OBJPROP_TEXT); 
    if(v=="1"||v=="true"||v=="ya") return true; if(v=="0"||v=="false"||v=="no") return false; return d; }
 
 // Efektif params
-bool   EffTrendFilter()     { return GetB("utf",UseTrendFilter); }
-int    EffEMABias()         { int i=GetI("emab",EMA_Bias_Period); return(i>0)?i:200; }
-int    EffEMATiming()       { int i=GetI("emat",EMA_Timing_Period); return(i>0)?i:50; }
-int    EffSlopeCandles()    { int i=GetI("slpc",EMA_SlopeCandles); return(i>0)?i:3; }
-double EffMaxDist()         { return GetD("mxd",MaxDistFromEMA_Pct); }
-double EffFlatThresh()      { return GetD("flat",EMA_FlatThresholdPip); }
-double EffMinBodyPip()      { return GetD("mbp",MinBodyPip); }
-bool   EffUseBodyFilter()   { return GetB("ubf",UseBodyPercentFilter); }
-double EffBodyPct()         { double d=GetD("bpct",MinBodyPercent); return MathMax(1,MathMin(100,d)); }
-bool   EffUseWickFilter()   { return GetB("uwf",UseWickFilter); }
-double EffMaxOppWick()      { double d=GetD("mow",MaxOppWickPct); return MathMax(0,MathMin(100,d)); }
-double EffTPLevel()         { return GetD("tpl",TP_FiboLevel); }
-double EffSLLevel()         { return GetD("sll",SL_FiboLevel); }
-double EffSLBuf()           { return GetD("sbuf",SL_BufferPip); }
-bool   EffRRMode()          { return GetB("rrm",UseRRMode); }
-double EffTargetRR()        { double d=(ReplayFX_Enable&&ReplayFXCfgRR>0.0)?ReplayFXCfgRR:GetD("trr",TargetRR); return(d>0)?d:2.0; }
-double EffManualEntry()     { return GetD("men",ManualEntryLevel); }
-double EffRisk()            { double d=(ReplayFX_Enable&&ReplayFXCfgRiskPercent>0.0)?ReplayFXCfgRiskPercent:GetD("risk",RiskPercent); return(d>0)?d:1.0; }
-int    EffMaxTrades()       { int i=(ReplayFX_Enable&&ReplayFXCfgMaxTradesPerDay>0)?ReplayFXCfgMaxTradesPerDay:GetI("maxd",MaxTradesDay); return(i>0)?i:3; }
-double EffMaxDay()          { return GetD("maxpd",MaxProfitDayPercent); }
-double EffMaxMonth()        { return GetD("maxpm",MaxProfitMonthPercent); }
-int    EffExpiry()          { int i=GetI("exp",PendingExpiryBars); return(i>0)?i:12; }
-bool   EffMartMode()        { return GetB("mart",UseMartingale); }
-double EffMartStartLot()    { double d=GetD("msl",MartStartLot); return(d>0)?d:0.01; }
-double EffMartFullTP()      { return GetD("mftp",MartFullTP_Level); }
-bool   EffSurvival()        { return GetB("surv",UseSurvivalMode); }
-double EffSurvTrigger()     { double d=GetD("strg",SurvivalTriggerPct); return MathMax(1,MathMin(99,d)); }
-double EffMinSurvProfit()   { return GetD("msp",MinSurvivalProfit); }
-bool   EffSessionFilter()   { return GetB("usef",UseSessionFilter); }
-bool   EffSessAsia()        { return GetB("sas",Session_Asia); }
-bool   EffSessLondon()      { return GetB("sln",Session_London); }
-bool   EffSessNY()          { return GetB("sny",Session_NewYork); }
-bool   EffCustomSess()      { return GetB("cuse",UseCustomSession); }
-int    EffCustStartH()      { return GetI("csh",CustomStart_Hour); }
-int    EffCustStartM()      { return GetI("csm",CustomStart_Min); }
-int    EffCustEndH()        { return GetI("ceh",CustomEnd_Hour); }
-int    EffCustEndM()        { return GetI("cem",CustomEnd_Min); }
+bool RfxHasConfig()
+{
+   return (ReplayFX_Enable && ReplayFXLastConfigAt > 0 && StringLen(ReplayFXLastConfigResponse) > 0);
+}
+
+double RfxD(string key1,string key2,double fallback)
+{
+   if(!RfxHasConfig()) return fallback;
+   double sentinel = -999999999.12345;
+   double v = ReplayFX_ReadJsonDouble(ReplayFXLastConfigResponse, key1, sentinel);
+   if(v == sentinel && key2 != "")
+      v = ReplayFX_ReadJsonDouble(ReplayFXLastConfigResponse, key2, sentinel);
+   return (v == sentinel ? fallback : v);
+}
+
+int RfxI(string key1,string key2,int fallback)
+{
+   return (int)RfxD(key1, key2, fallback);
+}
+
+bool RfxB(string key1,string key2,bool fallback)
+{
+   if(!RfxHasConfig()) return fallback;
+   bool v = ReplayFX_ReadJsonBool(ReplayFXLastConfigResponse, key1, fallback);
+   if(key2 != "")
+      v = ReplayFX_ReadJsonBool(ReplayFXLastConfigResponse, key2, v);
+   return v;
+}
+
+string RfxS(string key1,string key2,string fallback)
+{
+   if(!RfxHasConfig()) return fallback;
+   string v = ReplayFX_ReadJsonString(ReplayFXLastConfigResponse, key1, fallback);
+   if(v == fallback && key2 != "")
+      v = ReplayFX_ReadJsonString(ReplayFXLastConfigResponse, key2, fallback);
+   return v;
+}
+
+ENUM_TIMEFRAMES RfxTF(string key1,string key2,ENUM_TIMEFRAMES fallback)
+{
+   string raw = RfxS(key1, key2, "");
+   if(raw == "") return fallback;
+   ENUM_TIMEFRAMES tf = ReplayFX_TimeframeFromString(raw);
+   return (tf == PERIOD_CURRENT ? fallback : tf);
+}
+
+string BoolText(bool v){ return v ? "1" : "0"; }
+
+void SetEditIfExists(string shortName,string value)
+{
+   string obj = PFX + shortName;
+   if(ObjectFind(0,obj) >= 0)
+      ObjectSetString(0,obj,OBJPROP_TEXT,value);
+}
+
+ENUM_TIMEFRAMES EffSignalTF()
+{
+   ENUM_TIMEFRAMES tf = RfxTF("signalTF","SignalTF",SignalTF);
+   if(tf != PERIOD_M5 && tf != PERIOD_M15)
+      return SignalTF;
+   return tf;
+}
+
+ENUM_TIMEFRAMES EffBiasTF()
+{
+   return RfxTF("biasTF","BiasTF",BiasTF);
+}
+
+bool   EffTrendFilter()     { return RfxB("useTrendFilter","UseTrendFilter",GetB("utf",UseTrendFilter)); }
+int    EffEMABias()         { int i=RfxI("emaBiasPeriod","EMA_Bias_Period",GetI("emab",EMA_Bias_Period)); return(i>0)?i:200; }
+int    EffEMATiming()       { int i=RfxI("emaTimingPeriod","EMA_Timing_Period",GetI("emat",EMA_Timing_Period)); return(i>0)?i:50; }
+int    EffSlopeCandles()    { int i=RfxI("emaSlopeCandles","EMA_SlopeCandles",GetI("slpc",EMA_SlopeCandles)); return(i>0)?i:3; }
+double EffMaxDist()         { return RfxD("maxDistFromEmaPct","MaxDistFromEMA_Pct",GetD("mxd",MaxDistFromEMA_Pct)); }
+double EffFlatThresh()      { return RfxD("emaFlatThresholdPip","EMA_FlatThresholdPip",GetD("flat",EMA_FlatThresholdPip)); }
+
+double EffMinBodyPip()      { double d=RfxD("minBodyPips","MinBodyPip",GetD("mbp",MinBodyPip)); return(d>0)?d:MinBodyPip; }
+bool   EffUseBodyFilter()   { return RfxB("useBodyPercentFilter","UseBodyPercentFilter",GetB("ubf",UseBodyPercentFilter)); }
+double EffBodyPct()         { double d=RfxD("minBodyPercent","MinBodyPercent",GetD("bpct",MinBodyPercent)); return MathMax(1,MathMin(100,d)); }
+
+bool   EffUseWickFilter()   { return RfxB("useWickFilter","UseWickFilter",GetB("uwf",UseWickFilter)); }
+double EffMaxOppWick()      { double d=RfxD("maxOppWickPct","MaxOppWickPct",GetD("mow",MaxOppWickPct)); return MathMax(0,MathMin(100,d)); }
+
+double EffTPLevel()         { return RfxD("tpFiboLevel","TP_FiboLevel",GetD("tpl",TP_FiboLevel)); }
+double EffSLLevel()         { return RfxD("slFiboLevel","SL_FiboLevel",GetD("sll",SL_FiboLevel)); }
+double EffSLBuf()           { return RfxD("slBufferPip","SL_BufferPip",GetD("sbuf",SL_BufferPip)); }
+
+bool   EffRRMode()          { return RfxB("useRRMode","UseRRMode",GetB("rrm",UseRRMode)); }
+double EffTargetRR()        { double d=RfxD("rr","TargetRR",RfxD("targetRR","TargetRR",GetD("trr",TargetRR))); return(d>0)?d:2.0; }
+double EffManualEntry()     { return RfxD("manualEntryLevel","ManualEntryLevel",GetD("men",ManualEntryLevel)); }
+
+double EffRisk()            { double d=RfxD("riskPercent","RiskPercent",GetD("risk",RiskPercent)); return(d>0)?d:1.0; }
+int    EffMaxTrades()       { int i=RfxI("maxTradesPerDay","MaxTradesDay",GetI("maxd",MaxTradesDay)); return(i>0)?i:3; }
+double EffMaxDay()          { return RfxD("maxProfitDayPercent","MaxProfitDayPercent",GetD("maxpd",MaxProfitDayPercent)); }
+double EffMaxMonth()        { return RfxD("maxProfitMonthPercent","MaxProfitMonthPercent",GetD("maxpm",MaxProfitMonthPercent)); }
+int    EffExpiry()          { int i=RfxI("pendingExpiryBars","PendingExpiryBars",GetI("exp",PendingExpiryBars)); return(i>0)?i:12; }
+
+bool   EffMartMode()        { return RfxB("useMartingale","UseMartingale",GetB("mart",UseMartingale)); }
+double EffMartStartLot()    { double d=RfxD("martStartLot","MartStartLot",GetD("msl",MartStartLot)); return(d>0)?d:0.01; }
+double EffMartFullTP()      { return RfxD("martFullTPLevel","MartFullTP_Level",GetD("mftp",MartFullTP_Level)); }
+bool   EffSurvival()        { return RfxB("useSurvivalMode","UseSurvivalMode",GetB("surv",UseSurvivalMode)); }
+double EffSurvTrigger()     { double d=RfxD("survivalTriggerPct","SurvivalTriggerPct",GetD("strg",SurvivalTriggerPct)); return MathMax(1,MathMin(99,d)); }
+double EffMinSurvProfit()   { return RfxD("minSurvivalProfit","MinSurvivalProfit",GetD("msp",MinSurvivalProfit)); }
+
+bool   EffSessionFilter()   { return RfxB("useSessionFilter","UseSessionFilter",GetB("usef",UseSessionFilter)); }
+bool   EffSessAsia()        { return RfxB("sessionAsia","Session_Asia",GetB("sas",Session_Asia)); }
+bool   EffSessLondon()      { return RfxB("sessionLondon","Session_London",GetB("sln",Session_London)); }
+bool   EffSessNY()          { return RfxB("sessionNewYork","Session_NewYork",GetB("sny",Session_NewYork)); }
+bool   EffCustomSess()      { return RfxB("useCustomSession","UseCustomSession",GetB("cuse",UseCustomSession)); }
+int    EffCustStartH()      { return RfxI("customStartHour","CustomStart_Hour",GetI("csh",CustomStart_Hour)); }
+int    EffCustStartM()      { return RfxI("customStartMin","CustomStart_Min",GetI("csm",CustomStart_Min)); }
+int    EffCustEndH()        { return RfxI("customEndHour","CustomEnd_Hour",GetI("ceh",CustomEnd_Hour)); }
+int    EffCustEndM()        { return RfxI("customEndMin","CustomEnd_Min",GetI("cem",CustomEnd_Min)); }
+
+void RefreshMomentumIndicatorHandles()
+{
+   static ENUM_TIMEFRAMES lastBiasTF = PERIOD_CURRENT;
+   static ENUM_TIMEFRAMES lastSignalTF = PERIOD_CURRENT;
+   static int lastBiasPeriod = -1;
+   static int lastTimingPeriod = -1;
+
+   ENUM_TIMEFRAMES biasTf = EffBiasTF();
+   ENUM_TIMEFRAMES sigTf = EffSignalTF();
+   int biasPeriod = EffEMABias();
+   int timingPeriod = EffEMATiming();
+
+   bool changed = (hEMA_Bias < 0 || hEMA_Timing < 0 ||
+                   lastBiasTF != biasTf || lastSignalTF != sigTf ||
+                   lastBiasPeriod != biasPeriod || lastTimingPeriod != timingPeriod);
+
+   if(!changed) return;
+
+   if(hEMA_Bias >= 0) IndicatorRelease(hEMA_Bias);
+   if(hEMA_Timing >= 0) IndicatorRelease(hEMA_Timing);
+
+   hEMA_Bias = iMA(_Symbol,biasTf,biasPeriod,0,MODE_EMA,PRICE_CLOSE);
+   hEMA_Timing = iMA(_Symbol,sigTf,timingPeriod,0,MODE_EMA,PRICE_CLOSE);
+
+   lastBiasTF = biasTf;
+   lastSignalTF = sigTf;
+   lastBiasPeriod = biasPeriod;
+   lastTimingPeriod = timingPeriod;
+
+   Print("ReplayFX refreshed Momentum EMA handles biasTF=", EnumToString(biasTf),
+         " signalTF=", EnumToString(sigTf),
+         " emaBias=", IntegerToString(biasPeriod),
+         " emaTiming=", IntegerToString(timingPeriod));
+}
+
+void ApplyReplayFXRuntimeToMomentumPanel()
+{
+   if(!ReplayFX_Enable || ReplayFXLastConfigAt <= 0)
+      return;
+
+   SetEditIfExists("utf",  BoolText(EffTrendFilter()));
+   SetEditIfExists("emab", IntegerToString(EffEMABias()));
+   SetEditIfExists("emat", IntegerToString(EffEMATiming()));
+   SetEditIfExists("slpc", IntegerToString(EffSlopeCandles()));
+   SetEditIfExists("flat", DoubleToString(EffFlatThresh(),1));
+   SetEditIfExists("mxd",  DoubleToString(EffMaxDist(),1));
+
+   SetEditIfExists("mbp",  DoubleToString(EffMinBodyPip(),1));
+   SetEditIfExists("ubf",  BoolText(EffUseBodyFilter()));
+   SetEditIfExists("bpct", DoubleToString(EffBodyPct(),1));
+
+   SetEditIfExists("uwf",  BoolText(EffUseWickFilter()));
+   SetEditIfExists("mow",  DoubleToString(EffMaxOppWick(),1));
+
+   SetEditIfExists("tpl",  DoubleToString(EffTPLevel(),3));
+   SetEditIfExists("sll",  DoubleToString(EffSLLevel(),3));
+   SetEditIfExists("sbuf", DoubleToString(EffSLBuf(),1));
+   SetEditIfExists("rrm",  BoolText(EffRRMode()));
+   SetEditIfExists("trr",  DoubleToString(EffTargetRR(),2));
+   SetEditIfExists("men",  DoubleToString(EffManualEntry(),3));
+
+   SetEditIfExists("risk",  DoubleToString(EffRisk(),2));
+   SetEditIfExists("maxd",  IntegerToString(EffMaxTrades()));
+   SetEditIfExists("maxpd", DoubleToString(EffMaxDay(),2));
+   SetEditIfExists("maxpm", DoubleToString(EffMaxMonth(),2));
+   SetEditIfExists("exp",   IntegerToString(EffExpiry()));
+
+   SetEditIfExists("mart", BoolText(EffMartMode()));
+   SetEditIfExists("msl",  DoubleToString(EffMartStartLot(),2));
+   SetEditIfExists("mftp", DoubleToString(EffMartFullTP(),3));
+   SetEditIfExists("surv", BoolText(EffSurvival()));
+   SetEditIfExists("strg", DoubleToString(EffSurvTrigger(),1));
+   SetEditIfExists("msp",  DoubleToString(EffMinSurvProfit(),2));
+
+   SetEditIfExists("usef", BoolText(EffSessionFilter()));
+   SetEditIfExists("sas",  BoolText(EffSessAsia()));
+   SetEditIfExists("sln",  BoolText(EffSessLondon()));
+   SetEditIfExists("sny",  BoolText(EffSessNY()));
+   SetEditIfExists("cuse", BoolText(EffCustomSess()));
+   SetEditIfExists("csh",  IntegerToString(EffCustStartH()));
+   SetEditIfExists("csm",  IntegerToString(EffCustStartM()));
+   SetEditIfExists("ceh",  IntegerToString(EffCustEndH()));
+   SetEditIfExists("cem",  IntegerToString(EffCustEndM()));
+
+   RefreshMomentumIndicatorHandles();
+
+   Print("ReplayFX applied Momentum full runtime config version=", ReplayFXConfigVersion,
+         " useTrendFilter=", BoolText(EffTrendFilter()),
+         " minBodyPips=", DoubleToString(EffMinBodyPip(),1),
+         " mart=", BoolText(EffMartMode()),
+         " sessionFilter=", BoolText(EffSessionFilter()));
+}
 
 //==================== AUTO-DETECT PIP ====================
 void InitPipSize(){
@@ -315,7 +483,7 @@ void UpdateTrendFilter(){
 
    // Harga close BiasTF
    double closeBias[1];
-   if(CopyClose(_Symbol,BiasTF,0,1,closeBias)<1){
+   if(CopyClose(_Symbol,EffBiasTF(),0,1,closeBias)<1){
       trendBull=false; trendBear=false; trendReason="Close bias error"; return;
    }
 
@@ -403,9 +571,9 @@ void CreatePanel(){
 
    // ── CANDLE FILTER ─────────────────────────────────
    SectionHeader("cf",PX+6,r,PW-12,18,"▸ CANDLE FILTER",C'25,25,60',C_BLU); r+=22;
-   Lbl(PFX+"lmbp", lx,r,"Min Body (pip):",           C_TXT);  Edit(PFX+"mbp",ex,r-3,ew,DoubleToString(MinBodyPip,1)); r+=21;
+   Lbl(PFX+"lmbp", lx,r,"Min Body (pip):",           C_TXT);  Edit(PFX+"mbp",ex,r-3,ew,DoubleToString(EffMinBodyPip(),1)); r+=21;
    Lbl(PFX+"lubf", lx,r,"Body% Filter (1=ON 0=OFF):",C_TXT);  Edit(PFX+"ubf",ex,r-3,ew,UseBodyPercentFilter?"1":"0"); r+=21;
-   Lbl(PFX+"lbpct",lx,r,"Min Body% (jika ON):",      C_TXT);  Edit(PFX+"bpct",ex,r-3,ew,DoubleToString(MinBodyPercent,1)); r+=21;
+   Lbl(PFX+"lbpct",lx,r,"Min Body% (jika ON):",      C_TXT);  Edit(PFX+"bpct",ex,r-3,ew,DoubleToString(EffBodyPct(),1)); r+=21;
    // Wick
    Lbl(PFX+"luwf", lx,r,"Wick Filter (1=ON 0=OFF):", C_CYAN); Edit(PFX+"uwf",ex,r-3,ew,UseWickFilter?"1":"0"); r+=21;
    Lbl(PFX+"lmow", lx,r,"Max Opp Wick % (100=OFF):", C_CYAN); Edit(PFX+"mow",ex,r-3,ew,DoubleToString(MaxOppWickPct,1)); r+=18;
@@ -626,7 +794,7 @@ void UpdateTrendPanel(){
    // EMA200 value info
    if(hEMA_Bias>=0){
       double eb[1]; CopyBuffer(hEMA_Bias,0,0,1,eb);
-      SetLbl(PFX+"vtbias","Bias  : EMA"+IntegerToString(EffEMABias())+"@"+EnumToString(BiasTF)+"="+DoubleToString(eb[0],_Digits),C_TREND);
+      SetLbl(PFX+"vtbias","Bias  : EMA"+IntegerToString(EffEMABias())+"@"+EnumToString(EffBiasTF())+"="+DoubleToString(eb[0],_Digits),C_TREND);
    }
    color tc=(trendBull||trendBear)?C_TREND:(trendFlat?C_YLW:C_RED);
    string ts=trendBull?"▲ BULL":trendBear?"▼ BEAR":trendFlat?"◆ FLAT":"✗ NO";
@@ -726,7 +894,8 @@ void DrawMartFibo(){
 
 //==================== SCAN CANDLE ====================
 void ScanCandle(){
-   ENUM_TIMEFRAMES tf=(SignalTF==PERIOD_M15)?PERIOD_M15:PERIOD_M5;
+   ENUM_TIMEFRAMES stf=EffSignalTF();
+   ENUM_TIMEFRAMES tf=(stf==PERIOD_M15)?PERIOD_M15:PERIOD_M5;
    double o=iOpen(_Symbol,tf,1), c=iClose(_Symbol,tf,1);
    double h=iHigh(_Symbol,tf,1), l=iLow(_Symbol,tf,1);
    datetime ct=iTime(_Symbol,tf,1);
@@ -910,7 +1079,7 @@ void ManageMartingale(){
          ReplayFXSignal signal;
          signal.eaName = "Momentum Candle";
          signal.symbol = _Symbol;
-         signal.timeframe = ReplayFX_TimeframeToString(SignalTF);
+         signal.timeframe = ReplayFX_TimeframeToString(EffSignalTF());
          signal.side = (martBull ? "BUY" : "SELL");
          signal.entry = price;
          signal.sl = martSL;
@@ -969,7 +1138,7 @@ void TryPlacePending(){
       ReplayFXSignal signal;
       signal.eaName = "Momentum Candle";
       signal.symbol = _Symbol;
-      signal.timeframe = ReplayFX_TimeframeToString(SignalTF);
+      signal.timeframe = ReplayFX_TimeframeToString(EffSignalTF());
       signal.side = (setupBull ? "BUY" : "SELL");
       signal.entry = setupEntry;
       signal.sl = setupSL;
@@ -1021,17 +1190,18 @@ int OnInit(){
       ReplayFX_Init(ReplayFX_BackendURL, ReplayFX_SecretToken, ReplayFX_TerminalId, ReplayFX_InstanceId, "Momentum Candle", ReplayFX_Mode, ReplayFX_PollSeconds, ReplayFX_TakeScreenshotOnSignal, 360, ReplayFX_AllowRemoteConfig);
       ReplayFX_SendHeartbeat("INIT");
       ReplayFX_LoadConfig();
+      ApplyReplayFXRuntimeToMomentumPanel();
       EventSetTimer(MathMax(2, ReplayFX_PollSeconds));
    }
    InitPipSize();
    if(SignalTF!=PERIOD_M5&&SignalTF!=PERIOD_M15){ Print("[ERROR] SignalTF hanya M5/M15"); return INIT_FAILED; }
    if(gPipSize<=0){ Print("[ERROR] PipSize detect gagal"); return INIT_FAILED; }
 
-   // Buat handle EMA
-   hEMA_Bias  =iMA(_Symbol,BiasTF,EMA_Bias_Period,0,MODE_EMA,PRICE_CLOSE);
-   hEMA_Timing=iMA(_Symbol,SignalTF,EMA_Timing_Period,0,MODE_EMA,PRICE_CLOSE);
+   // Buat handle EMA dari runtime config
+   RefreshMomentumIndicatorHandles();
    if(hEMA_Bias==INVALID_HANDLE||hEMA_Timing==INVALID_HANDLE){
-      Print("[WARN] EMA handle gagal — trend filter mungkin tidak jalan"); }
+      Print("[WARN] EMA handle gagal — trend filter mungkin tidak jalan");
+   }
 
    trade.SetExpertMagicNumber(MagicNumber);
    dayStartBalance=monthStartBalance=AccountInfoDouble(ACCOUNT_BALANCE);
@@ -1060,6 +1230,7 @@ void OnTimer()
 {
    if(!ReplayFX_Enable) return;
    ReplayFX_LoadConfig();
+      ApplyReplayFXRuntimeToMomentumPanel();
    ReplayFX_SendHeartbeat("ONLINE");
 }
 
@@ -1077,13 +1248,13 @@ void OnTick(){
 
    if(EffMartMode()){
       ManageMartingale();
-      if(IsNewBar(SignalTF)){
+      if(IsNewBar(EffSignalTF())){
          if(martSetupActive&&!HasOpenPosition()){ bool anyHit=false; for(int i=0;i<4;i++) if(martLevelHit[i]) anyHit=true; if(!anyHit){ martBars++; if(martBars>=EffExpiry()) ClearMartSetup("expired"); } }
          ScanCandle();
       }
    } else {
       ManageSetup(); TryPlacePending();
-      if(IsNewBar(SignalTF)){
+      if(IsNewBar(EffSignalTF())){
          if(setupActive&&!HasOpenPosition()&&!pendingTicket){ setupBars++; if(setupBars>=EffExpiry()) ClearSetup("expired"); }
          ScanCandle(); TryPlacePending();
       }

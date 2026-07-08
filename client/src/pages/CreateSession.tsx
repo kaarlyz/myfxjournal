@@ -6,6 +6,8 @@ import { TimeframeSelect } from '../components/forms/TimeframeSelect';
 import { MarketCategorySelect } from '../components/forms/MarketCategorySelect';
 import { AccountTypeSelect } from '../components/forms/AccountTypeSelect';
 import { HelpCard, InfoTooltip, PageGuide } from '../components/help/HelpSystem';
+import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { Button } from '../components/ui/Button';
 
 export default function CreateSession() {
   const { createSession, settings, fetchSettings, selectSession } = useJournalStore();
@@ -95,35 +97,38 @@ export default function CreateSession() {
     }
   };
 
+  const inputClass = "w-full bg-white border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] focus:border-[#1040C0] focus:shadow-[4px_4px_0px_0px_#1040C0] outline-none rounded-none p-3 text-[13px] text-[#121212] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed";
+  const labelClass = "text-[10px] font-extrabold text-[#717182] uppercase tracking-widest block mb-2";
+
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold text-white tracking-tight">Buat Sesi Backtest Baru</h1>
-          <PageGuide
-            title="Buat Sesi Backtest"
-            purpose="Halaman ini dipakai untuk membuat wadah analisis sebelum kamu import CSV, catat trade manual, atau menerima trade dari webhook."
-            steps={[
-              'Isi nama sesi yang mudah dikenali.',
-              'Pilih symbol, timeframe, dan kategori market.',
-              'Pilih mode akun agar dashboard tidak salah membaca balance cent/IDR/demo.',
-              'Isi modal awal, lalu buat sesi.',
-              'Setelah sesi dibuat, import CSV atau buka dashboard.'
-            ]}
-            outputs={[
-              'Sesi baru muncul di halaman Overview/Sessions.',
-              'Dashboard memakai initial balance, symbol, timeframe, dan mode akun dari form ini.'
-            ]}
-            warnings={[
-              'Cent account tidak sama dengan USD normal. Aktifkan mode Cent agar nilainya diberi label jelas.',
-              'Risk/R setting bisa diatur nanti dari Advanced Settings atau Risk Calculator.'
-            ]}
-            nextAction="Kalau sumber datanya TradingView Strategy Tester, lanjut ke Import CSV setelah sesi dibuat."
-          />
-        </div>
-        <p className="text-xs text-[#707a8a] mt-1">
-          Alur sederhana: nama sesi, symbol, timeframe, market, mode akun, dan modal awal.
-        </p>
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PageHeader 
+          label="New Session"
+          title="Buat Sesi Backtest Baru"
+          subtitle="Buat sesi backtest kosong sebelum mengunggah CSV atau input trade manual."
+          labelColor="blue"
+        />
+        <PageGuide
+          title="Buat Sesi Backtest"
+          purpose="Halaman ini dipakai untuk membuat wadah analisis sebelum kamu import CSV, catat trade manual, atau menerima trade dari webhook."
+          steps={[
+            'Isi nama sesi yang mudah dikenali.',
+            'Pilih symbol, timeframe, dan kategori market.',
+            'Pilih mode akun agar dashboard tidak salah membaca balance cent/IDR/demo.',
+            'Isi modal awal, lalu buat sesi.',
+            'Setelah sesi dibuat, import CSV atau buka dashboard.'
+          ]}
+          outputs={[
+            'Sesi baru muncul di halaman Overview/Sessions.',
+            'Dashboard memakai initial balance, symbol, timeframe, dan mode akun dari form ini.'
+          ]}
+          warnings={[
+            'Cent account tidak sama dengan USD normal. Aktifkan mode Cent agar nilainya diberi label jelas.',
+            'Risk/R setting bisa diatur nanti dari Advanced Settings atau Risk Calculator.'
+          ]}
+          nextAction="Kalau sumber datanya TradingView Strategy Tester, lanjut ke Import CSV setelah sesi dibuat."
+        />
       </div>
 
       <HelpCard title="Kapan memakai halaman ini?">
@@ -131,178 +136,189 @@ export default function CreateSession() {
       </HelpCard>
 
       {error && (
-        <div className="bg-[rgba(246,70,93,0.08)] border border-[rgba(246,70,93,0.2)] rounded-xl p-4 flex items-start space-x-3 text-[#f6465d] text-xs font-semibold">
-          <AlertCircle className="w-5 h-5 shrink-0" />
-          <span>{error}</span>
+        <div className="bg-[var(--loss-dim)] border-2 border-[var(--loss)] text-[var(--loss)] p-4 shadow-[4px_4px_0px_0px_var(--loss)] flex items-center gap-3">
+          <AlertCircle className="w-6 h-6 shrink-0" strokeWidth={2.5} />
+          <span className="text-[13px] font-extrabold uppercase tracking-widest">{error}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className=" rounded-xl border border-[#2b3139] p-6 space-y-6">
-        {/* Core Settings Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* Name */}
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="text-[10px] font-bold text-[#707a8a] uppercase tracking-wider block">Nama Sesi Backtest</label>
-            <input
-              type="text"
-              placeholder="Contoh: SMC Gold Backtest Mei 2026"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
-            />
+      <form onSubmit={handleSubmit} className="bg-white border-4 border-[#121212] shadow-[8px_8px_0px_0px_#121212] relative overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-3 bg-[#1040C0]" />
+        
+        <div className="p-6 md:p-8 space-y-8 mt-2">
+          <SectionLabel label="Informasi Dasar" shape="square" color="blue" />
+
+          {/* Core Settings Section */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-[#F0F0F0] p-6 border-2 border-[#121212]">
+            {/* Name */}
+            <div className="md:col-span-2">
+              <label className={labelClass}>Nama Sesi Backtest</label>
+              <input
+                type="text"
+                placeholder="Contoh: SMC Gold Backtest Mei 2026"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+
+            {/* Symbol */}
+            <div>
+              <label className={labelClass}>Symbol / Pair</label>
+              <SymbolSelect value={symbol} onChange={setSymbol} customValue={customSymbol} onCustomChange={setCustomSymbol} />
+            </div>
+
+            {/* Timeframe */}
+            <div>
+              <label className={labelClass}>Timeframe Utama</label>
+              <TimeframeSelect value={timeframe} onChange={setTimeframe} />
+            </div>
+
+            {/* Market Type */}
+            <div>
+              <label className={labelClass}>Kategori Market</label>
+              <MarketCategorySelect value={marketType} onChange={setMarketType} />
+            </div>
+
+            {/* Mode Source */}
+            <div>
+              <label className={labelClass}>Metode Input Trade</label>
+              <select
+                value={sourceMode}
+                onChange={(e: any) => setSourceMode(e.target.value)}
+                className={inputClass}
+              >
+                <option value="CSV">CSV IMPORT (Unggah File Strategy Tester)</option>
+                <option value="WEBHOOK">WEBHOOK / AUTO ENTRY</option>
+                <option value="MANUAL">MANUAL (Catat Manual)</option>
+              </select>
+            </div>
           </div>
 
-          {/* Symbol */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-[#707a8a] uppercase block">Symbol / Pair</label>
-            <SymbolSelect value={symbol} onChange={setSymbol} customValue={customSymbol} onCustomChange={setCustomSymbol} />
+          <SectionLabel label="Pengaturan Akun & Saldo" shape="circle" color="dark" />
+          
+          {/* Currency & Balances Section */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-[#F0F0F0] p-6 border-2 border-[#121212]">
+            {/* Initial Balance */}
+            <div>
+              <label className={labelClass}>Modal Awal (Initial Balance)</label>
+              <input
+                type="number"
+                placeholder="10000"
+                value={initialBalance}
+                onChange={(e) => setInitialBalance(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+
+            {/* Account Mode */}
+            <div>
+              <label className={`${labelClass} flex items-center gap-1`}>
+                Mode Akun <InfoTooltip text="Mode akun membantu dashboard memberi label nilai balance. Cent account tidak boleh dibaca diam-diam sebagai USD normal." />
+              </label>
+              <AccountTypeSelect
+                value={accountMode}
+                onChange={(value) => {
+                  setAccountMode(value);
+                  setBalanceCurrency(value === 'CENT' ? 'CENT' : value === 'IDR' ? 'IDR' : 'USD');
+                }}
+              />
+            </div>
+
+            {/* USD IDR Rate */}
+            <div>
+              <label className={labelClass}>{accountMode === 'CENT' ? 'Cent Multiplier' : 'Kurs Konversi USD ke IDR'}</label>
+              <input
+                type="number"
+                placeholder={accountMode === 'CENT' ? '100' : '16200'}
+                value={accountMode === 'CENT' ? centMultiplier : usdIdrRate}
+                onChange={(e) => accountMode === 'CENT' ? setCentMultiplier(e.target.value) : setUsdIdrRate(e.target.value)}
+                className={inputClass}
+              />
+            </div>
           </div>
 
-          {/* Timeframe */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-[#707a8a] uppercase block">Timeframe Utama</label>
-            <TimeframeSelect value={timeframe} onChange={setTimeframe} />
-          </div>
+          {accountMode === 'CENT' && (
+            <HelpCard title="Catatan cent account" tone="warning">
+              Cent account: broker bisa menampilkan balance dalam satuan cent. Dashboard akan memberi label CENT dan menyimpan catatan multiplier agar hasil tidak dikira USD normal.
+            </HelpCard>
+          )}
 
-          {/* Market Type */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-[#707a8a] uppercase block">Kategori Market</label>
-            <MarketCategorySelect value={marketType} onChange={setMarketType} />
-          </div>
-
-          {/* Mode Source */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-[#707a8a] uppercase block">Metode Input Trade</label>
-            <select
-              value={sourceMode}
-              onChange={(e: any) => setSourceMode(e.target.value)}
-              className="w-full bg-[#1e2329] border border-[#2b3139] outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
+          {/* Risk Multiples Calculator Section */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((value) => !value)}
+              className="flex items-center gap-2 text-[12px] font-extrabold text-[#121212] uppercase tracking-wider hover:text-[#1040C0] transition-colors"
             >
-              <option value="CSV">CSV IMPORT (Unggah File Strategy Tester)</option>
-              <option value="WEBHOOK">WEBHOOK / AUTO ENTRY (Otomatis dari Pine Script)</option>
-              <option value="MANUAL">MANUAL (Catat Manual)</option>
-            </select>
+              <Settings className="w-4 h-4" />
+              {showAdvanced ? 'Sembunyikan Pengaturan Lanjut' : 'Tampilkan Pengaturan Lanjut (Risk)'}
+            </button>
           </div>
-        </div>
 
-        {/* Currency & Balances Section */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 border-t border-[#2b3139] pt-6">
-          {/* Initial Balance */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-[#707a8a] uppercase block">Modal Awal (Initial Balance)</label>
-            <input
-              type="number"
-              placeholder="10000"
-              value={initialBalance}
-              onChange={(e) => setInitialBalance(e.target.value)}
-              className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
+          {showAdvanced && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white border-2 border-[#121212] border-dashed p-6">
+            {/* Risk Mode */}
+            <div>
+              <label className={labelClass}>Model Penghitungan Risiko (R)</label>
+              <select
+                value={riskMode}
+                onChange={(e: any) => setRiskMode(e.target.value)}
+                className={inputClass}
+              >
+                <option value="FIXED_USD">Fixed Risk USD per Trade</option>
+                <option value="FIXED_PCT">Fixed Risk % dari Initial Balance</option>
+                <option value="NO_R">No R Calculation (Matikan Perhitungan R)</option>
+              </select>
+            </div>
+
+            {/* Risk Value */}
+            <div>
+              <label className={labelClass}>
+                {riskMode === 'FIXED_USD' 
+                  ? 'Nominal Resiko per Trade (USD)' 
+                  : riskMode === 'FIXED_PCT' 
+                  ? 'Persentase Resiko per Trade (%)' 
+                  : 'Resiko Dinonaktifkan'}
+              </label>
+              <input
+                type="number"
+                placeholder={riskMode === 'FIXED_USD' ? '100' : '1'}
+                disabled={riskMode === 'NO_R'}
+                value={riskMode === 'NO_R' ? '' : riskValue}
+                onChange={(e) => setRiskValue(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+          )}
+
+          <SectionLabel label="Catatan Tambahan" shape="diamond" color="dark" />
+          
+          {/* Notes Section */}
+          <div>
+            <label className={labelClass}>Catatan / Deskripsi Strategi</label>
+            <textarea
+              placeholder="Tuliskan detail tentang sesi ini, misalnya rules entry (SMC, SNR, EMA cross), target RR minimum, batasan emosi, dll..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={4}
+              className={`${inputClass} resize-none leading-relaxed`}
             />
           </div>
-
-          {/* Account Mode */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-[#707a8a] uppercase flex items-center gap-1">
-              Mode Akun <InfoTooltip text="Mode akun membantu dashboard memberi label nilai balance. Cent account tidak boleh dibaca diam-diam sebagai USD normal." />
-            </label>
-            <AccountTypeSelect
-              value={accountMode}
-              onChange={(value) => {
-                setAccountMode(value);
-                setBalanceCurrency(value === 'CENT' ? 'CENT' : value === 'IDR' ? 'IDR' : 'USD');
-              }}
-            />
-          </div>
-
-          {/* USD IDR Rate */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-[#707a8a] uppercase block">{accountMode === 'CENT' ? 'Cent Multiplier' : 'Kurs Konversi USD ke IDR'}</label>
-            <input
-              type="number"
-              placeholder={accountMode === 'CENT' ? '100' : '16200'}
-              value={accountMode === 'CENT' ? centMultiplier : usdIdrRate}
-              onChange={(e) => accountMode === 'CENT' ? setCentMultiplier(e.target.value) : setUsdIdrRate(e.target.value)}
-              className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
-            />
-          </div>
-        </div>
-
-        {accountMode === 'CENT' && (
-          <HelpCard title="Catatan cent account" tone="warning">
-            Cent account: broker bisa menampilkan balance dalam satuan cent. Dashboard akan memberi label CENT dan menyimpan catatan multiplier agar hasil tidak dikira USD normal.
-          </HelpCard>
-        )}
-
-        {/* Risk Multiples Calculator Section */}
-        <div className="border-t border-[#2b3139] pt-6">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((value) => !value)}
-            className="flex items-center gap-2 text-xs font-bold text-[#fcd535]"
-          >
-            <Settings className="w-4 h-4" />
-            {showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings'}
-          </button>
-        </div>
-
-        {showAdvanced && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* Risk Mode */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-[#707a8a] uppercase block">Model Penghitungan Risiko (R)</label>
-            <select
-              value={riskMode}
-              onChange={(e: any) => setRiskMode(e.target.value)}
-              className="w-full bg-[#1e2329] border border-[#2b3139] outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
-            >
-              <option value="FIXED_USD">Fixed Risk USD per Trade</option>
-              <option value="FIXED_PCT">Fixed Risk % dari Initial Balance</option>
-              <option value="NO_R">No R Calculation (Matikan Perhitungan R)</option>
-            </select>
-          </div>
-
-          {/* Risk Value */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-[#707a8a] uppercase block">
-              {riskMode === 'FIXED_USD' 
-                ? 'Nominal Resiko per Trade (USD)' 
-                : riskMode === 'FIXED_PCT' 
-                ? 'Persentase Resiko per Trade (%)' 
-                : 'Resiko Dinonaktifkan'}
-            </label>
-            <input
-              type="number"
-              placeholder={riskMode === 'FIXED_USD' ? '100' : '1'}
-              disabled={riskMode === 'NO_R'}
-              value={riskMode === 'NO_R' ? '' : riskValue}
-              onChange={(e) => setRiskValue(e.target.value)}
-              className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-          </div>
-        </div>
-        )}
-
-        {/* Notes Section */}
-        <div className="space-y-1.5 border-t border-[#2b3139] pt-6">
-          <label className="text-[10px] font-bold text-[#707a8a] uppercase block">Catatan / Deskripsi Strategi</label>
-          <textarea
-            placeholder="Tuliskan detail tentang sesi ini, misalnya rules entry (SMC, SNR, EMA cross), target RR minimum, batasan emosi, dll..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={4}
-            className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-medium leading-relaxed resize-none"
-          />
         </div>
 
         {/* Submit Actions */}
-        <div className="flex justify-end space-x-3 border-t border-[#2b3139] pt-6">
-          <button
+        <div className="bg-[#F0F0F0] border-t-4 border-[#121212] p-6 flex justify-end">
+          <Button
             type="submit"
+            variant="blue"
             disabled={isSubmitting}
-            className="px-6 py-2.5 bg-gradient-to-r from-accentCyan to-accentBlue hover:from-accentCyan/90 hover:to-accentBlue/90 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5  transition disabled:opacity-50"
+            className="w-full md:w-auto py-3 px-8 text-base"
           >
-            <Save className="w-4 h-4" />
+            <Save className="w-5 h-5 mr-2" />
             <span>{isSubmitting ? 'Menyimpan...' : 'Simpan & Lanjutkan'}</span>
-          </button>
+          </Button>
         </div>
       </form>
     </div>

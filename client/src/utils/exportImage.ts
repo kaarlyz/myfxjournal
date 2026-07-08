@@ -23,5 +23,5 @@ export async function exportElementAsPng(
 export function buildExportFilename(prefix: string, label: string): string {
   const date = new Date().toISOString().slice(0, 10);
   const clean = label.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().slice(0, 28);
-  return `replayfx-${prefix}-${clean}-${date}.png`;
+  return `kafx-${prefix}-${clean}-${date}.png`;
 }

@@ -27,12 +27,13 @@ router.get('/', async (req: Request, res: Response) => {
         const trades = await prisma.trade.findMany({
           where: { sessionId: session.id },
         });
-        const metrics = calculateMetrics(
-          session.initialBalance,
-          session.usdIdrRate,
-          trades as unknown as Trade[],
-          session.balanceCurrency as 'USD' | 'CENT' | 'IDR'
-        );
+        const { metrics } = calculateMetrics(trades as unknown as Trade[], {
+          initialBalance: session.initialBalance,
+          usdIdrRate: session.usdIdrRate,
+          balanceCurrency: session.balanceCurrency as 'USD' | 'CENT' | 'IDR',
+          riskMode: session.riskMode as 'FIXED_USD' | 'FIXED_PCT' | 'NO_R',
+          riskValue: session.riskValue,
+        });
 
         return {
           ...session,
@@ -76,16 +77,17 @@ router.get('/:id', async (req: Request, res: Response) => {
       ],
     });
 
-    const metrics = calculateMetrics(
-      session.initialBalance,
-      session.usdIdrRate,
-      trades as unknown as Trade[],
-      session.balanceCurrency as 'USD' | 'CENT' | 'IDR'
-    );
+    const { metrics, enrichedTrades } = calculateMetrics(trades as unknown as Trade[], {
+      initialBalance: session.initialBalance,
+      usdIdrRate: session.usdIdrRate,
+      balanceCurrency: session.balanceCurrency as 'USD' | 'CENT' | 'IDR',
+      riskMode: session.riskMode as 'FIXED_USD' | 'FIXED_PCT' | 'NO_R',
+      riskValue: session.riskValue,
+    });
 
     return res.json({
       session,
-      trades,
+      trades: enrichedTrades,
       metrics,
     });
   } catch (error: any) {
@@ -146,12 +148,13 @@ router.post('/parse-csv', upload.single('csvFile'), async (req: Request, res: Re
     }
 
     const csvText = req.file.buffer.toString('utf8');
-    const { validTrades, invalidTrades } = parseTradingViewCsv(csvText);
+    const { validTrades, invalidTrades, detectedSymbol } = parseTradingViewCsv(csvText);
     const dateRange = buildTradeDateRange(validTrades);
 
     return res.json({
       validTrades,
       invalidTrades,
+      detectedSymbol,
       totalParsed: validTrades.length + invalidTrades.length,
       validCount: validTrades.length,
       invalidCount: invalidTrades.length,
@@ -363,12 +366,13 @@ router.post('/import', async (req: Request, res: Response) => {
     const newTotalTrades = await prisma.trade.count({ where: { sessionId: session.id } });
     const finalTrades = await prisma.trade.findMany({ where: { sessionId: session.id } });
     const dateRange = buildTradeDateRange(validTrades || []);
-    const metrics = calculateMetrics(
-      session.initialBalance,
-      session.usdIdrRate,
-      finalTrades as unknown as Trade[],
-      session.balanceCurrency as 'USD' | 'CENT' | 'IDR'
-    );
+    const { metrics } = calculateMetrics(finalTrades as unknown as Trade[], {
+      initialBalance: session.initialBalance,
+      usdIdrRate: session.usdIdrRate,
+      balanceCurrency: session.balanceCurrency as 'USD' | 'CENT' | 'IDR',
+      riskMode: session.riskMode as 'FIXED_USD' | 'FIXED_PCT' | 'NO_R',
+      riskValue: session.riskValue,
+    });
 
     return res.json({
       ok: true,
@@ -455,7 +459,7 @@ router.post('/:id/update-csv', upload.single('csvFile'), async (req: Request, re
     }
 
     const csvText = req.file.buffer.toString('utf8');
-    const { validTrades, invalidTrades } = parseTradingViewCsv(csvText);
+    const { validTrades, invalidTrades, detectedSymbol } = parseTradingViewCsv(csvText);
     const dateRange = buildTradeDateRange(validTrades);
 
     if (mode === 'REPLACE') {
@@ -493,6 +497,7 @@ router.post('/:id/update-csv', upload.single('csvFile'), async (req: Request, re
       importedInvalid: invalidTradesToCreate.length,
       validCount: validTrades.length,
       invalidCount: invalidTrades.length,
+      detectedSymbol,
       ...dateRange,
     });
   } catch (error: any) {
@@ -576,12 +581,13 @@ router.post('/:id/quick-log', async (req: Request, res: Response) => {
     });
 
     const trades = await prisma.trade.findMany({ where: { sessionId: id } });
-    const metrics = calculateMetrics(
-      session.initialBalance,
-      session.usdIdrRate,
-      trades as unknown as Trade[],
-      session.balanceCurrency as 'USD' | 'CENT' | 'IDR'
-    );
+    const { metrics } = calculateMetrics(trades as unknown as Trade[], {
+      initialBalance: session.initialBalance,
+      usdIdrRate: session.usdIdrRate,
+      balanceCurrency: session.balanceCurrency as 'USD' | 'CENT' | 'IDR',
+      riskMode: session.riskMode as 'FIXED_USD' | 'FIXED_PCT' | 'NO_R',
+      riskValue: session.riskValue,
+    });
 
     return res.status(201).json({
       ok: true,
@@ -592,6 +598,35 @@ router.post('/:id/quick-log', async (req: Request, res: Response) => {
         netPnl: metrics.netPnlUsd,
         winrate: metrics.winrate,
       }
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/sessions/:id/recalculate
+router.post('/:id/recalculate', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { initialBalance, riskMode, riskValue, compounding } = req.body;
+    
+    const session = await prisma.backtestSession.findUnique({ where: { id } });
+    if (!session) return res.status(404).json({ error: 'Sesi tidak ditemukan.' });
+
+    const trades = await prisma.trade.findMany({ where: { sessionId: id } });
+    
+    const { metrics, enrichedTrades } = calculateMetrics(trades as unknown as Trade[], {
+      initialBalance: initialBalance !== undefined ? parseFloat(initialBalance) : session.initialBalance,
+      usdIdrRate: session.usdIdrRate,
+      balanceCurrency: session.balanceCurrency as 'USD' | 'CENT' | 'IDR',
+      riskMode: riskMode || session.riskMode as 'FIXED_USD' | 'FIXED_PCT' | 'NO_R',
+      riskValue: riskValue !== undefined ? parseFloat(riskValue) : session.riskValue,
+      compounding: compounding === true,
+    });
+
+    return res.json({
+      metrics,
+      trades: enrichedTrades,
     });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });

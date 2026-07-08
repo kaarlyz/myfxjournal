@@ -12,6 +12,8 @@ export type EaBotSession = {
   selectedChartIndex?: number;
   selectedInstanceId?: string;
   selectedConfigKey?: string;
+  selectedGroup?: string;
+  configPage?: number;
   page: number;
   searchQuery?: string;
   data: Record<string, any>;
@@ -40,6 +42,8 @@ export function getEaSession(channel: EaBotChannel, senderId: string) {
 export function setEaSession(channel: EaBotChannel, senderId: string, patch: Partial<EaBotSession>) {
   const existing = getEaSession(channel, senderId);
   const has = (key: keyof EaBotSession) => Object.prototype.hasOwnProperty.call(patch, key);
+  const nextPage = has('page') ? (patch.page ?? existing?.page ?? 0) : (existing?.page ?? 0);
+  const nextConfigPage = has('configPage') ? (patch.configPage ?? nextPage) : (existing?.configPage ?? nextPage);
   const next: EaBotSession = {
     channel,
     flow: patch.flow || existing?.flow || 'menu',
@@ -52,7 +56,9 @@ export function setEaSession(channel: EaBotChannel, senderId: string, patch: Par
     selectedChartIndex: has('selectedChartIndex') ? patch.selectedChartIndex : existing?.selectedChartIndex,
     selectedInstanceId: has('selectedInstanceId') ? patch.selectedInstanceId : existing?.selectedInstanceId,
     selectedConfigKey: has('selectedConfigKey') ? patch.selectedConfigKey : existing?.selectedConfigKey,
-    page: patch.page ?? existing?.page ?? 0,
+    selectedGroup: has('selectedGroup') ? patch.selectedGroup : existing?.selectedGroup,
+    configPage: nextConfigPage,
+    page: nextPage,
     searchQuery: has('searchQuery') ? patch.searchQuery : existing?.searchQuery,
     data: { ...(existing?.data || {}), ...(patch.data || {}) },
     history: patch.history || existing?.history || [],

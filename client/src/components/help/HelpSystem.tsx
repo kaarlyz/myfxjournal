@@ -6,15 +6,19 @@ type GuideSection = {
   body: string;
 };
 
-export function HelpCard({ title, children, tone = 'info' }: { title: string; children: React.ReactNode; tone?: 'info' | 'warning' }) {
-  const color = tone === 'warning' ? '#f0b90b' : '#fcd535';
+export function HelpCard({ title, children, tone = 'info' }: { title: string; children: React.ReactNode; tone?: 'info' | 'warning' | 'neutral' }) {
+  const isWarning = tone === 'warning';
+  const colorClass = isWarning ? 'var(--warning)' : '#1040C0';
+  const bgClass = isWarning ? 'var(--warning-dim)' : 'rgba(16, 64, 192, 0.08)';
+
   return (
-    <div className="rounded-xl border border-[#2b3139] bg-[#181a20] p-4">
-      <div className="flex items-start gap-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0" style={{ color }} />
+    <div className={`bg-white border-2 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212] relative`}>
+      <div className={`absolute top-0 left-0 bottom-0 w-2`} style={{ backgroundColor: colorClass }} />
+      <div className="flex items-start gap-3 ml-3">
+        <Info className="mt-0.5 h-5 w-5 shrink-0" strokeWidth={2.5} style={{ color: colorClass }} />
         <div>
-          <h3 className="text-sm font-bold text-white">{title}</h3>
-          <div className="mt-1 text-xs leading-6 text-[#929aa5]">{children}</div>
+          <h3 className="text-[14px] font-extrabold text-[#121212] uppercase tracking-wide">{title}</h3>
+          <div className="mt-2 text-[13px] font-bold leading-relaxed text-[#717182]">{children}</div>
         </div>
       </div>
     </div>
@@ -24,8 +28,8 @@ export function HelpCard({ title, children, tone = 'info' }: { title: string; ch
 export function InfoTooltip({ text }: { text: string }) {
   return (
     <span className="group relative inline-flex align-middle">
-      <HelpCircle className="h-3.5 w-3.5 text-[#707a8a]" />
-      <span className="pointer-events-none absolute left-1/2 top-5 z-40 hidden w-64 -translate-x-1/2 rounded-lg border border-[#2b3139] bg-[#0b0e11] p-3 text-[11px] leading-5 text-[#eaecef] shadow-xl group-hover:block">
+      <HelpCircle className="h-4 w-4 text-[#717182] cursor-help" />
+      <span className="pointer-events-none absolute left-1/2 top-6 z-40 hidden w-64 -translate-x-1/2 bg-white border-2 border-[#121212] p-3 text-[12px] font-bold leading-5 text-[#121212] shadow-[4px_4px_0px_0px_#121212] group-hover:block uppercase tracking-wider">
         {text}
       </span>
     </span>
@@ -34,11 +38,13 @@ export function InfoTooltip({ text }: { text: string }) {
 
 export function EmptyStateGuide({ title, body, action }: { title: string; body: string; action?: React.ReactNode }) {
   return (
-    <div className="bn-card p-8 text-center">
-      <HelpCircle className="mx-auto h-10 w-10 text-[#707a8a]" />
-      <h3 className="mt-4 text-base font-bold text-white">{title}</h3>
-      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#929aa5]">{body}</p>
-      {action ? <div className="mt-5">{action}</div> : null}
+    <div className="bg-[#F0F0F0] border-2 border-dashed border-[#121212]/20 p-10 text-center flex flex-col items-center">
+      <div className="p-4 bg-white border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] mb-5">
+        <HelpCircle className="h-8 w-8 text-[#121212]" strokeWidth={2} />
+      </div>
+      <h3 className="text-[16px] font-extrabold text-[#121212] uppercase tracking-wide">{title}</h3>
+      <p className="mx-auto mt-3 max-w-xl text-[13px] font-bold leading-relaxed text-[#717182]">{body}</p>
+      {action ? <div className="mt-6">{action}</div> : null}
     </div>
   );
 }
@@ -65,28 +71,28 @@ export function PageGuide({ title, purpose, steps, outputs, warnings, nextAction
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 rounded-lg border border-[#2b3139] bg-[#181a20] px-3 py-2 text-xs font-bold text-[#eaecef] hover:border-[#fcd535] hover:text-[#fcd535]"
+        className="inline-flex items-center gap-2 bg-white border-2 border-[#121212] px-3 py-2 text-[11px] font-extrabold text-[#121212] uppercase tracking-widest shadow-[2px_2px_0px_0px_#121212] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_0px_#121212] transition-all active:translate-y-0.5 active:shadow-none"
       >
-        <HelpCircle className="h-4 w-4" />
+        <HelpCircle className="h-4 w-4" strokeWidth={2.5} />
         Cara pakai
       </button>
       {open && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/70">
-          <aside className="h-full w-full max-w-lg overflow-y-auto border-l border-[#2b3139] bg-[#0b0e11] p-5 shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-[#2b3139] pb-4">
+        <div className="fixed inset-0 z-50 flex justify-end bg-[#121212]/80 backdrop-blur-sm animate-fade-in">
+          <aside className="h-full w-full max-w-lg overflow-y-auto border-l-4 border-[#121212] bg-[#F0F0F0] p-6 shadow-[-16px_0px_0px_0px_rgba(0,0,0,0.2)] animate-slide-right flex flex-col relative">
+            <div className="flex items-start justify-between gap-4 border-b-4 border-[#121212] pb-5 shrink-0">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[#fcd535]">Panduan</p>
-                <h2 className="mt-1 text-xl font-bold text-white">{title}</h2>
+                <p className="text-[11px] font-extrabold uppercase tracking-widest text-white bg-[#1040C0] px-2 py-0.5 inline-block border-2 border-[#121212]">Panduan</p>
+                <h2 className="mt-3 text-2xl font-extrabold text-[#121212] font-display uppercase tracking-wide">{title}</h2>
               </div>
-              <button onClick={() => setOpen(false)} className="rounded-lg p-2 text-[#707a8a] hover:bg-[#181a20] hover:text-white">
-                <X className="h-5 w-5" />
+              <button onClick={() => setOpen(false)} className="bg-white border-2 border-[#121212] p-2 text-[#121212] shadow-[2px_2px_0px_0px_#121212] hover:bg-[#E0E0E0] active:translate-y-0.5 active:shadow-none transition-all">
+                <X className="h-5 w-5" strokeWidth={2.5} />
               </button>
             </div>
-            <div className="mt-5 space-y-4">
+            <div className="mt-6 space-y-6 flex-1 overflow-y-auto pr-2 pb-8">
               {sections.map((section) => (
-                <div key={section.title} className="rounded-xl border border-[#2b3139] bg-[#181a20] p-4">
-                  <h3 className="text-sm font-bold text-white">{section.title}</h3>
-                  <p className="mt-2 whitespace-pre-line text-sm leading-7 text-[#c7ccd4]">{section.body}</p>
+                <div key={section.title} className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212]">
+                  <h3 className="text-[14px] font-extrabold text-[#121212] uppercase tracking-wide border-b-2 border-[#121212]/10 pb-2 mb-3">{section.title}</h3>
+                  <p className="whitespace-pre-line text-[13px] font-bold leading-relaxed text-[#717182]">{section.body}</p>
                 </div>
               ))}
             </div>

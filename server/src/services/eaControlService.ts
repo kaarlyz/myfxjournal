@@ -82,7 +82,7 @@ type EaParameterSchemaItem = {
   liveEditable: boolean;
 };
 
-const schemaCache = new Map<string, { mtimeMs: number; size: number; schema: EaParameterSchemaItem[] }>();
+const schemaCache = new Map<string, { hash: string; schema: EaParameterSchemaItem[] }>();
 
 function normalizeInputKey(rawName: string) {
   const stripped = rawName.replace(/^Inp/, '').replace(/^ReplayFX_/, '').replace(/^_+|_+$/g, '');
@@ -108,6 +108,7 @@ function schemaTypeFromMql(typeName: string): EaParameterSchemaItem['type'] {
   if (['int', 'long', 'double', 'float'].includes(t)) return 'number';
   if (t === 'ENUM_REPLAYFX_MODE') return 'mode';
   if (t === 'string') return 'text';
+  if (t === 'color') return 'text'; // Handle color as text
   if (t.startsWith('ENUM_')) return 'enum';
   return 'text';
 }
@@ -138,12 +139,13 @@ function findEaLibraryFile(fileName?: string | null) {
 }
 
 export function scanEaParameterSchemaFromFile(filePath: string): EaParameterSchemaItem[] {
-  const stat = fs.statSync(filePath);
+  const content = fs.readFileSync(filePath, 'utf8');
+  const hash = crypto.createHash('md5').update(content).digest('hex');
   const cacheKey = path.resolve(filePath);
   const cached = schemaCache.get(cacheKey);
-  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.schema;
+  if (cached && cached.hash === hash) return cached.schema;
 
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+  const lines = content.split(/\r?\n/);
   const enumOptionsByName = new Map<string, string[]>();
   let currentEnum: { name: string; values: string[] } | null = null;
   for (const line of lines) {
@@ -193,7 +195,7 @@ export function scanEaParameterSchemaFromFile(filePath: string): EaParameterSche
       pendingComment = null;
       continue;
     }
-    const match = line.match(/^\s*input\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?);\s*(?:\/\/\s*(.*))?$/);
+    const match = line.match(/^\s*input\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*=\s*(.+?))?;\s*(?:\/\/\s*(.*))?$/);
     if (!match) continue;
     const typeName = match[1];
     const rawName = match[2];
@@ -225,7 +227,7 @@ export function scanEaParameterSchemaFromFile(filePath: string): EaParameterSche
     });
     pendingComment = null;
   }
-  schemaCache.set(cacheKey, { mtimeMs: stat.mtimeMs, size: stat.size, schema });
+  schemaCache.set(cacheKey, { hash, schema });
   return schema;
 }
 

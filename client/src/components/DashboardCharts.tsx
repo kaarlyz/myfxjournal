@@ -1,10 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ResponsiveContainer,
   AreaChart,
   Area,
-  LineChart,
-  Line,
   BarChart,
   Bar,
   XAxis,
@@ -12,535 +10,550 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  PieChart,
-  Pie,
   Cell,
+  Brush,
+  ReferenceLine,
+  ScatterChart,
+  Scatter,
+  ZAxis
 } from 'recharts';
+import { motion, AnimatePresence, type Variants } from 'framer-motion';
+import { BarChart2, MousePointerClick } from 'lucide-react';
 import { Trade, BacktestSession } from '../shared/types';
-import { formatUsd, formatPercent, formatR } from '../utils/formatters';
-import { formatNumber } from '../utils/numberUtils';
+import { formatUsd, formatPercent } from '../utils/formatters';
+import { downsampleData, formatCompactUsd, getNiceDomain, getNegativeDomain, getMedian } from '../utils/chartUtils';
+import { SectionLabel } from './ui/SectionLabel';
+import { PremiumTooltip } from './ui/PremiumTooltip';
+import { SmartSummary } from './ui/SmartSummary';
+import { EmptyState } from './ui/EmptyState';
+
+export interface DashboardChartSelection {
+  kind: 'day' | 'setup' | 'trade' | 'side' | 'result';
+  value: string | number;
+  label: string;
+}
 
 interface ChartsProps {
   session: BacktestSession;
   trades: Trade[];
+  onSelectionChange?: (selection: DashboardChartSelection | null) => void;
 }
 
-export default function DashboardCharts({ session, trades }: ChartsProps) {
-  const [activeChartTab, setActiveChartTab] = useState<'equity' | 'pnl' | 'time' | 'excursion'>('equity');
+const containerVariants: Variants = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.08 } }
+};
 
-  const closedTrades = trades
-    .filter((t) => t.status === 'CLOSED')
-    .sort((a, b) => {
-      const aTime = a.exitTime ? new Date(a.exitTime).getTime() : 0;
-      const bTime = b.exitTime ? new Date(b.exitTime).getTime() : 0;
-      return aTime - bTime;
+const itemVariants: Variants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 280, damping: 22 } },
+  exit: { opacity: 0, y: -10, transition: { duration: 0.15 } }
+};
+
+export default function DashboardCharts({ session, trades, onSelectionChange }: ChartsProps) {
+  const [activeChartTab, setActiveChartTab] = useState<'equity' | 'pnl' | 'time' | 'excursion'>('equity');
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
+  const [activeFilter, setActiveFilter] = useState<DashboardChartSelection | null>(null);
+
+  const handleSelection = (sel: DashboardChartSelection) => {
+    setActiveFilter(sel);
+    if (onSelectionChange) onSelectionChange(sel);
+  };
+
+  const clearSelection = () => {
+    setActiveFilter(null);
+    if (onSelectionChange) onSelectionChange(null);
+  };
+
+  const toggleSeries = (dataKey: string) => {
+    setHiddenSeries(prev => {
+      const next = new Set(prev);
+      if (next.has(dataKey)) next.delete(dataKey);
+      else next.add(dataKey);
+      return next;
     });
+  };
+
+  const closedTrades = useMemo(() => {
+    return trades
+      .filter((t) => t.status === 'CLOSED')
+      .sort((a, b) => {
+        const aTime = a.exitTime ? new Date(a.exitTime).getTime() : 0;
+        const bTime = b.exitTime ? new Date(b.exitTime).getTime() : 0;
+        return aTime - bTime;
+      });
+  }, [trades]);
+
+  const chartData = useMemo(() => {
+    let runningEquity = session.initialBalance;
+    let peak = session.initialBalance;
+    const data = [{ tradeNum: 0, equity: session.initialBalance, drawdown: 0, pnl: 0 }];
+
+    closedTrades.forEach((t, i) => {
+      const pnl = t.netPnlUsd || 0;
+      runningEquity += pnl;
+      if (runningEquity > peak) peak = runningEquity;
+      const ddUsd = peak - runningEquity;
+      const ddPct = peak > 0 ? (ddUsd / peak) * 100 : 0;
+
+      data.push({
+        tradeNum: i + 1,
+        equity: runningEquity,
+        drawdown: -ddPct,
+        pnl: pnl,
+        symbol: t.symbol,
+        side: t.side,
+        date: t.entryTime,
+        mfe: t.favorableExcursionUsd || 0,
+        mae: t.adverseExcursionUsd || 0,
+        actualTradeNum: t.tradeNumber
+      } as any);
+    });
+
+    return data;
+  }, [closedTrades, session.initialBalance]);
+
+  const sampledEquityData = useMemo(() => downsampleData(chartData, 1000), [chartData]);
+  const equityDomain = useMemo(() => getNiceDomain(sampledEquityData.map((d) => d.equity || 0), 0.06), [sampledEquityData]);
+  const drawdownDomain = useMemo(() => getNegativeDomain(sampledEquityData.map((d) => d.drawdown || 0), 0.08), [sampledEquityData]);
+
+  const timeChartData = useMemo(() => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const aggregated = days.map((day, idx) => ({ dayName: day, pnl: 0, tradeCount: 0, dayIdx: idx, dayNameIdr: ['minggu', 'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu'][idx] }));
+
+    closedTrades.forEach(t => {
+      if (t.entryTime) {
+        const dayIdx = new Date(t.entryTime).getDay();
+        aggregated[dayIdx].pnl += (t.netPnlUsd || 0);
+        aggregated[dayIdx].tradeCount += 1;
+      }
+    });
+    return aggregated;
+  }, [closedTrades]);
+
+  const scatterData = useMemo(() => {
+    return closedTrades.filter(t => t.adverseExcursionUsd !== undefined && t.favorableExcursionUsd !== undefined).map(t => ({
+      mfe: t.favorableExcursionUsd || 0,
+      mae: t.adverseExcursionUsd || 0,
+      pnl: t.netPnlUsd || 0,
+      num: t.tradeNumber
+    }));
+  }, [closedTrades]);
+
+  const scatterMfeDomain = useMemo(() => getNiceDomain(scatterData.map((d) => d.mfe || 0), 0.08), [scatterData]);
+  const scatterMaeDomain = useMemo(() => getNiceDomain(scatterData.map((d) => d.mae || 0), 0.08), [scatterData]);
+  const medianMfe = useMemo(() => getMedian(scatterData.map((d) => d.mfe || 0)), [scatterData]);
+  const medianMae = useMemo(() => getMedian(scatterData.map((d) => d.mae || 0)), [scatterData]);
+
+  const averageDayPnl = useMemo(() => {
+    const values = timeChartData.map((d) => d.pnl);
+    if (values.length === 0) return 0;
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+  }, [timeChartData]);
+
+  const insights = useMemo(() => {
+    if (closedTrades.length === 0) return { equityInsights: [], setupInsights: [], timeInsights: [] };
+    
+    const maxDd = Math.abs(Math.min(...chartData.map(d => d.drawdown)));
+    const finalEq = chartData[chartData.length - 1].equity;
+    const isProfit = finalEq >= session.initialBalance;
+    
+    const equityInsights = [
+      { label: 'Highest Drawdown', value: formatPercent(-maxDd), highlight: maxDd > 10 ? 'negative' : 'neutral' as any },
+      { label: 'Net Profit', value: formatUsd(finalEq - session.initialBalance), highlight: isProfit ? 'positive' : 'negative' as any }
+    ];
+
+    const setupPerformance: Record<string, { pnl: number }> = {};
+    closedTrades.forEach(t => {
+      const tag = t.setupTag || 'Tanpa Tag';
+      setupPerformance[tag] = setupPerformance[tag] || { pnl: 0 };
+      setupPerformance[tag].pnl += (t.netPnlUsd || 0);
+    });
+    const bestSetup = Object.entries(setupPerformance).sort((a, b) => b[1].pnl - a[1].pnl)[0];
+    
+    const setupInsights = bestSetup ? [
+      { label: 'Most Profitable Setup', value: bestSetup[0], highlight: bestSetup[1].pnl > 0 ? 'positive' : 'neutral' as any },
+      { label: 'Setup Profit', value: formatUsd(bestSetup[1].pnl), highlight: bestSetup[1].pnl > 0 ? 'positive' : 'negative' as any }
+    ] : [];
+
+    const dayPerf: Record<number, number> = {};
+    closedTrades.forEach(t => {
+      if (t.entryTime) {
+        const day = new Date(t.entryTime).getDay();
+        dayPerf[day] = (dayPerf[day] || 0) + (t.netPnlUsd || 0);
+      }
+    });
+    const daysName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const bestDayIdx = Object.entries(dayPerf).sort((a, b) => b[1] - a[1])[0];
+
+    const timeInsights = bestDayIdx ? [
+      { label: 'Best Trading Day', value: daysName[Number(bestDayIdx[0])], highlight: bestDayIdx[1] > 0 ? 'positive' : 'neutral' as any }
+    ] : [];
+
+    return { equityInsights, setupInsights, timeInsights };
+  }, [closedTrades, chartData, session.initialBalance]);
 
   if (closedTrades.length === 0) {
     return (
-      <div className=" rounded-xl p-8 text-center text-[#707a8a] border border-[#2b3139]">
-        Belum ada data trade yang ditutup untuk membuat visualisasi chart.
-      </div>
+      <EmptyState 
+        icon={BarChart2}
+        title="No Data Available"
+        description="There are no closed trades in this session yet. Complete some trades to generate analytics."
+      />
     );
   }
 
-  // 1. EQUITY & DRAWDOWN DATA
-  let runningEquity = session.initialBalance;
-  let runningR = 0;
-  let peak = session.initialBalance;
-
-  const equityData = [
-    {
-      tradeNum: 0,
-      equity: session.initialBalance,
-      drawdown: 0,
-      rCumulative: 0,
-      pnl: 0,
-    },
-  ];
-
-  closedTrades.forEach((t, i) => {
-    const pnl = t.netPnlUsd || 0;
-    const rMult = t.rMultiple || 0;
-    runningEquity += pnl;
-    runningR += rMult;
-
-    if (runningEquity > peak) {
-      peak = runningEquity;
-    }
-
-    const ddUsd = peak - runningEquity;
-    const ddPct = peak > 0 ? (ddUsd / peak) * 100 : 0;
-
-    equityData.push({
-      tradeNum: i + 1,
-      equity: runningEquity,
-      drawdown: -ddPct, // negative for downward chart
-      rCumulative: runningR,
-      pnl: pnl,
-    });
-  });
-
-  // 2. SETUP TAG PERFORMANCE
-  const setupPerformance: Record<string, { totalPnl: number; count: number; wins: number }> = {};
-  closedTrades.forEach((t) => {
-    const tag = t.setupTag || 'Tanpa Tag';
-    const pnl = t.netPnlUsd || 0;
-    if (!setupPerformance[tag]) {
-      setupPerformance[tag] = { totalPnl: 0, count: 0, wins: 0 };
-    }
-    setupPerformance[tag].totalPnl += pnl;
-    setupPerformance[tag].count++;
-    if (pnl > 0) setupPerformance[tag].wins++;
-  });
-
-  const setupChartData = Object.entries(setupPerformance).map(([tag, stats]) => ({
-    name: tag,
-    PnL: stats.totalPnl,
-    Winrate: (stats.wins / stats.count) * 100,
-    Trades: stats.count,
-  }));
-
-  // 3. PIE CHART DATA (WIN / LOSS / BE)
-  const winCount = closedTrades.filter((t) => (t.netPnlUsd || 0) > 0).length;
-  const lossCount = closedTrades.filter((t) => (t.netPnlUsd || 0) < 0).length;
-  const beCount = closedTrades.filter((t) => (t.netPnlUsd || 0) === 0).length;
-
-  const pieData = [
-    { name: 'Win', value: winCount, color: '#10b981' },
-    { name: 'Loss', value: lossCount, color: '#ef4444' },
-    { name: 'Break Even', value: beCount, color: '#6b7280' },
-  ].filter((p) => p.value > 0);
-
-  // 4. DAY OF WEEK PERFORMANCE
-  const daysName = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-  const dayPerformance: Record<string, { totalPnl: number; count: number; wins: number }> = {};
+  const renderGrid = () => <CartesianGrid strokeDasharray="3 3" stroke="rgba(18,18,18,0.06)" vertical={false} />;
   
-  closedTrades.forEach((t) => {
-    if (!t.entryTime) return;
-    const dayIndex = new Date(t.entryTime).getDay();
-    const dayName = daysName[dayIndex];
-    const pnl = t.netPnlUsd || 0;
+  const renderLegend = (props: any) => {
+    const { payload } = props;
+    return (
+      <div className="flex justify-center gap-4 mt-2">
+        {payload.map((entry: any, index: number) => {
+          const isHidden = hiddenSeries.has(entry.dataKey);
+          return (
+            <div 
+              key={`item-${index}`}
+              className="flex items-center gap-2 cursor-pointer transition-opacity"
+              style={{ opacity: isHidden ? 0.4 : 1 }}
+              onClick={() => toggleSeries(entry.dataKey)}
+            >
+              <div className="w-3 h-3 border-2 border-[var(--border-color)]" style={{ backgroundColor: entry.color }} />
+              <span className="text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider">{entry.value}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
-    if (!dayPerformance[dayName]) {
-      dayPerformance[dayName] = { totalPnl: 0, count: 0, wins: 0 };
-    }
-    dayPerformance[dayName].totalPnl += pnl;
-    dayPerformance[dayName].count++;
-    if (pnl > 0) dayPerformance[dayName].wins++;
-  });
-
-  const dayChartData = daysName
-    .filter((d) => dayPerformance[d])
-    .map((d) => ({
-      name: d,
-      PnL: dayPerformance[d].totalPnl,
-      Winrate: (dayPerformance[d].wins / dayPerformance[d].count) * 100,
-      Trades: dayPerformance[d].count,
-    }));
-
-  // 5. HOUR OF ENTRY PERFORMANCE
-  const hourPerformance: Record<number, { totalPnl: number; count: number; wins: number }> = {};
-  closedTrades.forEach((t) => {
-    if (!t.entryTime) return;
-    const hour = new Date(t.entryTime).getHours();
-    const pnl = t.netPnlUsd || 0;
-
-    if (!hourPerformance[hour]) {
-      hourPerformance[hour] = { totalPnl: 0, count: 0, wins: 0 };
-    }
-    hourPerformance[hour].totalPnl += pnl;
-    hourPerformance[hour].count++;
-    if (pnl > 0) hourPerformance[hour].wins++;
-  });
-
-  const hourChartData = Array.from({ length: 24 })
-    .map((_, i) => {
-      const stats = hourPerformance[i] || { totalPnl: 0, count: 0, wins: 0 };
-      return {
-        hour: `${String(i).padStart(2, '0')}:00`,
-        PnL: stats.totalPnl,
-        Trades: stats.count,
-      };
-    })
-    .filter((h) => h.Trades > 0);
-
-  // 6. LONG VS SHORT PERFORMANCE
-  const longTrades = closedTrades.filter((t) => t.side === 'LONG');
-  const shortTrades = closedTrades.filter((t) => t.side === 'SHORT');
-  
-  const sideChartData = [
-    {
-      name: 'LONG (Beli)',
-      Winrate: longTrades.length > 0 ? (longTrades.filter((t) => (t.netPnlUsd || 0) > 0).length / longTrades.length) * 100 : 0,
-      Trades: longTrades.length,
-      PnL: longTrades.reduce((acc, t) => acc + (t.netPnlUsd || 0), 0),
-    },
-    {
-      name: 'SHORT (Jual)',
-      Winrate: shortTrades.length > 0 ? (shortTrades.filter((t) => (t.netPnlUsd || 0) > 0).length / shortTrades.length) * 100 : 0,
-      Trades: shortTrades.length,
-      PnL: shortTrades.reduce((acc, t) => acc + (t.netPnlUsd || 0), 0),
-    },
-  ];
+  const FilterAlert = () => (
+    <AnimatePresence>
+      {activeFilter && (
+        <motion.div 
+          initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+          animate={{ opacity: 1, height: 'auto', marginBottom: 16 }}
+          exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+          className="bg-[var(--accent-blue)] text-white px-4 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider overflow-hidden shadow-[3px_3px_0px_0px_var(--bg-dark)] border-2 border-[var(--bg-dark)]"
+        >
+          <div className="flex items-center gap-2">
+            <MousePointerClick className="w-4 h-4" />
+            Active Drill-down: {activeFilter.label}
+          </div>
+          <button onClick={clearSelection} className="hover:text-[var(--bg-base)] transition-colors underline">Clear Filter</button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 
   return (
     <div className="space-y-6">
-      {/* Chart Tabs Navigation */}
-      <div className="flex border-b border-[#2b3139] space-x-2">
-        <button
-          onClick={() => setActiveChartTab('equity')}
-          className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
-            activeChartTab === 'equity'
-              ? 'border-accentCyan text-[#0ecb81] bg-accentCyan/5'
-              : 'border-transparent text-[#929aa5] hover:text-gray-200'
-          }`}
-        >
-          Kurva Ekuitas & DD
-        </button>
-        <button
-          onClick={() => setActiveChartTab('pnl')}
-          className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
-            activeChartTab === 'pnl'
-              ? 'border-accentCyan text-[#0ecb81] bg-accentCyan/5'
-              : 'border-transparent text-[#929aa5] hover:text-gray-200'
-          }`}
-        >
-          Kinerja Setup & Trades
-        </button>
-        <button
-          onClick={() => setActiveChartTab('time')}
-          className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
-            activeChartTab === 'time'
-              ? 'border-accentCyan text-[#0ecb81] bg-accentCyan/5'
-              : 'border-transparent text-[#929aa5] hover:text-gray-200'
-          }`}
-        >
-          Analisis Sisi & Waktu
-        </button>
-        <button
-          onClick={() => setActiveChartTab('excursion')}
-          className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
-            activeChartTab === 'excursion'
-              ? 'border-accentCyan text-[#0ecb81] bg-accentCyan/5'
-              : 'border-transparent text-[#929aa5] hover:text-gray-200'
-          }`}
-        >
-          Excursion (MFE vs MAE)
-        </button>
+      <div className="flex flex-wrap gap-2 pb-2">
+        {(['equity', 'pnl', 'time', 'excursion'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveChartTab(tab)}
+            className={`
+              px-4 py-2 text-[11px] font-bold uppercase tracking-wider transition-all
+              border-2 border-[var(--border-color)] 
+              ${activeChartTab === tab ? 'bg-[var(--bg-dark)] text-white shadow-[3px_3px_0px_0px_var(--accent-blue)]' : 'bg-white text-[var(--text-primary)] hover:bg-[var(--bg-base)] hover:-translate-y-0.5'}
+            `}
+          >
+            {tab === 'equity' && 'Equity & Drawdown'}
+            {tab === 'pnl' && 'Setup & PnL'}
+            {tab === 'time' && 'Time Analysis'}
+            {tab === 'excursion' && 'Excursion (MFE/MAE)'}
+          </button>
+        ))}
       </div>
 
-      {/* RENDER CHOSEN CHART BLOCK */}
-      {activeChartTab === 'equity' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Equity growth curve */}
-          <div className=" rounded-xl p-5 border border-[#2b3139]">
-            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Kurva Pertumbuhan Ekuitas</h4>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={equityData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="equityGlow" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" opacity={0.3} />
-                  <XAxis dataKey="tradeNum" stroke="#4b5563" fontSize={11} label={{ value: 'Jumlah Trade', position: 'insideBottom', offset: -5, fill: '#4b5563' }} />
-                  <YAxis stroke="#4b5563" fontSize={11} tickFormatter={(val) => `$${val.toLocaleString()}`} domain={['dataMin - 100', 'dataMax + 100']} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                    labelFormatter={(label) => `Setelah Trade #${label}`}
-                    formatter={(val: any) => [formatUsd(val), 'Ekuitas']}
-                  />
-                  <Area type="monotone" dataKey="equity" stroke="#06b6d4" strokeWidth={2} fillOpacity={1} fill="url(#equityGlow)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+      <FilterAlert />
 
-          {/* Drawdown chart */}
-          <div className=" rounded-xl p-5 border border-[#2b3139]">
-            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Drawdown Ekuitas (%)</h4>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={equityData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="ddGlow" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.0}/>
-                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0.25}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" opacity={0.3} />
-                  <XAxis dataKey="tradeNum" stroke="#4b5563" fontSize={11} />
-                  <YAxis stroke="#4b5563" fontSize={11} tickFormatter={(val) => formatPercent(val)} domain={[-15, 0]} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                    labelFormatter={(label) => `Setelah Trade #${label}`}
-                    formatter={(val: any) => [formatPercent(val), 'Drawdown']}
-                  />
-                  <Area type="monotone" dataKey="drawdown" stroke="#ef4444" strokeWidth={1.5} fillOpacity={1} fill="url(#ddGlow)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* R-multiple cumulative chart if applicable */}
-          {session.riskMode !== 'NO_R' && (
-            <div className=" rounded-xl p-5 border border-[#2b3139] lg:col-span-2">
-              <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Kurva Akumulasi R-Multiple</h4>
-              <div className="h-[250px]">
+      <AnimatePresence mode="wait">
+        {activeChartTab === 'equity' && (
+          <motion.div key="equity" variants={containerVariants} initial="hidden" animate="show" exit="exit" className="grid grid-cols-12 gap-5 w-full">
+            <motion.div variants={itemVariants} className="col-span-12 lg:col-span-8 bg-white p-5 border-2 border-[var(--border-color)] relative shadow-[4px_4px_0px_0px_var(--shadow-color)]" style={{ '--shadow-color': 'var(--bg-dark)' } as any}>
+              <div className="absolute top-0 left-0 right-0 h-[3px] bg-[var(--accent-blue)]" />
+              <SectionLabel label="Equity Growth Curve" shape="circle" color="blue" className="mt-1 mb-2" />
+              <SmartSummary insights={insights.equityInsights} />
+              <div className="h-[380px] w-full mt-4">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={equityData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" opacity={0.3} />
-                    <XAxis dataKey="tradeNum" stroke="#4b5563" fontSize={11} />
-                    <YAxis stroke="#4b5563" fontSize={11} tickFormatter={(val) => `${val}R`} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                      labelFormatter={(label) => `Setelah Trade #${label}`}
-                      formatter={(val: any) => [formatR(val), 'Kumulatif R']}
+                  <AreaChart syncId="equityGroup" data={sampledEquityData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="equityGlow" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--accent-blue)" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="var(--accent-blue)" stopOpacity={0.0}/>
+                      </linearGradient>
+                    </defs>
+                    {renderGrid()}
+                      <XAxis
+                      dataKey="tradeNum"
+                      tick={{ fill: 'var(--text-muted)', fontSize: 11, dy: 4 }}
+                      tickLine={false}
+                      axisLine={false}
+                      minTickGap={30}
+                      interval="preserveStartEnd"
+                      padding={{ left: 12, right: 12 }}
                     />
-                    <Line type="monotone" dataKey="rCumulative" stroke="#10b981" strokeWidth={2} dot={false} />
-                  </LineChart>
+                    <YAxis
+                      tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                      tickFormatter={(val) => formatCompactUsd(val)}
+                      domain={equityDomain}
+                      tickLine={false}
+                      axisLine={false}
+                      tickCount={5}
+                      padding={{ top: 10, bottom: 10 }}
+                    />
+                    <Tooltip content={<PremiumTooltip formatMode="currency" />} cursor={{ stroke: 'rgba(16,64,192,0.18)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+                    {!hiddenSeries.has('equity') && (
+                      <Area
+                        type="monotone"
+                        dataKey="equity"
+                        name="Running Equity"
+                        stroke="var(--accent-blue)"
+                        strokeWidth={3}
+                        dot={false}
+                        fillOpacity={1}
+                        fill="url(#equityGlow)"
+                        activeDot={{ r: 5, stroke: 'var(--bg-dark)', strokeWidth: 2 }}
+                      />
+                    )}
+                    {sampledEquityData.length > 50 && (
+                      <Brush dataKey="tradeNum" height={20} stroke="var(--bg-dark)" fill="var(--bg-base)" travellerWidth={8} />
+                    )}
+                    {sampledEquityData.length > 0 && (
+                      <ReferenceLine
+                        x={sampledEquityData[sampledEquityData.length - 1].tradeNum}
+                        y={sampledEquityData[sampledEquityData.length - 1].equity}
+                        stroke="rgba(16,64,192,0.35)"
+                        strokeDasharray="4 4"
+                      />
+                    )}
+                    <Legend content={renderLegend} />
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            </motion.div>
 
-      {activeChartTab === 'pnl' && (
-        <div className="space-y-6">
-          {/* PNL per trade bar chart */}
-          <div className=" rounded-xl p-5 border border-[#2b3139]">
-            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Distribusi PnL USD per Trade</h4>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={equityData.filter(d => d.tradeNum > 0)} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" opacity={0.3} />
-                  <XAxis dataKey="tradeNum" stroke="#4b5563" fontSize={11} />
-                  <YAxis stroke="#4b5563" fontSize={11} tickFormatter={(val) => `$${val}`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                    labelFormatter={(label) => `Trade #${label}`}
-                    formatter={(val: any) => [formatUsd(val), 'PnL USD']}
-                  />
-                  <Bar dataKey="pnl">
-                    {equityData.filter(d => d.tradeNum > 0).map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? '#10b981' : '#ef4444'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+            <motion.div variants={itemVariants} className="col-span-12 lg:col-span-4 bg-white p-5 border-2 border-[var(--border-color)] relative shadow-[4px_4px_0px_0px_var(--shadow-color)]" style={{ '--shadow-color': 'var(--bg-dark)' } as any}>
+              <div className="absolute top-0 left-0 right-0 h-[3px] bg-[var(--loss)]" />
+              <SectionLabel label="Drawdown (%)" shape="square" color="red" className="mt-1 mb-5" />
+              <div className="h-[380px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart syncId="equityGroup" data={sampledEquityData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="ddGlow" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--loss)" stopOpacity={0.0}/>
+                        <stop offset="95%" stopColor="var(--loss)" stopOpacity={0.2}/>
+                      </linearGradient>
+                    </defs>
+                    {renderGrid()}
+                    <XAxis dataKey="tradeNum" hide />
+                    <YAxis
+                      tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                      tickFormatter={(val) => `${val}%`}
+                      domain={drawdownDomain}
+                      tickLine={false}
+                      axisLine={false}
+                      orientation="right"
+                      tickCount={5}
+                      padding={{ top: 10, bottom: 10 }}
+                    />
+                    <Tooltip content={<PremiumTooltip formatMode="percent" />} cursor={{ stroke: 'rgba(16,64,192,0.18)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+                    <ReferenceLine y={0} stroke="rgba(18,18,18,0.18)" strokeDasharray="3 3" />
+                    <Area
+                      type="monotone"
+                      dataKey="drawdown"
+                      name="Drawdown"
+                      stroke="var(--loss)"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#ddGlow)"
+                      dot={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
 
-          {/* Setup Tag Performance */}
-          <div className=" rounded-xl p-5 border border-[#2b3139]">
-            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Performa Berdasarkan Setup Tag</h4>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={setupChartData} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" opacity={0.3} />
-                  <XAxis dataKey="name" stroke="#4b5563" fontSize={11} />
-                  <YAxis stroke="#4b5563" fontSize={11} tickFormatter={(val) => `$${val}`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                    formatter={(val: any, name: string) => {
-                      if (name === 'PnL') return [formatUsd(val), 'Total PnL'];
-                      if (name === 'Winrate') return [formatPercent(val), 'Win Rate'];
-                      return [val, name];
-                    }}
-                  />
-                  <Legend />
-                  <Bar dataKey="PnL" name="Total PnL (USD)" fill="#3b82f6" radius={[4, 4, 0, 0]}>
-                    {setupChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.PnL >= 0 ? '#10b981' : '#ef4444'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeChartTab === 'time' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Win/Loss distribution pie */}
-          <div className=" rounded-xl p-5 border border-[#2b3139] flex flex-col justify-between">
-            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Rasio Hasil Trade</h4>
-            <div className="h-[200px] flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={4}
-                    dataKey="value"
+        {activeChartTab === 'pnl' && (
+          <motion.div key="pnl" variants={containerVariants} initial="hidden" animate="show" exit="exit" className="space-y-6">
+            <motion.div variants={itemVariants} className="bg-white p-5 border-2 border-[var(--border-color)] relative shadow-[4px_4px_0px_0px_var(--shadow-color)]" style={{ '--shadow-color': 'var(--bg-dark)' } as any}>
+              <SectionLabel label="PnL Distribution per Trade (Interactive)" shape="square" color="dark" className="mt-1 mb-2" />
+              <SmartSummary insights={insights.setupInsights} />
+              <div className="h-[350px] mt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={sampledEquityData.filter((d) => d.tradeNum > 0)}
+                    margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
+                    barCategoryGap="24%"
+                    barGap={4}
                   >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                    formatter={(val: any) => [val, 'Jumlah Trade']}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex justify-around text-xs text-[#929aa5] mt-2 font-medium">
-              {pieData.map((p) => (
-                <div key={p.name} className="flex items-center space-x-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.color }} />
-                  <span>{p.name}: {p.value} trades</span>
-                </div>
-              ))}
-            </div>
-          </div>
+                    {renderGrid()}
+                    <XAxis
+                      dataKey="tradeNum"
+                      tick={{ fill: 'var(--text-muted)', fontSize: 11, dy: 4 }}
+                      tickLine={false}
+                      axisLine={false}
+                      minTickGap={20}
+                      interval="preserveStartEnd"
+                      padding={{ left: 10, right: 10 }}
+                    />
+                    <YAxis
+                      tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                      tickFormatter={(val) => formatCompactUsd(val)}
+                      tickLine={false}
+                      axisLine={false}
+                      tickCount={5}
+                      padding={{ top: 10, bottom: 10 }}
+                    />
+                    <Tooltip content={<PremiumTooltip formatMode="currency" />} cursor={{ fill: 'rgba(16,64,192,0.08)' }} />
+                    <ReferenceLine y={0} stroke="rgba(18,18,18,0.18)" />
+                    <Bar
+                      dataKey="pnl"
+                      name="Net PnL"
+                      onClick={(data) => {
+                        if (data && data.payload && data.payload.actualTradeNum) {
+                          handleSelection({ kind: 'trade', value: data.payload.actualTradeNum, label: `Trade #${data.payload.actualTradeNum}` });
+                        }
+                      }}
+                      className="cursor-pointer"
+                      radius={[3, 3, 0, 0]}
+                      barSize={14}
+                    >
+                      {sampledEquityData.filter((d) => d.tradeNum > 0).map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? 'var(--profit)' : 'var(--loss)'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
 
-          {/* LONG vs SHORT winrates */}
-          <div className=" rounded-xl p-5 border border-[#2b3139] lg:col-span-2">
-            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Performa Sisi Beli vs Jual</h4>
-            <div className="h-[230px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={sideChartData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" opacity={0.3} />
-                  <XAxis type="number" stroke="#4b5563" fontSize={11} tickFormatter={(val) => `${val}%`} domain={[0, 100]} />
-                  <YAxis dataKey="name" type="category" stroke="#4b5563" fontSize={11} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                    formatter={(val: any, name: string) => {
-                      if (name === 'Winrate') return [formatPercent(val), 'Win Rate'];
-                      if (name === 'PnL') return [formatUsd(val), 'Total PnL'];
-                      return [val, name];
-                    }}
-                  />
-                  <Bar dataKey="Winrate" fill="#06b6d4" name="Win Rate (%)" radius={[0, 4, 4, 0]} barSize={25} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+        {activeChartTab === 'time' && (
+          <motion.div key="time" variants={containerVariants} initial="hidden" animate="show" exit="exit" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <motion.div variants={itemVariants} className="bg-white p-5 border-2 border-[var(--border-color)] relative col-span-1 lg:col-span-2 shadow-[4px_4px_0px_0px_var(--shadow-color)]" style={{ '--shadow-color': 'var(--bg-dark)' } as any}>
+              <SectionLabel label="Performance by Day (Interactive)" shape="diamond" color="yellow" className="mt-1 mb-2" />
+              <SmartSummary insights={insights.timeInsights} />
+              <div className="h-[300px] mt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={timeChartData}
+                    margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
+                    barCategoryGap="24%"
+                    barGap={6}
+                  >
+                    {renderGrid()}
+                    <XAxis
+                      dataKey="dayName"
+                      tick={{ fill: 'var(--text-muted)', fontSize: 11, dy: 4 }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => v.substring(0, 3)}
+                      interval="preserveStartEnd"
+                      padding={{ left: 10, right: 10 }}
+                    />
+                    <YAxis
+                      tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                      tickFormatter={(val) => formatCompactUsd(val)}
+                      tickLine={false}
+                      axisLine={false}
+                      tickCount={5}
+                      padding={{ top: 10, bottom: 10 }}
+                    />
+                    <Tooltip
+                      content={<PremiumTooltip formatMode="currency" />}
+                      cursor={{ fill: 'rgba(16,64,192,0.08)' }}
+                      labelFormatter={(label) => {
+                        const item = timeChartData.find((d) => d.dayName === label);
+                        return item ? `${label} · ${item.tradeCount} trades` : label;
+                      }}
+                    />
+                    <ReferenceLine y={0} stroke="rgba(18,18,18,0.18)" />
+                    <ReferenceLine y={averageDayPnl} stroke="rgba(16,64,192,0.18)" strokeDasharray="4 4" />
+                    <Bar
+                      dataKey="pnl"
+                      name="Total PnL"
+                      onClick={(data) => {
+                        if (data && data.payload) {
+                          handleSelection({ kind: 'day', value: data.payload.dayNameIdr.toLowerCase(), label: data.payload.dayName });
+                        }
+                      }}
+                      className="cursor-pointer"
+                      radius={[3, 3, 0, 0]}
+                      barSize={16}
+                    >
+                      {timeChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? 'var(--profit)' : 'var(--loss)'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
 
-          {/* Day of week performance */}
-          <div className=" rounded-xl p-5 border border-[#2b3139] lg:col-span-2">
-            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Kinerja Berdasarkan Hari Entry</h4>
-            <div className="h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dayChartData} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" opacity={0.3} />
-                  <XAxis dataKey="name" stroke="#4b5563" fontSize={11} />
-                  <YAxis stroke="#4b5563" fontSize={11} tickFormatter={(val) => `$${val}`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                    formatter={(val: any, name: string) => {
-                      if (name === 'PnL') return [formatUsd(val), 'Total PnL'];
-                      if (name === 'Winrate') return [formatPercent(val), 'Win Rate'];
-                      return [val, name];
-                    }}
-                  />
-                  <Bar dataKey="PnL" fill="#10b981" name="PnL USD">
-                    {dayChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.PnL >= 0 ? '#10b981' : '#ef4444'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Hour performance */}
-          <div className=" rounded-xl p-5 border border-[#2b3139]">
-            <h4 className="text-sm font-bold text-[#929aa5] mb-4 uppercase tracking-wider">Volume & PnL Berdasarkan Jam Entry</h4>
-            <div className="h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={hourChartData} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" opacity={0.3} />
-                  <XAxis dataKey="hour" stroke="#4b5563" fontSize={10} />
-                  <YAxis stroke="#4b5563" fontSize={11} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                    formatter={(val: any, name: string) => {
-                      if (name === 'PnL') return [formatUsd(val), 'Total PnL'];
-                      if (name === 'Trades') return [val, 'Jumlah Trade'];
-                      return [val, name];
-                    }}
-                  />
-                  <Bar dataKey="Trades" fill="#3b82f6" name="Trades" radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeChartTab === 'excursion' && (
-        <div className=" rounded-xl p-5 border border-[#2b3139]">
-          <div className="flex justify-between items-center mb-4">
-            <h4 className="text-sm font-bold text-[#929aa5] uppercase tracking-wider">
-              Analisis MFE (Maximum Favorable Excursion) vs MAE (Maximum Adverse Excursion)
-            </h4>
-            <span className="text-xs text-[#707a8a]">
-              * MFE menunjukkan sejauh mana trade floating profit. MAE menunjukkan sejauh mana trade floating loss sebelum exit.
-            </span>
-          </div>
-
-          {/* Scatter Excursions Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-[#2b3139] text-[#929aa5]">
-                  <th className="py-2.5 px-3">Trade #</th>
-                  <th className="py-2.5 px-3">Side</th>
-                  <th className="py-2.5 px-3">PnL USD</th>
-                  <th className="py-2.5 px-3">MFE (Float Profit)</th>
-                  <th className="py-2.5 px-3">MAE (Float Loss)</th>
-                  <th className="py-2.5 px-3">Setup</th>
-                  <th className="py-2.5 px-3">Rasio MFE/MAE</th>
-                </tr>
-              </thead>
-              <tbody>
-                {closedTrades.slice(0, 15).map((t) => {
-                  const mfe = t.favorableExcursionUsd || 0;
-                  const mae = t.adverseExcursionUsd || 0;
-                  const ratio = mae > 0 ? formatNumber((mfe / mae), 2) : '∞';
-
-                  return (
-                    <tr key={t.id} className="border-b border-[#2b3139] hover:bg-[#2b3139]/20">
-                      <td className="py-2.5 px-3 font-semibold">#{t.tradeNumber || '-'}</td>
-                      <td className="py-2.5 px-3">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                          t.side === 'LONG' ? 'bg-[rgba(14,203,129,0.08)] text-[#0ecb81]' : 'bg-orange-500/10 text-orange-400'
-                        }`}>
-                          {t.side}
-                        </span>
-                      </td>
-                      <td className={`py-2.5 px-3 font-medium ${(t.netPnlUsd || 0) >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
-                        {formatUsd(t.netPnlUsd)}
-                      </td>
-                      <td className="py-2.5 px-3 text-[#0ecb81]">{formatUsd(mfe)}</td>
-                      <td className="py-2.5 px-3 text-[#f6465d]">{formatUsd(mae)}</td>
-                      <td className="py-2.5 px-3 text-[#929aa5]">{t.setupTag || '-'}</td>
-                      <td className="py-2.5 px-3 font-semibold text-[#eaecef]">
-                        {ratio === '∞' ? '∞' : `${ratio}x`}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {closedTrades.length > 15 && (
-              <p className="text-center text-[10px] text-[#707a8a] mt-3 italic">
-                Menampilkan 15 trade teratas. Buka tabel di bawah untuk melihat rincian lengkap.
-              </p>
-            )}
-          </div>
-        </div>
-      )}
+        {activeChartTab === 'excursion' && (
+          <motion.div key="excursion" variants={containerVariants} initial="hidden" animate="show" exit="exit" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+             <motion.div variants={itemVariants} className="bg-white p-5 border-2 border-[var(--border-color)] relative col-span-1 lg:col-span-2 shadow-[4px_4px_0px_0px_var(--shadow-color)]" style={{ '--shadow-color': 'var(--bg-dark)' } as any}>
+               <SectionLabel label="Correlation: MFE vs MAE" shape="square" color="dark" className="mb-2" />
+               <div className="text-[var(--text-muted)] text-xs font-bold uppercase mb-6 max-w-2xl">
+                 Scatter plot mapping Maximum Favorable Excursion against Maximum Adverse Excursion. 
+                 Trades in the bottom right represent high execution patience (High MFE, Low MAE).
+               </div>
+               
+               <div className="h-[350px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ScatterChart margin={{ top: 15, right: 18, bottom: 18, left: 18 }}>
+                      {renderGrid()}
+                      <XAxis
+                        type="number"
+                        dataKey="mae"
+                        name="MAE"
+                        unit="$"
+                        tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(v) => formatCompactUsd(v)}
+                        interval="preserveStartEnd"
+                        padding={{ left: 8, right: 8 }}
+                      />
+                      <YAxis
+                        type="number"
+                        dataKey="mfe"
+                        name="MFE"
+                        unit="$"
+                        tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(v) => formatCompactUsd(v)}
+                        interval="preserveStartEnd"
+                        padding={{ top: 10, bottom: 10 }}
+                      />
+                        <ZAxis type="number" dataKey="pnl" name="PnL" range={[30, 80]} />
+                      <Tooltip content={<PremiumTooltip formatMode="currency" />} cursor={{ stroke: 'rgba(16,64,192,0.16)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+                      <ReferenceLine x={medianMae} stroke="rgba(16,64,192,0.16)" strokeDasharray="4 4" />
+                      <ReferenceLine y={medianMfe} stroke="rgba(16,64,192,0.16)" strokeDasharray="4 4" />
+                      <Scatter
+                        name="Trades"
+                        data={scatterData}
+                        fill="var(--bg-dark)"
+                        shape="circle"
+                        fillOpacity={0.85}
+                        line={{ strokeWidth: 0 }}
+                      />
+                    </ScatterChart>
+                  </ResponsiveContainer>
+               </div>
+             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

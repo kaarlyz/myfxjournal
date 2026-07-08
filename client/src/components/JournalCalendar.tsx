@@ -12,6 +12,8 @@ import {
   getTradeTime,
 } from '../utils/calendarStats';
 import { formatPercent, formatPnL } from '../utils/numberUtils';
+import { Button } from './ui/Button';
+import { Badge } from './ui/Badge';
 
 interface JournalCalendarProps {
   mode: 'BACKTEST' | 'LIVE';
@@ -47,17 +49,17 @@ function resultLabel(trade: CalendarTrade) {
 function dayClass(day: CalendarDay) {
   const pnl = day.stats?.totalPnl || 0;
   const hasTrades = !!day.stats?.tradeCount;
-  if (!day.inMonth) return 'bg-[#11151b] border-[#202630] opacity-45';
-  if (!hasTrades) return 'bg-[#181a20] border-[#2b3139] hover:border-[#3a4149]';
-  if (pnl > 0) return 'bg-[rgba(14,203,129,0.09)] border-[rgba(14,203,129,0.26)] hover:border-[#0ecb81]';
-  if (pnl < 0) return 'bg-[rgba(246,70,93,0.09)] border-[rgba(246,70,93,0.26)] hover:border-[#f6465d]';
-  return 'bg-[#1e2329] border-[#3a4149] hover:border-[#707a8a]';
+  if (!day.inMonth) return 'bg-[#F0F0F0] border-2 border-dashed border-[#121212]/20 opacity-50';
+  if (!hasTrades) return 'bg-white border-2 border-[#121212] hover:bg-[#F0F0F0] hover:shadow-[3px_3px_0px_0px_#121212] hover:-translate-y-0.5 hover:-translate-x-0.5';
+  if (pnl > 0) return 'bg-[var(--profit-dim)] border-2 border-[var(--profit)] shadow-[2px_2px_0px_0px_var(--profit)] hover:shadow-[4px_4px_0px_0px_var(--profit)] hover:-translate-y-0.5 hover:-translate-x-0.5';
+  if (pnl < 0) return 'bg-[var(--loss-dim)] border-2 border-[var(--loss)] shadow-[2px_2px_0px_0px_var(--loss)] hover:shadow-[4px_4px_0px_0px_var(--loss)] hover:-translate-y-0.5 hover:-translate-x-0.5';
+  return 'bg-white border-2 border-[#121212] hover:bg-[#E0E0E0]';
 }
 
 function pnlClass(value: number) {
-  if (value > 0) return 'text-[#0ecb81]';
-  if (value < 0) return 'text-[#f6465d]';
-  return 'text-[#929aa5]';
+  if (value > 0) return 'text-[var(--profit)]';
+  if (value < 0) return 'text-[var(--loss)]';
+  return 'text-[#717182]';
 }
 
 function maxLossStreak(trades: CalendarTrade[]) {
@@ -250,110 +252,122 @@ export default function JournalCalendar({
   };
 
   return (
-    <section className="bn-card border border-[#2b3139] rounded-xl p-4 md:p-6 space-y-5">
-      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+    <section className="bg-white border-2 border-[#121212] p-4 md:p-6 shadow-[6px_6px_0px_0px_#121212] space-y-6 relative overflow-hidden">
+      <div className="absolute top-0 right-0 w-64 h-64 bg-[#1040C0] opacity-[0.03] rounded-full pointer-events-none transform translate-x-1/3 -translate-y-1/3" />
+      
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
         <div>
-          <div className="flex items-center gap-2">
-            <CalendarDays className="w-5 h-5 text-[#fcd535]" />
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider">{title}</h3>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-[#2b3139] text-[#929aa5]">{mode}</span>
+          <div className="flex items-center gap-3">
+            <h3 className="text-xl font-extrabold text-[#121212] uppercase tracking-wider font-display flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-[#1040C0]" />
+              {title}
+            </h3>
+            <Badge variant="blue">{mode}</Badge>
           </div>
-          <p className="text-xs text-[#707a8a] mt-1">
+          <p className="text-xs text-[#717182] mt-1 font-bold">
             Daily trading performance by realized PnL and trade count.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button onClick={toggleCollapsed} className="px-3 py-2 rounded-lg bg-[#fcd535] hover:bg-[#f0b90b] text-[#181a20] text-xs font-bold">
+          <Button variant="secondary" onClick={toggleCollapsed} size="sm">
             {collapsed ? 'Show Calendar' : 'Hide Calendar'}
-          </button>
-          {!collapsed && <button onClick={() => moveMonth(-1)} className="p-2 rounded-lg bg-[#2b3139] hover:bg-[#363e47] text-[#eaecef]">
-            <ChevronLeft className="w-4 h-4" />
-          </button>}
-          <div className="min-w-40 text-center px-3 py-2 rounded-lg border border-[#2b3139] bg-[#181a20] text-sm font-bold text-white">
-            {monthFormatter.format(visibleMonth)}
-          </div>
-          {!collapsed && <button onClick={() => moveMonth(1)} className="p-2 rounded-lg bg-[#2b3139] hover:bg-[#363e47] text-[#eaecef]">
-            <ChevronRight className="w-4 h-4" />
-          </button>}
-          {!collapsed && <button onClick={() => setVisibleMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))} className="px-3 py-2 rounded-lg bg-[#2b3139] hover:bg-[#363e47] text-[#eaecef] text-xs font-bold">
-            Today
-          </button>}
+          </Button>
+          {!collapsed && (
+            <div className="flex items-center bg-[#F0F0F0] border-2 border-[#121212] p-1 rounded-sm shadow-[2px_2px_0px_0px_#121212]">
+              <button onClick={() => moveMonth(-1)} className="p-1 hover:bg-[#E0E0E0] text-[#121212] transition-colors rounded-sm">
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <div className="min-w-[120px] text-center text-[13px] font-extrabold text-[#121212] uppercase tracking-wider">
+                {monthFormatter.format(visibleMonth)}
+              </div>
+              <button onClick={() => moveMonth(1)} className="p-1 hover:bg-[#E0E0E0] text-[#121212] transition-colors rounded-sm">
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          {!collapsed && (
+            <Button variant="yellow" onClick={() => setVisibleMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))} size="sm">
+              Today
+            </Button>
+          )}
         </div>
       </div>
 
       {!hideSummaryCards && (
-        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2 text-xs">
-          <div className="rounded-lg bg-[#181a20] border border-[#2b3139] p-3">
-            <div className="text-[#707a8a]">Month PnL</div>
-            <div className={`text-base font-bold ${pnlClass(monthPnl)}`}>{formatPnL(monthPnl, currency)}</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 text-xs relative z-10">
+          <div className="bg-white border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+            <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Month PnL</div>
+            <div className={`text-base font-extrabold font-number ${pnlClass(monthPnl)}`}>{formatPnL(monthPnl, currency)}</div>
           </div>
-          <div className="rounded-lg bg-[#181a20] border border-[#2b3139] p-3">
-            <div className="text-[#707a8a]">Profitable Days</div>
-            <div className="text-base font-bold text-[#0ecb81]">{profitableDays}</div>
+          <div className="bg-white border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+            <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Profitable Days</div>
+            <div className="text-base font-extrabold text-[var(--profit)] font-number">{profitableDays}</div>
           </div>
-          <div className="rounded-lg bg-[#181a20] border border-[#2b3139] p-3">
-            <div className="text-[#707a8a]">Losing Days</div>
-            <div className="text-base font-bold text-[#f6465d]">{losingDays}</div>
+          <div className="bg-white border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+            <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Losing Days</div>
+            <div className="text-base font-extrabold text-[var(--loss)] font-number">{losingDays}</div>
           </div>
-          <div className="rounded-lg bg-[#181a20] border border-[#2b3139] p-3">
-            <div className="text-[#707a8a]">No-Trade Days</div>
-            <div className="text-base font-bold text-[#929aa5]">{noTradeDays}</div>
+          <div className="bg-white border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+            <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">No-Trade Days</div>
+            <div className="text-base font-extrabold text-[#717182] font-number">{noTradeDays}</div>
           </div>
-          <div className="rounded-lg bg-[#181a20] border border-[#2b3139] p-3">
-            <div className="text-[#707a8a]">Best Day</div>
-            <div className="text-base font-bold text-[#0ecb81]">{bestDay ? formatPnL(bestDay.totalPnl, currency) : '-'}</div>
+          <div className="bg-white border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+            <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Best Day</div>
+            <div className="text-base font-extrabold text-[var(--profit)] font-number">{bestDay ? formatPnL(bestDay.totalPnl, currency) : '-'}</div>
           </div>
-          <div className="rounded-lg bg-[#181a20] border border-[#2b3139] p-3">
-            <div className="text-[#707a8a]">Worst Day</div>
-            <div className="text-base font-bold text-[#f6465d]">{worstDay ? formatPnL(worstDay.totalPnl, currency) : '-'}</div>
+          <div className="bg-white border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+            <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Worst Day</div>
+            <div className="text-base font-extrabold text-[var(--loss)] font-number">{worstDay ? formatPnL(worstDay.totalPnl, currency) : '-'}</div>
           </div>
-          <div className="rounded-lg bg-[#181a20] border border-[#2b3139] p-3">
-            <div className="text-[#707a8a]">Avg Daily PnL</div>
-            <div className={`text-base font-bold ${pnlClass(averageDailyPnl)}`}>{formatPnL(averageDailyPnl, currency)}</div>
+          <div className="bg-white border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+            <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Avg Daily PnL</div>
+            <div className={`text-base font-extrabold font-number ${pnlClass(averageDailyPnl)}`}>{formatPnL(averageDailyPnl, currency)}</div>
           </div>
         </div>
       )}
 
       {collapsed && (
-        <div className="rounded-xl border border-[#2b3139] bg-[#181a20] p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="bg-[#F0F0F0] border-2 border-[#121212] p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-[3px_3px_0px_0px_#121212]">
           <div>
-            <div className="text-sm font-bold text-white">{monthFormatter.format(visibleMonth)} summary</div>
-            <div className="text-xs text-[#707a8a] mt-1">
-              PnL <span className={pnlClass(monthPnl)}>{formatPnL(monthPnl, currency)}</span>
-              <span className="mx-2">•</span>
-              Profit days <span className="text-[#0ecb81]">{profitableDays}</span>
-              <span className="mx-2">•</span>
-              Loss days <span className="text-[#f6465d]">{losingDays}</span>
-              <span className="mx-2">•</span>
-              Best {bestDay ? <span className="text-[#0ecb81]">{formatPnL(bestDay.totalPnl, currency)}</span> : '-'}
-              <span className="mx-2">•</span>
-              Worst {worstDay ? <span className="text-[#f6465d]">{formatPnL(worstDay.totalPnl, currency)}</span> : '-'}
+            <div className="text-sm font-extrabold text-[#121212] uppercase tracking-widest">{monthFormatter.format(visibleMonth)} SUMMARY</div>
+            <div className="text-xs font-bold text-[#717182] mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>PnL <span className={pnlClass(monthPnl)}>{formatPnL(monthPnl, currency)}</span></span>
+              <span>•</span>
+              <span>Profit days <span className="text-[var(--profit)]">{profitableDays}</span></span>
+              <span>•</span>
+              <span>Loss days <span className="text-[var(--loss)]">{losingDays}</span></span>
+              <span>•</span>
+              <span>Best {bestDay ? <span className="text-[var(--profit)]">{formatPnL(bestDay.totalPnl, currency)}</span> : '-'}</span>
+              <span>•</span>
+              <span>Worst {worstDay ? <span className="text-[var(--loss)]">{formatPnL(worstDay.totalPnl, currency)}</span> : '-'}</span>
             </div>
           </div>
-          <button onClick={toggleCollapsed} className="px-4 py-2 rounded-lg bg-[#fcd535] hover:bg-[#f0b90b] text-[#181a20] text-xs font-bold">
+          <Button variant="blue" onClick={toggleCollapsed}>
             Show Calendar
-          </button>
+          </Button>
         </div>
       )}
 
-      {!collapsed && !hideLegend && <div className="flex flex-wrap items-center gap-3 text-[10px] text-[#929aa5]">
-        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#0ecb81]" /> Green = profit day</span>
-        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#f6465d]" /> Red = loss day</span>
-        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#707a8a]" /> Gray = break-even/no trades</span>
-        <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded border border-[#fcd535]" /> Yellow border = today</span>
-        {breakEvenDays > 0 && <span>{breakEvenDays} break-even days</span>}
-      </div>}
+      {!collapsed && !hideLegend && (
+        <div className="flex flex-wrap items-center gap-4 text-[10px] font-bold uppercase tracking-wider text-[#717182]">
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-[var(--profit)] border border-[#121212]" /> Profit day</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-[var(--loss)] border border-[#121212]" /> Loss day</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-white border-2 border-[#121212]" /> Break-even / No trades</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-full border-2 border-dashed border-[#121212]" /> Today</span>
+          {breakEvenDays > 0 && <span className="ml-auto text-[#121212] bg-[#F0F0F0] px-2 py-0.5">{breakEvenDays} break-even days</span>}
+        </div>
+      )}
 
       {!collapsed && (safeTrades.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-[#3a4149] bg-[#181a20] p-8 text-center text-sm text-[#707a8a]">
+        <div className="border-2 border-dashed border-[#121212]/30 bg-[#F0F0F0] p-10 text-center text-sm font-bold text-[#717182]">
           No trades available for calendar yet.
         </div>
       ) : (
         <div className="space-y-2">
           <div className="grid grid-cols-7 gap-2">
             {weekdays.map(day => (
-              <div key={day} className="text-center text-[10px] font-bold uppercase tracking-wider text-[#707a8a] py-1">
+              <div key={day} className="text-center text-[10px] font-extrabold uppercase tracking-widest text-[#121212] py-2 bg-[#F0F0F0] border-2 border-[#121212]">
                 {day}
               </div>
             ))}
@@ -368,14 +382,14 @@ export default function JournalCalendar({
                   key={day.dateKey}
                   onClick={() => openDay(day)}
                   title={stats ? `${day.dateKey}: ${formatPnL(pnl, currency)} / ${stats.tradeCount} trades` : day.dateKey}
-                  className={`relative min-h-[92px] ${compact ? 'md:min-h-[72px]' : 'md:min-h-[116px]'} rounded-xl border p-2 text-left transition ${dayClass(day)} ${day.isToday ? 'ring-1 ring-[#fcd535]' : ''}`}
+                  className={`relative min-h-[92px] ${compact ? 'md:min-h-[72px]' : 'md:min-h-[116px]'} p-2 text-left transition-all ${dayClass(day)} ${day.isToday ? 'ring-2 ring-offset-2 ring-dashed ring-[#121212]' : ''}`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className={`text-xs font-bold ${day.inMonth ? 'text-[#eaecef]' : 'text-[#707a8a]'}`}>
+                  <div className="flex items-start justify-between gap-1">
+                    <span className={`text-[13px] font-extrabold ${day.inMonth ? 'text-[#121212]' : 'text-[#717182]'}`}>
                       {day.date.getDate()}
                     </span>
                     {stats?.openTrades ? (
-                      <span className="rounded bg-[#fcd535] px-1.5 py-0.5 text-[9px] font-bold text-[#181a20]">
+                      <span className="bg-[#1040C0] px-1 py-0.5 text-[9px] font-bold text-white uppercase tracking-wider shadow-[1px_1px_0px_0px_#121212]">
                         {stats.openTrades} open
                       </span>
                     ) : null}
@@ -383,29 +397,23 @@ export default function JournalCalendar({
 
                   {stats ? (
                     <div className="mt-2 space-y-1">
-                      <div className={`text-xs md:text-sm font-bold truncate ${pnlClass(pnl)}`}>
+                      <div className={`text-xs md:text-sm font-extrabold truncate font-number ${pnlClass(pnl)}`}>
                         {formatPnL(pnl, currency)}
                       </div>
-                      <div className="text-[10px] text-[#929aa5] truncate">
-                        {stats.tradeCount} trades · W{stats.wins}/L{stats.losses}
+                      <div className="text-[10px] font-bold text-[#717182] truncate">
+                        {stats.tradeCount} trades · <span className="text-[var(--profit)]">W{stats.wins}</span>/<span className="text-[var(--loss)]">L{stats.losses}</span>
                       </div>
-                      <div className="text-[10px] text-[#707a8a] truncate">
+                      <div className="text-[10px] font-bold text-[#717182] truncate">
                         WR {formatPercent(stats.winrate)}
                       </div>
                       {!compact && (
-                        <div className="text-[10px] text-[#707a8a] truncate">
-                          Best {stats.bestTrade ? formatPnL(getTradePnl(stats.bestTrade), currency) : '-'}
+                        <div className="text-[10px] font-bold text-[#717182] truncate">
+                          Best {stats.bestTrade ? <span className="text-[var(--profit)]">{formatPnL(getTradePnl(stats.bestTrade), currency)}</span> : '-'}
                         </div>
                       )}
-                      <div className="absolute bottom-2 left-2 right-2 h-1 rounded-full bg-black/30 overflow-hidden">
-                        <div
-                          className={`h-full ${pnl > 0 ? 'bg-[#0ecb81]' : pnl < 0 ? 'bg-[#f6465d]' : 'bg-[#707a8a]'}`}
-                          style={{ width: `${intensity}%` }}
-                        />
-                      </div>
                     </div>
                   ) : (
-                    <div className="mt-6 text-[10px] text-[#3a4149]">No trades</div>
+                    <div className="mt-4 text-[9px] font-bold uppercase tracking-widest text-[#121212]/30">No trades</div>
                   )}
                 </button>
               );
@@ -415,134 +423,161 @@ export default function JournalCalendar({
       ))}
 
       {selectedDay && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 p-3 md:p-5">
-          <div className="w-full max-w-4xl max-h-[94vh] overflow-hidden rounded-xl border border-[#2b3139] bg-[#181a20] shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-[#2b3139] p-5">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-[#121212]/80 backdrop-blur-sm" onClick={() => setSelectedDay(null)} />
+          
+          <div className="relative w-full max-w-5xl max-h-[94vh] bg-white border-4 border-[#121212] flex flex-col shadow-[12px_12px_0px_0px_#121212] animate-fade-in">
+            <div className="absolute top-0 left-0 right-0 h-[4px] bg-[#F0C020]" />
+            
+            <div className="flex items-center justify-between gap-4 border-b-4 border-[#121212] p-6 bg-[#F0F0F0]">
               <div>
-                <h3 className="text-lg font-bold text-white">
-                  Daily Journal - {fullDateFormatter.format(selectedDay.date)}
+                <h3 className="text-2xl font-extrabold text-[#121212] uppercase tracking-wider font-display">
+                  Daily Journal
                 </h3>
-                <p className="text-xs text-[#707a8a] mt-1">
-                  {selectedDay.stats ? `${selectedDay.stats.tradeCount} trades reviewed for this day.` : 'No trades recorded for this day.'}
+                <p className="text-sm font-bold text-[#717182] mt-1">
+                  {fullDateFormatter.format(selectedDay.date)} • {selectedDay.stats ? `${selectedDay.stats.tradeCount} trades reviewed.` : 'No trades recorded.'}
                 </p>
               </div>
-              <button onClick={() => setSelectedDay(null)} className="rounded-lg p-2 text-[#707a8a] hover:bg-[#2b3139] hover:text-white">
-                <X className="w-5 h-5" />
+              <button 
+                onClick={() => setSelectedDay(null)} 
+                className="w-10 h-10 border-2 border-[#121212] bg-white flex items-center justify-center text-[#121212] hover:bg-[#E0E0E0] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+              >
+                <X className="w-5 h-5 font-bold" strokeWidth={3} />
               </button>
             </div>
 
-            <div className="max-h-[calc(94vh-88px)] overflow-y-auto p-4 md:p-5 space-y-5">
-              <div className="rounded-xl border border-[#2b3139] bg-[#11151b] p-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Daily Note Section */}
+              <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212] space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-bold text-white">Daily Note</div>
-                    <div className="text-[10px] text-[#707a8a]">
+                    <div className="text-[11px] font-bold text-[#121212] uppercase tracking-wider">Catatan Harian</div>
+                    <div className="text-[10px] text-[#717182] font-semibold mt-1">
                       {selectedDay.dateKey}
-                      {noteLastSavedAt ? ` • Saved ${new Date(noteLastSavedAt).toLocaleString()}` : ''}
+                      {noteLastSavedAt ? ` • Tersimpan: ${new Date(noteLastSavedAt).toLocaleString()}` : ''}
                     </div>
                   </div>
-                  {contextType && contextId ? (
-                    <button
+                  {contextType && contextId && (
+                    <Button
+                      variant="yellow"
                       onClick={saveDailyNote}
                       disabled={noteSaving}
-                      className="px-3 py-2 rounded-lg bg-[#fcd535] hover:bg-[#f0b90b] text-[#181a20] text-xs font-bold disabled:opacity-60"
+                      isLoading={noteSaving}
                     >
-                      {noteSaving ? 'Saving...' : 'Save Note'}
-                    </button>
-                  ) : null}
+                      Simpan Catatan
+                    </Button>
+                  )}
                 </div>
+                
                 {contextType && contextId ? (
                   <>
                     <textarea
                       value={dailyNote}
                       onChange={(e) => setDailyNote(e.target.value)}
-                      rows={4}
-                      className="w-full rounded-lg border border-[#2b3139] bg-[#181a20] px-3 py-2 text-sm text-white outline-none focus:border-[#fcd535]"
-                      placeholder="Write the reason, lesson, or market context for this day..."
+                      rows={3}
+                      className="w-full bg-white border-2 border-[#121212] focus:shadow-[4px_4px_0px_0px_#F0C020] outline-none p-3 text-[13px] text-[#121212] font-semibold leading-relaxed resize-none transition-all font-[Outfit]"
+                      placeholder="Tuliskan evaluasi, kondisi psikologi, atau konteks market untuk hari ini..."
                     />
-                    {!noteLoaded && <div className="text-[10px] text-[#707a8a]">Loading note...</div>}
-                    {noteError && <div className="text-[10px] text-[#f6465d]">{noteError}</div>}
+                    {!noteLoaded && <div className="text-[10px] font-bold text-[#717182] uppercase animate-pulse">Memuat catatan...</div>}
+                    {noteError && <div className="text-[10px] font-bold text-[var(--loss)] uppercase bg-[var(--loss-dim)] p-2">{noteError}</div>}
                   </>
                 ) : (
-                  <div className="text-xs text-[#707a8a]">Notes require a session or account context.</div>
+                  <div className="text-xs font-bold text-[#717182] p-4 bg-[#F0F0F0] border-2 border-dashed border-[#121212]/20">
+                    Fitur catatan memerlukan konteks sesi atau akun.
+                  </div>
                 )}
               </div>
 
               {selectedDay.stats ? (
                 <>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    <div className="rounded-lg border border-[#2b3139] bg-[#11151b] p-3">
-                      <div className="text-[10px] text-[#707a8a]">Total PnL</div>
-                      <div className={`text-base font-bold ${pnlClass(selectedDay.stats.totalPnl)}`}>{formatPnL(selectedDay.stats.totalPnl, currency)}</div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div className="bg-[#F0F0F0] border-2 border-[#121212] p-4">
+                      <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Total PnL</div>
+                      <div className={`text-xl font-extrabold font-number ${pnlClass(selectedDay.stats.totalPnl)}`}>{formatPnL(selectedDay.stats.totalPnl, currency)}</div>
                     </div>
-                    <div className="rounded-lg border border-[#2b3139] bg-[#11151b] p-3">
-                      <div className="text-[10px] text-[#707a8a]">Trades</div>
-                      <div className="text-base font-bold text-white">{selectedDay.stats.tradeCount}</div>
+                    <div className="bg-[#F0F0F0] border-2 border-[#121212] p-4">
+                      <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Trades</div>
+                      <div className="text-xl font-extrabold text-[#121212] font-number">{selectedDay.stats.tradeCount}</div>
                     </div>
-                    <div className="rounded-lg border border-[#2b3139] bg-[#11151b] p-3">
-                      <div className="text-[10px] text-[#707a8a]">Winrate</div>
-                      <div className="text-base font-bold text-white">{formatPercent(selectedDay.stats.winrate)}</div>
+                    <div className="bg-[#F0F0F0] border-2 border-[#121212] p-4">
+                      <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Winrate</div>
+                      <div className="text-xl font-extrabold text-[#121212] font-number">{formatPercent(selectedDay.stats.winrate)}</div>
                     </div>
-                    <div className="rounded-lg border border-[#2b3139] bg-[#11151b] p-3">
-                      <div className="text-[10px] text-[#707a8a]">Best Trade</div>
-                      <div className="text-base font-bold text-[#0ecb81]">{selectedDay.stats.bestTrade ? formatPnL(getTradePnl(selectedDay.stats.bestTrade), currency) : '-'}</div>
+                    <div className="bg-[#F0F0F0] border-2 border-[#121212] p-4">
+                      <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Best Trade</div>
+                      <div className="text-xl font-extrabold text-[var(--profit)] font-number">{selectedDay.stats.bestTrade ? formatPnL(getTradePnl(selectedDay.stats.bestTrade), currency) : '-'}</div>
                     </div>
-                    <div className="rounded-lg border border-[#2b3139] bg-[#11151b] p-3">
-                      <div className="text-[10px] text-[#707a8a]">Worst Trade</div>
-                      <div className="text-base font-bold text-[#f6465d]">{selectedDay.stats.worstTrade ? formatPnL(getTradePnl(selectedDay.stats.worstTrade), currency) : '-'}</div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-[#2b3139] bg-[#11151b] p-3 text-xs text-[#929aa5]">
-                    <div>Symbols: <span className="text-[#eaecef]">{selectedDay.stats.symbols.join(', ') || '-'}</span></div>
-                    <div className="mt-1">Wins/Losses/BE: <span className="text-[#eaecef]">{selectedDay.stats.wins}/{selectedDay.stats.losses}/{selectedDay.stats.breakEven}</span></div>
-                    <div className="mt-1">Max loss streak: <span className="text-[#eaecef]">{maxLossStreak(selectedDay.stats.trades)}</span></div>
-                    <div className="mt-3 rounded-lg border border-[#2b3139] bg-[#181a20] p-3 text-[#eaecef]">
-                      {dailyComment(selectedDay.stats)}
+                    <div className="bg-[#F0F0F0] border-2 border-[#121212] p-4">
+                      <div className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mb-1">Worst Trade</div>
+                      <div className="text-xl font-extrabold text-[var(--loss)] font-number">{selectedDay.stats.worstTrade ? formatPnL(getTradePnl(selectedDay.stats.worstTrade), currency) : '-'}</div>
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto rounded-lg border border-[#2b3139]">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-[#11151b] text-[#707a8a] uppercase">
-                        <tr>
-                          <th className="px-3 py-3">Time</th>
-                          <th className="px-3 py-3">Symbol</th>
-                          <th className="px-3 py-3">Side</th>
-                          <th className="px-3 py-3">Result</th>
-                          <th className="px-3 py-3">PnL</th>
-                          <th className="px-3 py-3">R/R</th>
-                          <th className="px-3 py-3">Notes</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#2b3139]">
-                        {selectedDay.stats.trades.map((trade, index) => {
-                          const rawTime = getTradeTime(trade, mode);
-                          const parsedTime = rawTime ? new Date(rawTime) : null;
-                          const time = parsedTime && !Number.isNaN(parsedTime.getTime()) ? timeFormatter.format(parsedTime) : '-';
-                          const pnl = getTradePnl(trade);
-                          return (
-                            <tr key={trade.id || index} className="text-[#eaecef]">
-                              <td className="px-3 py-3 text-[#929aa5]">{time}</td>
-                              <td className="px-3 py-3 font-semibold">{trade.symbol || '-'}</td>
-                              <td className="px-3 py-3">{trade.side || '-'}</td>
-                              <td className="px-3 py-3">{resultLabel(trade)}</td>
-                              <td className={`px-3 py-3 font-bold ${pnlClass(pnl)}`}>{formatPnL(pnl, currency)}</td>
-                              <td className="px-3 py-3">{trade.rMultiple ?? trade.rr ?? '-'}</td>
-                              <td className="px-3 py-3 max-w-xs truncate text-[#929aa5]" title={trade.notes || ''}>{trade.notes || '-'}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                  <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212] text-[13px] text-[#121212] font-semibold font-[Outfit]">
+                    <div className="flex items-center justify-between pb-2 border-b-2 border-dashed border-[#121212]/20">
+                      <span className="text-[#717182] uppercase tracking-wider text-[10px] font-bold">Symbols Traded</span>
+                      <span>{selectedDay.stats.symbols.join(', ') || '-'}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-2 border-b-2 border-dashed border-[#121212]/20">
+                      <span className="text-[#717182] uppercase tracking-wider text-[10px] font-bold">Wins / Losses / BE</span>
+                      <span><span className="text-[var(--profit)] font-extrabold">{selectedDay.stats.wins}</span> / <span className="text-[var(--loss)] font-extrabold">{selectedDay.stats.losses}</span> / {selectedDay.stats.breakEven}</span>
+                    </div>
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-[#717182] uppercase tracking-wider text-[10px] font-bold">Max Loss Streak</span>
+                      <span className="font-extrabold text-[var(--loss)]">{maxLossStreak(selectedDay.stats.trades)}</span>
+                    </div>
+                    
+                    <div className="mt-4 border-2 border-[#121212] bg-[#F0F0F0] p-4 font-bold text-[#1040C0] flex items-start gap-3">
+                      <div className="bg-white border-2 border-[#121212] px-2 py-1 text-[10px] uppercase tracking-widest text-[#121212]">Insight</div>
+                      <div>{dailyComment(selectedDay.stats)}</div>
+                    </div>
+                  </div>
+
+                  {/* Trades Table inside Modal */}
+                  <div className="bg-white border-2 border-[#121212] shadow-[6px_6px_0px_0px_#121212] overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-[13px] font-[Outfit]">
+                        <thead>
+                          <tr className="bg-[#121212] text-white">
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">Time</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">Symbol</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">Side</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">Result</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">PnL</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">R/R</th>
+                            <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y-2 divide-[#121212]/10">
+                          {selectedDay.stats.trades.map((trade, index) => {
+                            const rawTime = getTradeTime(trade, mode);
+                            const parsedTime = rawTime ? new Date(rawTime) : null;
+                            const time = parsedTime && !Number.isNaN(parsedTime.getTime()) ? timeFormatter.format(parsedTime) : '-';
+                            const pnl = getTradePnl(trade);
+                            return (
+                              <tr key={trade.id || index} className="hover:bg-[#F0F0F0] transition-colors">
+                                <td className="px-4 py-3 font-bold text-[#717182]">{time}</td>
+                                <td className="px-4 py-3 font-extrabold text-[#121212] font-display">{trade.symbol || '-'}</td>
+                                <td className="px-4 py-3">
+                                  <Badge variant={trade.side === 'LONG' ? 'profit' : 'loss'}>{trade.side}</Badge>
+                                </td>
+                                <td className="px-4 py-3 font-extrabold">{resultLabel(trade)}</td>
+                                <td className={`px-4 py-3 font-extrabold font-number ${pnlClass(pnl)}`}>{formatPnL(pnl, currency)}</td>
+                                <td className="px-4 py-3 font-bold font-number">{trade.rMultiple ?? trade.rr ?? '-'}</td>
+                                <td className="px-4 py-3 max-w-xs truncate text-[#717182] font-medium" title={trade.notes || ''}>{trade.notes || '-'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </>
               ) : (
-                <div className="rounded-xl border border-dashed border-[#3a4149] p-8 text-center text-sm text-[#707a8a]">
+                <div className="border-2 border-dashed border-[#121212]/20 bg-[#F0F0F0] p-10 text-center text-sm font-bold text-[#717182] uppercase tracking-widest">
                   No trades on this day.
                 </div>
               )}
-
             </div>
           </div>
         </div>

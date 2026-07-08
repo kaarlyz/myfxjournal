@@ -9,6 +9,9 @@ import {
   RefreshCw 
 } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
+import { Input, Select } from '../components/ui/Input';
+import { Button } from '../components/ui/Button';
+import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
 
 export default function Settings() {
   const { 
@@ -97,142 +100,134 @@ export default function Settings() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Pengaturan Aplikasi</h1>
-        <p className="text-xs text-[#707a8a] mt-1">
-          Atur parameter default untuk backtest journal Anda, termasuk kurs USD/IDR dan mode risk management.
-        </p>
-      </div>
+    <div className="max-w-5xl mx-auto space-y-6">
+      <PageHeader 
+        label="Configuration"
+        title="Pengaturan Aplikasi"
+        subtitle="Atur parameter default untuk backtest journal Anda, termasuk kurs USD/IDR dan mode risk management."
+        labelColor="dark"
+      />
 
       {message && (
-        <div className={`rounded-xl p-4 flex items-start space-x-3 text-xs font-semibold ${
+        <div className={`p-4 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] flex items-center gap-3 mb-6 ${
           message.type === 'success' 
-            ? 'bg-[rgba(14,203,129,0.08)] border border-accentEmerald/20 text-[#0ecb81]' 
-            : 'bg-[rgba(246,70,93,0.08)] border border-[rgba(246,70,93,0.2)] text-[#f6465d]'
+            ? 'bg-[var(--profit-dim)] text-[var(--profit)]' 
+            : 'bg-[var(--loss-dim)] text-[var(--loss)]'
         }`}>
-          {message.type === 'success' ? <CheckCircle className="w-5 h-5 shrink-0" /> : <AlertTriangle className="w-5 h-5 shrink-0" />}
-          <span>{message.text}</span>
+          {message.type === 'success' ? <CheckCircle className="w-6 h-6 shrink-0" strokeWidth={2.5} /> : <AlertTriangle className="w-6 h-6 shrink-0" strokeWidth={2.5} />}
+          <span className="text-[13px] font-extrabold uppercase tracking-widest">{message.text}</span>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Columns: Config Form */}
-        <div className="lg:col-span-2 space-y-6">
-          <form onSubmit={handleSave} className=" rounded-xl border border-[#2b3139] p-6 space-y-5">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-1.5">
-              <SettingsIcon className="w-4 h-4 text-[#0ecb81]" />
-              <span>General Defaults</span>
-            </h3>
+        <div className="lg:col-span-2 space-y-8">
+          <form onSubmit={handleSave} className="bg-white border-4 border-[#121212] p-6 shadow-[8px_8px_0px_0px_#121212] relative">
+            <div className="absolute top-0 left-0 right-0 h-3 bg-[#1040C0]" />
+            <SectionLabel label="General Defaults" shape="circle" color="blue" className="mb-6 mt-2" />
 
-            {/* USD IDR Exchange Rate */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-[#707a8a] uppercase block">Kurs USD ke IDR Manual</label>
-              <input
-                type="number"
-                value={usdIdrRate}
-                onChange={(e) => setUsdIdrRate(e.target.value)}
-                className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
-              />
-              <p className="text-[10px] text-[#707a8a]">
-                Nilai ini akan digunakan saat menghitung PnL dalam mata uang Rupiah (IDR).
-              </p>
-            </div>
+            <div className="space-y-6 bg-[#F0F0F0] p-5 border-2 border-[#121212]">
+              {/* USD IDR Exchange Rate */}
+              <div>
+                <Input
+                  label="Kurs USD ke IDR Manual"
+                  type="number"
+                  value={usdIdrRate}
+                  onChange={(e) => setUsdIdrRate(e.target.value)}
+                  hint="Nilai ini akan digunakan saat menghitung PnL dalam mata uang Rupiah (IDR)."
+                />
+              </div>
 
-            {/* Risk Mode and Value */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-[#707a8a] uppercase block">Model Resiko Bawaan (R)</label>
-                <select
+              {/* Risk Mode and Value */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Select
+                  label="Model Resiko Bawaan (R)"
                   value={defaultRiskMode}
                   onChange={(e: any) => setDefaultRiskMode(e.target.value)}
-                  className="w-full bg-[#1e2329] border border-[#2b3139] outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold"
                 >
                   <option value="FIXED_USD">Fixed USD per Trade</option>
                   <option value="FIXED_PCT">Fixed % dari Initial Balance</option>
                   <option value="NO_R">No R Calculation</option>
-                </select>
-              </div>
+                </Select>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-[#707a8a] uppercase block">
-                  Nilai Resiko Bawaan ({defaultRiskMode === 'FIXED_USD' ? 'USD' : '%'})
-                </label>
-                <input
+                <Input
+                  label={`Nilai Resiko Bawaan (${defaultRiskMode === 'FIXED_USD' ? 'USD' : '%'})`}
                   type="number"
                   disabled={defaultRiskMode === 'NO_R'}
                   value={defaultRiskMode === 'NO_R' ? '' : defaultRiskValue}
                   onChange={(e) => setDefaultRiskValue(e.target.value)}
-                  className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
             </div>
 
             {/* Save Button */}
-            <div className="flex justify-end pt-4 border-t border-gray-850">
-              <button
+            <div className="mt-6">
+              <Button
                 type="submit"
+                variant="blue"
                 disabled={isSaving}
-                className="px-6 py-2.5 bg-gradient-to-r from-accentCyan to-accentBlue hover:from-accentCyan/90 hover:to-accentBlue/90 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5  transition disabled:opacity-50"
+                className="w-full md:w-auto py-3 px-8"
               >
-                <Save className="w-4 h-4" />
-                <span>{isSaving ? 'Menyimpan...' : 'Simpan Pengaturan'}</span>
-              </button>
+                <Save className="w-5 h-5 mr-2" />
+                {isSaving ? 'Menyimpan...' : 'Simpan Pengaturan'}
+              </Button>
             </div>
           </form>
         </div>
 
         {/* Right Column: Database Tools & Resets */}
-        <div className="space-y-6">
+        <div className="space-y-8">
           {/* Seed Data Tool - development only */}
-          {((import.meta as any).env?.DEV) && <div className=" rounded-xl border border-[#2b3139] p-5 space-y-4">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-1.5">
-              <Database className="w-4 h-4 text-[#0ecb81]" />
-              <span>Seeder Data Demo</span>
-            </h3>
-            <p className="text-xs text-[#929aa5] leading-relaxed">
-              Isi database SQLite Anda dengan sesi backtest dan trade simulasi (Wins, Losses, Webhooks) secara instan.
-            </p>
-            <button
-              onClick={handleSeedDemo}
-              className="w-full py-2.5 bg-gradient-to-r from-accentEmerald/20 to-accentCyan/20 hover:from-accentEmerald/30 hover:to-accentCyan/30 border border-accentEmerald/30 text-[#0ecb81] hover:text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Jalankan Seeder Demo</span>
-            </button>
-          </div>}
+          {((import.meta as any).env?.DEV) && (
+            <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212] border-l-8 border-l-[var(--profit)]">
+              <SectionLabel label="Seeder Data Demo" shape="square" color="dark" className="mb-3" />
+              <p className="text-[12px] font-bold text-[#717182] mb-5">
+                Isi database SQLite Anda dengan sesi backtest dan trade simulasi (Wins, Losses, Webhooks) secara instan.
+              </p>
+              <Button
+                variant="secondary"
+                onClick={handleSeedDemo}
+                fullWidth
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Jalankan Seeder Demo
+              </Button>
+            </div>
+          )}
 
           {/* Hard Reset database */}
-          <div className=" rounded-xl border border-rose-500/20 p-5 space-y-4 bg-gradient-to-br from-rose-500/[0.02] to-transparent">
-            <h3 className="text-xs font-extrabold text-[#f6465d] uppercase tracking-widest flex items-center space-x-1.5">
-              <AlertTriangle className="w-4 h-4 text-[#f6465d]" />
-              <span>Zona Bahaya (Hard Reset)</span>
-            </h3>
-            <p className="text-xs text-[#929aa5] leading-relaxed">
-              Tindakan ini akan <span className="font-semibold text-[#f6465d]">menghapus semua sesi backtest, riwayat trade, webhook, dan logs</span> dari database SQLite secara permanen.
-            </p>
+          <div className="bg-[#F0F0F0] border-4 border-[#121212] p-5 shadow-[6px_6px_0px_0px_#121212] relative overflow-hidden">
+            <div className="absolute top-0 left-0 bottom-0 w-2 bg-[var(--loss)]" />
+            <div className="ml-3">
+              <SectionLabel label="Zona Bahaya (Hard Reset)" shape="diamond" color="red" className="mb-3" />
+              <p className="text-[12px] font-bold text-[#717182] mb-5">
+                Tindakan ini akan <span className="text-[var(--loss)] font-black uppercase">menghapus semua sesi</span> backtest, riwayat trade, webhook, dan logs dari database SQLite secara permanen.
+              </p>
 
-            <div className="space-y-2 border-t border-gray-850 pt-3">
-              <label className="text-[9px] font-bold text-[#707a8a] uppercase block">
-                Ketik tulisan <span className="text-[#f6465d] font-extrabold">"HAPUS"</span> untuk mengonfirmasi:
-              </label>
-              <input
-                type="text"
-                value={resetConfirmInput}
-                onChange={(e) => setResetConfirmInput(e.target.value)}
-                placeholder="Ketik HAPUS..."
-                className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-rose-500/50 outline-none rounded-lg p-2 text-xs text-gray-200 font-semibold"
-              />
+              <div className="space-y-3 p-4 bg-white border-2 border-[#121212] mb-5">
+                <label className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest block">
+                  Ketik <span className="text-[var(--loss)] bg-[var(--loss-dim)] px-1 border border-[var(--loss)]">"HAPUS"</span> untuk mengonfirmasi:
+                </label>
+                <Input
+                  type="text"
+                  value={resetConfirmInput}
+                  onChange={(e) => setResetConfirmInput(e.target.value)}
+                  placeholder="Ketik HAPUS..."
+                  className="font-black tracking-widest text-center uppercase"
+                />
+              </div>
+
+              <Button
+                variant="danger"
+                onClick={handleHardReset}
+                disabled={resetConfirmInput !== 'HAPUS' || isResetting}
+                fullWidth
+                className="py-3"
+              >
+                <Trash2 className="w-5 h-5 mr-2" />
+                {isResetting ? 'Mereset...' : 'Wipe Database Permanen'}
+              </Button>
             </div>
-
-            <button
-              onClick={handleHardReset}
-              disabled={resetConfirmInput !== 'HAPUS' || isResetting}
-              className="w-full py-2.5 bg-lossRed hover:bg-lossRed/95 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition  disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>{isResetting ? 'Mereset...' : 'Wipe Database Permanen'}</span>
-            </button>
           </div>
         </div>
       </div>

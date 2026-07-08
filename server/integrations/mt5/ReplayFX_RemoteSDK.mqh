@@ -29,6 +29,7 @@ string ReplayFXBackendURL = "http://127.0.0.1:5000";
 string ReplayFXSecretToken = "replayfx_secret_token_123";
 string ReplayFXTerminalId = "";
 string ReplayFXInstanceId = "";
+string ReplayFXLastConfigResponse = "";
 string ReplayFXEAName = "ReplayFX EA";
 string ReplayFXEAFileName = "";
 ENUM_REPLAYFX_MODE ReplayFXMode = REPLAYFX_NOTIFY_ONLY;
@@ -482,10 +483,15 @@ bool ReplayFX_SendHeartbeat(string status = "ONLINE")
 bool ReplayFX_LoadConfig()
 {
    if(!ReplayFXAllowRemoteConfig) return false;
-   string endpoint = "/api/ea-control/config?terminalId=" + ReplayFXTerminalId + "&instanceId=" + ReplayFXInstanceId;
+   string endpoint = "/api/ea-control/config?terminalId=" + ReplayFXTerminalId
+                   + "&instanceId=" + ReplayFXInstanceId
+                   + "&chartId=" + IntegerToString((int)ChartID())
+                   + "&symbol=" + _Symbol
+                   + "&timeframe=" + ReplayFX_TimeframeToString((ENUM_TIMEFRAMES)_Period);
    string response;
    int httpStatus;
    if(!ReplayFX_WebRequestGet(endpoint, response, httpStatus)) return false;
+   ReplayFXLastConfigResponse = response;
    ReplayFXConfigVersion = ReplayFX_ReadJsonString(response, "configVersion", ReplayFXConfigVersion);
    string mode = ReplayFX_ReadJsonString(response, "mode", ReplayFX_ModeToString(ReplayFXMode));
    ReplayFXMode = ReplayFX_ModeFromString(mode);

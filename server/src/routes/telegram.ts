@@ -20,6 +20,7 @@ import { getEaSession } from '../services/eaSessionService';
 import { commandHasDetailedResult, writeCommandDebugNote } from '../services/eaCommandNoteService';
 import { escapeHtml, fmtCode, shortCommandId } from '../services/eaFormatter';
 import { buildTelegramPendingSignalsList, buildTelegramSignalButtons, buildTelegramSignalCard } from '../services/eaSignalNotifier';
+import { sendBotMenuMessage } from '../services/botMenuMedia';
 
 const router = Router();
 
@@ -66,7 +67,7 @@ export async function sendTelegramMessage(chatId: string | number, text: string,
   }
 }
 
-export async function sendTelegramPhoto(chatId: string | number, filePath: string, caption: string) {
+export async function sendTelegramPhoto(chatId: string | number, filePath: string, caption: string, replyMarkup?: any) {
   const cfg = await getTelegramConfig();
   const fullPath = path.isAbsolute(filePath)
     ? path.resolve(filePath)
@@ -84,6 +85,7 @@ export async function sendTelegramPhoto(chatId: string | number, filePath: strin
     tokenPresent: !!cfg.botToken,
     tokenPrefix: cfg.botToken ? cfg.botToken.slice(0, 8) : null,
     endpointPath,
+    hasReplyMarkup: !!replyMarkup,
   });
 
   if (!cfg.botToken) throw new Error('Telegram bot token not configured');
@@ -97,7 +99,8 @@ export async function sendTelegramPhoto(chatId: string | number, filePath: strin
     Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`);
   const fileHeader = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="photo"; filename="${fileName}"\r\nContent-Type: image/png\r\n\r\n`);
   const fileFooter = Buffer.from(`\r\n--${boundary}--\r\n`);
-  const contentLength = field('chat_id', chatId).length + field('caption', caption).length + field('parse_mode', 'HTML').length + fileHeader.length + size + fileFooter.length;
+  const replyMarkupField = replyMarkup ? field('reply_markup', JSON.stringify(replyMarkup)) : null;
+  const contentLength = field('chat_id', chatId).length + field('caption', caption).length + field('parse_mode', 'HTML').length + (replyMarkupField ? replyMarkupField.length : 0) + fileHeader.length + size + fileFooter.length;
 
   await new Promise<void>((resolve, reject) => {
     const req = https.request(endpoint, {
@@ -123,6 +126,7 @@ export async function sendTelegramPhoto(chatId: string | number, filePath: strin
     req.write(field('chat_id', chatId));
     req.write(field('caption', caption));
     req.write(field('parse_mode', 'HTML'));
+    if (replyMarkupField) req.write(replyMarkupField);
     req.write(fileHeader);
     const stream = fs.createReadStream(fullPath);
     stream.on('error', err => {
@@ -132,6 +136,24 @@ export async function sendTelegramPhoto(chatId: string | number, filePath: strin
     stream.on('end', () => req.end(fileFooter));
     stream.pipe(req, { end: false });
   });
+}
+
+async function sendTelegramMenuResponse(chatId: string | number, result: { response: string; replyMarkup?: any; status?: string; mediaPath?: string | null }) {
+  const payload = sendBotMenuMessage('TELEGRAM', chatId, result.response, result.replyMarkup, result.status, { banner: !!result.mediaPath });
+
+  // Photo + caption + inline keyboard in ONE message
+  if (payload.mode === 'photo' && payload.photoPath) {
+    try {
+      await sendTelegramPhoto(chatId, payload.photoPath, payload.text, payload.replyMarkup);
+      return;
+    } catch (err: any) {
+      // Banner failed — fall back to text+keyboard only
+      await logIntegration('TELEGRAM', 'TELEGRAM_BANNER_FAILED', 'WARNING', `Banner send failed, falling back to text: ${err.message}`, { chatId });
+    }
+  }
+
+  // Text-only fallback (no banner or banner failed)
+  await sendTelegramMessage(chatId, payload.text, payload.replyMarkup);
 }
 
 export async function sendTelegramDocument(chatId: string | number, filePath: string, caption: string) {
@@ -666,7 +688,9 @@ async function processUpdates(updates: any[]): Promise<number> {
     const text: string = callbackCommand || callbackData || String(u?.message?.text || '').trim();
     if (!text) continue;
     const lowerText = text.toLowerCase();
-    const hasSession = !!getTelegramSession(chatId) || !!getEaSession('TELEGRAM', String(chatId));
+    const hasTelegramSession = !!getTelegramSession(chatId);
+    const hasEaSession = !!getEaSession('TELEGRAM', String(chatId));
+    const hasSession = hasTelegramSession || hasEaSession;
     if (!callbackData && !callbackCommand && !hasSession && !text.startsWith('/') && lowerText !== 'menu' && lowerText !== 'help' && lowerText !== 'status' && lowerText !== 'signals' && lowerText !== 'symbols' && lowerText !== 'charts' && lowerText !== 'cleanup' && lowerText !== 'logs' && lowerText !== 'yes' && lowerText !== 'cancel' && lowerText !== 'list ea' && !lowerText.startsWith('symbols ') && !lowerText.startsWith('attach ') && !lowerText.startsWith('screenshot ') && !lowerText.startsWith('set ') && !lowerText.startsWith('pause ') && !lowerText.startsWith('resume ') && lowerText !== 'cancel pending' && lowerText !== 'list terminals' && lowerText !== 'active eas') continue;
 
     const isAllowed = allowed.includes(String(chatId));
@@ -683,12 +707,19 @@ async function processUpdates(updates: any[]): Promise<number> {
     }
 
     if (!callbackData && hasSession && !text.startsWith('/')) {
-      const sessionResult = await handleEaBotInput('TELEGRAM', String(chatId), { text });
+      let sessionResult = null;
+      if (hasTelegramSession) {
+        sessionResult = await handleTelegramSession(chatId, text);
+      }
+      if (!sessionResult && hasEaSession) {
+        sessionResult = await handleEaBotInput('TELEGRAM', String(chatId), { text });
+      }
+      
       if (sessionResult) {
-        const { response, status, replyMarkup, commandId } = sessionResult;
+        const { response, status, replyMarkup, commandId } = sessionResult as any;
         let sendError: string | null = null;
         try {
-          await sendTelegramMessage(chatId, response, replyMarkup);
+          await sendTelegramMenuResponse(chatId, { response, replyMarkup, status, mediaPath: (sessionResult as any).mediaPath });
         } catch (err: any) {
           sendError = err.message;
           pollingLastError = err.message;
@@ -719,7 +750,7 @@ async function processUpdates(updates: any[]): Promise<number> {
     const { response, status, replyMarkup, commandId } = result;
     let sendError: string | null = null;
     try {
-      await sendTelegramMessage(chatId, response, replyMarkup);
+      await sendTelegramMenuResponse(chatId, { response, replyMarkup, status, mediaPath: (result as any).mediaPath });
     } catch (err: any) {
       sendError = err.message;
       pollingLastError = err.message;
@@ -1009,7 +1040,7 @@ router.post('/webhook/:secret', async (req: Request, res: Response) => {
           : await handleTelegramCommand(chatId, text);
     const { response, status, replyMarkup, commandId } = result;
     try {
-      await sendTelegramMessage(chatId, response, replyMarkup);
+      await sendTelegramMenuResponse(chatId, { response, replyMarkup, status, mediaPath: (result as any).mediaPath });
     } catch {}
 
     if (commandId && ['QUEUED', 'WAITING_CONTROLLER', 'BLOCKED_BY_ACTIVE_COMMAND'].includes(status)) {

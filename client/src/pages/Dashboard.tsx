@@ -1,65 +1,48 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { 
-  DollarSign, 
-  TrendingUp, 
-  TrendingDown, 
-  Percent, 
-  BarChart3, 
-  Layers, 
-  Clock, 
-  Activity, 
-  ShieldAlert, 
-  Award,
-  ChevronLeft,
-  Upload,
-  RefreshCw,
-  CheckCircle2,
-  AlertTriangle,
-  X,
-  Target,
-  Zap,
-  Hash,
-  Camera,
-  FileText
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import {
+  DollarSign, TrendingUp, TrendingDown, BarChart3,
+  Clock, Activity, ChevronLeft, Upload, RefreshCw, CheckCircle2,
+  AlertTriangle, X, Target, Hash, Camera, FileText, Shield, Wallet, Info
 } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useJournalStore } from '../store/useJournalStore';
 import MetricCard from '../components/MetricCard';
-import DashboardCharts from '../components/DashboardCharts';
+import DashboardCharts, { DashboardChartSelection } from '../components/DashboardCharts';
 import TradeTable from '../components/TradeTable';
 import TradeDetailModal from '../components/TradeDetailModal';
 import JournalCalendar from '../components/JournalCalendar';
 import { exportElementAsPng, buildExportFilename } from '../utils/exportImage';
-import { HelpCard, PageGuide } from '../components/help/HelpSystem';
-import { 
-  formatUsd, 
-  formatIdr, 
-  formatPercent, 
-  formatR, 
-  formatDuration, 
-  formatNumber 
-} from '../utils/formatters';
+import { formatUsd, formatIdr, formatPercent, formatR, formatDuration, formatNumber } from '../utils/formatters';
+
+import RiskRecalculationTab from '../components/AnalyticsTabs/RiskRecalculationTab';
+import RRLabTab from '../components/AnalyticsTabs/RRLabTab';
+import TimingAnalyticsTab from '../components/AnalyticsTabs/TimingAnalyticsTab';
+import StreaksTab from '../components/AnalyticsTabs/StreaksTab';
+import PairBreakdownTab from '../components/AnalyticsTabs/PairBreakdownTab';
+
+import { Button } from '../components/ui/Button';
+import { Card, CardBody } from '../components/ui/Card';
+import { Badge } from '../components/ui/Badge';
+import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { EmptyStateGuide } from '../components/help/HelpSystem';
+import { useLocalStorage } from '../hooks/useLocalStorage';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { 
-    activeSessionId, 
-    activeSessionDetails, 
-    fetchActiveSession, 
-    selectSession, 
-    updateTrade, 
-    deleteTrade,
-    updateSessionCsv,
-    loading,
-    sessions
+  const {
+    activeSessionId, activeSessionDetails, fetchActiveSession, selectSession,
+    updateTrade, deleteTrade, updateSessionCsv, loading, sessions
   } = useJournalStore();
 
   const [selectedTrade, setSelectedTrade] = useState<any | null>(null);
+  const [analyticsSelection, setAnalyticsSelection] = useState<DashboardChartSelection | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
-  
-  // CSV Update Panel State
+
+  const [activeTab, setActiveTab] = useLocalStorage<'OVERVIEW' | 'RISK' | 'RR_LAB' | 'TIMING' | 'STREAKS' | 'PAIR'>('dashboard_active_tab', 'OVERVIEW');
+  const [displayMode, setDisplayMode] = useLocalStorage<'RAW' | 'SIMULATED'>('dashboard_display_mode', 'RAW');
+
   const [showUpdatePanel, setShowUpdatePanel] = useState(false);
   const [updateMode, setUpdateMode] = useState<'REPLACE' | 'APPEND'>('REPLACE');
   const [csvUpdateFile, setCsvUpdateFile] = useState<File | null>(null);
@@ -78,10 +61,39 @@ export default function Dashboard() {
     }
   }, [searchParams, activeSessionId, fetchActiveSession, selectSession]);
 
-  const openSessionDashboard = (id: string) => {
-    selectSession(id);
-    navigate(`/dashboard?sessionId=${id}`);
-  };
+  const activeTrades = activeSessionDetails?.trades ?? [];
+  const focusedLedgerTrades = useMemo(() => {
+    if (!analyticsSelection) return activeTrades;
+
+    const selectionValue = String(analyticsSelection.value).toLowerCase();
+
+    return activeTrades.filter((trade) => {
+      if (analyticsSelection.kind === 'trade') {
+        return trade.tradeNumber === Number(analyticsSelection.value);
+      }
+
+      if (analyticsSelection.kind === 'setup') {
+        return (trade.setupTag || 'Tanpa Tag').toLowerCase() === selectionValue;
+      }
+
+      if (analyticsSelection.kind === 'day') {
+        const dayNames = ['minggu', 'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu'];
+        const tradeDay = trade.entryTime ? dayNames[new Date(trade.entryTime).getDay()] : '';
+        return tradeDay === selectionValue;
+      }
+
+      if (analyticsSelection.kind === 'side') {
+        return trade.side?.toLowerCase() === selectionValue;
+      }
+
+      if (analyticsSelection.kind === 'result') {
+        const result = (trade.result || '').toLowerCase();
+        return result === selectionValue;
+      }
+
+      return true;
+    });
+  }, [analyticsSelection, activeTrades]);
 
   const handleCsvFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -104,58 +116,66 @@ export default function Dashboard() {
   if (loading && !activeSessionDetails) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <div className="w-10 h-10 border-4 border-accentCyan border-t-transparent rounded-full animate-spin" />
-        <p className="text-xs text-[#707a8a] font-semibold animate-pulse">Memuat analisa sesi...</p>
+        <div className="w-10 h-10 border-4 border-[#121212] border-t-transparent rounded-full animate-spin" />
+        <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '13px', color: '#717182', fontWeight: 600 }}>
+          Memuat analisa sesi...
+        </p>
       </div>
     );
   }
 
   if (sessions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 space-y-6">
-        <div className="p-4 bg-[#2b3139]/40 rounded-full">
-          <BarChart3 className="w-12 h-12 text-[#707a8a]" />
-        </div>
-        <div className="text-center space-y-2">
-          <h2 className="text-2xl font-bold text-white">Analisa Dashboard</h2>
-          <p className="text-[#929aa5] max-w-md">Anda belum memiliki sesi backtest. Buat sesi baru atau import CSV untuk melihat analisa kinerja trading.</p>
-        </div>
-        <div className="flex items-center space-x-4">
-          <Link to="/create-session" className="px-6 py-2.5 bg-accentCyan text-white font-bold rounded-xl hover:bg-accentCyan/80 transition">
-            Create Session
-          </Link>
-          <Link to="/csv-import" className="px-6 py-2.5 bg-[#2b3139] text-white font-bold rounded-xl hover:bg-[#363e47] transition">
-            Import CSV
-          </Link>
-        </div>
-      </div>
+      <EmptyStateGuide
+        title="Dashboard Analisa"
+        body="Anda belum memiliki sesi backtest. Buat sesi baru atau import CSV untuk melihat analisa kinerja trading."
+        action={
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button variant="primary" onClick={() => navigate('/create-session')}>Create Session</Button>
+            <Button variant="secondary" onClick={() => navigate('/csv-import')}>Import CSV</Button>
+          </div>
+        }
+      />
     );
   }
 
-  if (!activeSessionId || !activeSessionDetails) {
+  if (!activeSessionId) {
     return (
-      <div className="py-12 space-y-6">
-        <div className="text-center space-y-4">
-          <BarChart3 className="w-12 h-12 text-[#707a8a] mx-auto" />
-          <h2 className="text-2xl font-bold text-white">Pilih Sesi Backtest</h2>
-          <p className="text-[#929aa5]">Pilih sesi untuk melihat Dashboard Analisa.</p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="space-y-6">
+        <PageHeader
+          label="Sesi Jurnal"
+          title="Pilih Sesi Backtest"
+          subtitle="Pilih sesi di bawah ini untuk melihat dashboard analisa."
+          labelColor="blue"
+        />
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {sessions.map(s => (
-            <div key={s.id} className="bn-card border border-[#2b3139] rounded-xl p-4">
-              <div className="flex items-start justify-between gap-3">
+            <div
+              key={s.id}
+              className="bg-white border-2 border-[#121212] p-5 flex flex-col justify-between hover-lift relative group"
+              style={{ boxShadow: '4px 4px 0px 0px #121212' }}
+            >
+              <div
+                className="absolute top-0 left-0 right-0 h-[3px]"
+                style={{ backgroundColor: s.sourceMode === 'CSV' ? '#D02020' : s.sourceMode === 'MT5_REPORT' ? '#1040C0' : '#121212' }}
+              />
+              <div className="flex items-start justify-between mt-1">
                 <div>
-                  <h3 className="text-sm font-bold text-white">{s.name}</h3>
-                  <p className="text-xs text-[#707a8a] mt-1">{s.symbol} · {s.timeframe} · {s.marketType}</p>
+                  <h3 className="font-bold text-[#121212] text-lg font-display truncate">{s.name}</h3>
+                  <p className="text-xs text-[#717182] font-medium mt-1">
+                    {s.symbol} · {s.timeframe} · {s.marketType}
+                  </p>
                 </div>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-white/5 text-[#929aa5]">{s.tradeCount} trades</span>
+                <Badge variant="neutral">{s.tradeCount} trades</Badge>
               </div>
-              <button
-                onClick={() => openSessionDashboard(s.id)}
-                className="mt-4 w-full px-4 py-2 bg-[#fcd535] hover:bg-[#f0b90b] text-[#181a20] rounded-lg text-xs font-bold"
+              <Button
+                variant="yellow"
+                className="mt-6"
+                fullWidth
+                onClick={() => { selectSession(s.id); navigate(`/dashboard?sessionId=${s.id}`); }}
               >
                 Open Dashboard
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -163,474 +183,389 @@ export default function Dashboard() {
     );
   }
 
+  if (!activeSessionDetails) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          label="Sesi Jurnal"
+          title="Memuat dashboard analisa"
+          subtitle="Data sesi sedang disiapkan. Jika ini berlangsung lama, coba ulang atau pilih sesi lain."
+          labelColor="blue"
+        />
+        <div className="bg-white border-2 border-[#121212] p-6 shadow-[4px_4px_0px_0px_#121212]">
+          <p className="text-sm font-semibold text-[#717182]">Proses memuat detail sesi belum selesai.</p>
+          <Button variant="secondary" className="mt-4" onClick={() => activeSessionId && fetchActiveSession(activeSessionId)}>
+            Coba lagi
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const { session, trades, metrics } = activeSessionDetails;
-
-  // Compute average R:R from trades that have rMultiple set
   const tradesWithR = trades.filter(t => t.rMultiple !== null && t.rMultiple !== undefined && t.status === 'CLOSED');
-  const avgRR = tradesWithR.length > 0 
-    ? tradesWithR.reduce((sum, t) => sum + (t.rMultiple || 0), 0) / tradesWithR.length
-    : null;
+  const avgRR = tradesWithR.length > 0 ? tradesWithR.reduce((sum, t) => sum + (t.rMultiple || 0), 0) / tradesWithR.length : null;
 
-  // Handler functions
-  const handleSaveTradeJournal = async (tradeId: string, updates: any) => {
-    return await updateTrade(tradeId, updates);
-  };
-
-  const handleDeleteTradeRecord = async (tradeId: string) => {
-    await deleteTrade(tradeId);
-  };
-
-  const currencyLabel = session.balanceCurrency === 'CENT' ? 'CENT' 
-    : session.balanceCurrency === 'IDR' ? 'IDR' : 'USD';
+  const currentPnl = displayMode === 'RAW' ? metrics.netPnlUsd : metrics.netProfitRecalculated;
+  const currentGrowth = displayMode === 'RAW' ? metrics.netPnlPct : metrics.growthPercent;
+  const currentEndingBalance = displayMode === 'RAW' ? metrics.endingBalance : metrics.initialBalance + metrics.netProfitRecalculated;
+  const currentDrawdown = displayMode === 'RAW' ? metrics.maxDrawdownUsd : metrics.maxDrawdownRecalculated;
+  const currentDrawdownPct = displayMode === 'RAW' ? metrics.maxDrawdownPct : metrics.maxDrawdownRecalculatedPct;
+  const currentProfitFactor = metrics.profitFactor;
 
   return (
-    <div ref={exportRef} className="space-y-8">
-      {/* Session Breadcrumb & Title Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-2">
-          <button 
-            onClick={() => navigate('/sessions')}
-            className="flex items-center space-x-1.5 text-xs text-[#707a8a] hover:text-[#0ecb81] transition font-semibold group"
-          >
-            <ChevronLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
-            <span>Semua Sesi</span>
-          </button>
-          
-          <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2 flex-wrap">
-            <span>{session.name}</span>
-            <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold tracking-wider ${
-              session.sourceMode === 'CSV' 
-                ? 'bg-[rgba(14,203,129,0.1)] text-[#0ecb81] border border-[rgba(14,203,129,0.2)]' 
-                : session.sourceMode === 'WEBHOOK' 
-                ? 'bg-accentEmerald/15 text-[#0ecb81] border border-accentEmerald/20' 
-                : 'bg-orange-500/15 text-orange-400 border border-orange-500/20'
-            }`}>
-              {session.sourceMode}
-            </span>
-            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#2b3139] text-[#929aa5] border border-[#3a4149]">
-              {currencyLabel}
-            </span>
-          </h1>
-          <PageGuide
-            title="Backtest Analysis Dashboard"
-            purpose="Dashboard ini membaca trade dari CSV/manual/webhook lalu mengubahnya menjadi analisis performa, calendar, dan ledger."
-            steps={[
-              'Baca ringkasan Net PnL, winrate, profit factor, dan drawdown.',
-              'Cek chart untuk melihat apakah equity curve stabil atau banyak penurunan tajam.',
-              'Klik calendar day untuk melihat detail harian.',
-              'Gunakan trade table untuk review entry, exit, setup, dan catatan.',
-              'Export PNG untuk share cepat atau Preview PDF Report untuk arsip.'
-            ]}
-            outputs={[
-              'Key metrics menunjukkan performa matematis strategi.',
-              'Calendar membantu menemukan hari overtrade, loss day, dan recovery day.',
-              'Ledger dipakai untuk audit trade satu per satu.'
-            ]}
-            warnings={[
-              'Winrate tinggi belum tentu bagus jika average loss lebih besar dari average win.',
-              'CSV yang salah format bisa menghasilkan invalid rows. Cek Import History jika data terasa aneh.'
-            ]}
-            nextAction="Jika data backtest bertambah, gunakan Update CSV atau Smart Merge dari session card."
-          />
+    <div ref={exportRef} className="space-y-6 animate-fade-in w-full pb-10">
+      {/* ── TOP HEADER ── */}
+      <div className="flex flex-col gap-4 pb-5 border-b-2 border-[#121212]/10">
+        {/* ROW 1 */}
+        <div className="flex flex-wrap justify-between items-start gap-4">
+          <div className="space-y-3">
+            <button
+              onClick={() => navigate('/sessions')}
+              className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[#717182] hover:text-[#121212] transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Kembali
+            </button>
+            <h1 className="text-3xl md:text-4xl font-extrabold text-[#121212] tracking-tight flex items-center gap-3 font-display">
+              {session.name}
+              <Badge variant={session.sourceMode === 'CSV' ? 'yellow' : session.sourceMode === 'WEBHOOK' ? 'profit' : 'blue'}>
+                {session.sourceMode}
+              </Badge>
+              <Badge variant="neutral">{session.balanceCurrency === 'CENT' ? 'CENT' : session.balanceCurrency === 'IDR' ? 'IDR' : 'USD'}</Badge>
+            </h1>
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#707a8a] font-medium">
-            <span>Symbol: <strong className="text-[#eaecef]">{session.symbol}</strong></span>
-            <span>•</span>
-            <span>TF: <strong className="text-[#eaecef]">{session.timeframe}</strong></span>
-            <span>•</span>
-            <span>Kurs: <strong className="text-[#eaecef]">1 USD = {formatIdr(session.usdIdrRate)}</strong></span>
-            <span>•</span>
-            <span className="text-[#707a8a]">Market: <strong className="text-[#eaecef]">{session.marketType}</strong></span>
+          <div className="mode-toggle">
+            <button
+              onClick={() => setDisplayMode('RAW')}
+              className={`mode-toggle-btn flex items-center gap-1.5 ${displayMode === 'RAW' ? 'active-raw' : ''}`}
+            >
+              <Wallet className="w-3.5 h-3.5" /> Raw Broker PnL
+            </button>
+            <button
+              onClick={() => setDisplayMode('SIMULATED')}
+              className={`mode-toggle-btn flex items-center gap-1.5 ${displayMode === 'SIMULATED' ? 'active-sim' : ''}`}
+            >
+              <Shield className="w-3.5 h-3.5" /> Risk Simulation
+            </button>
+          </div>
+        </div>
+
+        {/* ROW 2 */}
+        <div className="flex flex-wrap justify-between items-start gap-4 mt-2">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium bg-white px-4 py-2 border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212]">
+            <span className="text-[#717182]">Symbol: <strong className="text-[#121212] font-bold">{session.symbol}</strong></span>
+            <span className="text-[#121212]/20">|</span>
+            <span className="text-[#717182]">TF: <strong className="text-[#121212] font-bold">{session.timeframe}</strong></span>
+            <span className="text-[#121212]/20">|</span>
+            <span className="text-[#717182]">Kurs: <strong className="text-[#121212] font-bold">1 USD = {formatIdr(session.usdIdrRate)}</strong></span>
+            <span className="text-[#121212]/20">|</span>
+            <span className="text-[#717182]">Market: <strong className="text-[#121212] font-bold">{session.marketType}</strong></span>
             {session.notes && (
               <>
-                <span>•</span>
-                <span className="truncate max-w-xs md:max-w-md italic text-[#707a8a]" title={session.notes}>{session.notes}</span>
+                <span className="text-[#121212]/20">|</span>
+                <span className="truncate max-w-xs italic text-[#717182]" title={session.notes}>{session.notes}</span>
               </>
             )}
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            data-export-hide
-            onClick={async () => {
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => setShowUpdatePanel(!showUpdatePanel)}>
+              <RefreshCw className="w-3.5 h-3.5" /> Update CSV
+            </Button>
+            <Button variant="secondary" onClick={() => window.open(`/reports/session/${session.id}/print`, '_blank')}>
+              <FileText className="w-3.5 h-3.5" /> PDF
+            </Button>
+            <Button variant="secondary" onClick={async () => {
               if (!exportRef.current) return;
               setIsExporting(true);
-              try {
-                await exportElementAsPng(
-                  exportRef.current,
-                  buildExportFilename('analysis', session.name)
-                );
-              } catch (e) {
-                alert('Export gagal. Coba lagi.');
-              } finally {
-                setIsExporting(false);
-              }
-            }}
-            disabled={isExporting}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition border bg-[#2b3139] border-[#3a4149] text-[#eaecef] hover:border-[rgba(252,213,53,0.3)] hover:text-[#fcd535]"
-          >
-            <Camera className="w-3.5 h-3.5" />
-            <span>{isExporting ? 'Generating...' : 'Export PNG'}</span>
-          </button>
-          <button
-            data-export-hide
-            onClick={() => window.open(`/reports/session/${session.id}/print`, '_blank')}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition border bg-[#2b3139] border-[#3a4149] text-[#eaecef] hover:border-[rgba(252,213,53,0.3)] hover:text-[#fcd535]"
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Preview PDF Report</span>
-          </button>
-          <button
-            onClick={() => { setShowUpdatePanel(!showUpdatePanel); setUpdateResult(null); }}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition border ${
-              showUpdatePanel 
-                ? 'bg-[rgba(14,203,129,0.12)] border-[rgba(14,203,129,0.3)] text-[#0ecb81]' 
-                : 'bg-[#2b3139]/80 border-[#3a4149] text-[#eaecef] hover:border-[rgba(14,203,129,0.25)] hover:text-[#0ecb81]'
-            }`}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${showUpdatePanel ? 'animate-spin-once' : ''}`} />
-            <span>Update CSV</span>
-          </button>
+              try { await exportElementAsPng(exportRef.current, buildExportFilename('analysis', session.name)); }
+              catch (e) { alert('Export gagal.'); }
+              finally { setIsExporting(false); }
+            }} disabled={isExporting}>
+              <Camera className="w-3.5 h-3.5" /> {isExporting ? 'Wait...' : 'Export PNG'}
+            </Button>
+          </div>
         </div>
       </div>
 
-      <HelpCard title="Cara membaca dashboard">
-        Fokus pertama pada kombinasi Net PnL, Profit Factor, Drawdown, dan Expected/R multiple. Strategi yang terlihat menang banyak tetap berisiko kalau drawdown besar atau loss day terkonsentrasi.
-      </HelpCard>
-
-      {/* Inline CSV Update Panel */}
+      {/* CSV Update Panel */}
       {showUpdatePanel && (
-        <div className=" rounded-xl border border-[rgba(14,203,129,0.2)] p-5 space-y-4 relative overflow-hidden">
-          {/* Background decoration */}
-          <div className="absolute inset-0 bg-gradient-to-br from-accentCyan/5 to-transparent pointer-events-none" />
-          
-          <div className="relative flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="p-2 bg-[rgba(14,203,129,0.08)] rounded-lg">
-                <Upload className="w-4 h-4 text-[#0ecb81]" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-white">Update Data CSV</h4>
-                <p className="text-[10px] text-[#707a8a] font-medium">Upload ulang CSV untuk sesi <span className="text-[#0ecb81]">{session.name}</span></p>
-              </div>
-            </div>
-            <button onClick={() => setShowUpdatePanel(false)} className="p-1.5 hover:bg-[#2b3139] rounded-lg transition text-[#707a8a] hover:text-white">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="relative grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-            {/* Mode Selector */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-[#707a8a] uppercase tracking-wider">Mode Update</label>
-              <select
-                value={updateMode}
-                onChange={(e: any) => setUpdateMode(e.target.value)}
-                className="w-full bg-[#1e2329] border border-[#3a4149] outline-none rounded-lg p-2.5 text-xs text-gray-200 font-semibold focus:border-[#fcd535]/50 transition"
-              >
-                <option value="REPLACE">Ganti Semua (Replace)</option>
-                <option value="APPEND">Tambahkan (Append)</option>
-              </select>
+        <Card variant="default" className="border-[var(--accent-blue)]">
+          <CardBody className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm uppercase tracking-widest text-[#121212]">Update Data Sesi CSV</h3>
+              <button onClick={() => setShowUpdatePanel(false)} className="text-[#717182] hover:text-[#121212]">
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* File Picker */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-[#707a8a] uppercase tracking-wider">File CSV Baru</label>
-              <div className="relative">
+            <div className="flex items-center gap-4 text-sm bg-white p-3 border-2 border-[#121212]">
+              <label className="flex items-center gap-2 cursor-pointer font-bold">
                 <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv"
-                  onChange={handleCsvFileSelect}
-                  className="hidden"
-                  id="dashboard-csv-update"
+                  type="radio"
+                  name="updateMode"
+                  value="REPLACE"
+                  checked={updateMode === 'REPLACE'}
+                  onChange={() => setUpdateMode('REPLACE')}
+                  className="w-4 h-4 accent-[#1040C0]"
                 />
-                <label
-                  htmlFor="dashboard-csv-update"
-                  className="flex items-center space-x-2 w-full bg-[#1e2329] border border-[#3a4149] rounded-lg p-2.5 text-xs cursor-pointer hover:border-[rgba(14,203,129,0.3)] transition"
-                >
-                  <Upload className="w-3.5 h-3.5 text-[#707a8a] flex-shrink-0" />
-                  <span className={`truncate ${csvUpdateFile ? 'text-gray-200 font-semibold' : 'text-[#707a8a]'}`}>
-                    {csvUpdateFile ? csvUpdateFile.name : 'Pilih file .csv...'}
-                  </span>
-                </label>
+                Smart Merge
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer font-bold">
+                <input
+                  type="radio"
+                  name="updateMode"
+                  value="APPEND"
+                  checked={updateMode === 'APPEND'}
+                  onChange={() => setUpdateMode('APPEND')}
+                  className="w-4 h-4 accent-[#1040C0]"
+                />
+                Append Only
+              </label>
+            </div>
+            <p className="text-xs text-[#717182]">
+              {updateMode === 'REPLACE'
+                ? "Smart Merge: Update PnL/Exit Time trade yang sudah ada berdasarkan Ticket ID, dan tambahkan trade baru yang belum ada."
+                : "Append Only: Tambahkan trade baru dari CSV ke sesi saat ini. Trade lama tidak akan diubah."}
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleCsvFileSelect}
+                ref={fileInputRef}
+                className="block w-full text-sm text-gray-500
+                  file:mr-4 file:py-2 file:px-4
+                  file:border-2 file:border-[#121212]
+                  file:text-xs file:font-bold file:uppercase file:tracking-wider
+                  file:bg-[#F0F0F0] file:text-[#121212]
+                  hover:file:bg-[#E0E0E0] file:cursor-pointer file:transition-colors"
+              />
+              <Button
+                variant="blue"
+                onClick={handleCsvUpdate}
+                disabled={!csvUpdateFile || isUpdating}
+                isLoading={isUpdating}
+                className="whitespace-nowrap"
+              >
+                <Upload className="w-4 h-4" /> Update Sesi
+              </Button>
+            </div>
+
+            {updateResult && (
+              <div className={`p-4 border-2 ${updateResult.ok ? 'border-[var(--profit)] bg-[var(--profit-dim)]' : 'border-[var(--loss)] bg-[var(--loss-dim)]'}`}>
+                <div className="flex items-start gap-2">
+                  {updateResult.ok ? (
+                    <CheckCircle2 className="w-5 h-5 text-[var(--profit)] shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-5 h-5 text-[var(--loss)] shrink-0" />
+                  )}
+                  <div>
+                    <p className={`text-sm font-bold ${updateResult.ok ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
+                      {updateResult.ok ? 'Update Berhasil' : 'Update Gagal'}
+                    </p>
+                    {updateResult.ok ? (
+                      <p className="text-xs mt-1">Data berhasil diproses. Valid: {updateResult.validCount} | Invalid/Gagal: {updateResult.invalidCount}</p>
+                    ) : (
+                      <p className="text-xs mt-1">{updateResult.error}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      )}
+
+      {/* ── TABS NAVIGATION ── */}
+      <div className="flex flex-wrap gap-2 pb-4">
+        {(['OVERVIEW', 'RISK', 'RR_LAB', 'TIMING', 'STREAKS', 'PAIR'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`
+              px-4 py-2 text-[11px] font-bold uppercase tracking-wider transition-all
+              border-2 border-[#121212] 
+              ${activeTab === tab ? 'bg-[#121212] text-white shadow-[3px_3px_0px_0px_#D02020]' : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'}
+            `}
+          >
+            {tab === 'OVERVIEW' && 'Overview'}
+            {tab === 'RISK' && 'Risk Recalculation'}
+            {tab === 'RR_LAB' && 'RR Lab'}
+            {tab === 'TIMING' && 'Timing Analytics'}
+            {tab === 'STREAKS' && 'Streaks'}
+            {tab === 'PAIR' && 'Pair Breakdown'}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'RISK' && <RiskRecalculationTab sessionId={session.id} session={session} metrics={metrics} trades={trades} />}
+      {activeTab === 'RR_LAB' && <RRLabTab metrics={metrics} trades={trades} />}
+      {activeTab === 'TIMING' && <TimingAnalyticsTab metrics={metrics} trades={trades} />}
+      {activeTab === 'STREAKS' && <StreaksTab metrics={metrics} trades={trades} />}
+      {activeTab === 'PAIR' && <PairBreakdownTab metrics={metrics} />}
+
+      {activeTab === 'OVERVIEW' && (
+        <div className="grid grid-cols-12 gap-5 w-full">
+
+          {/* ── HERO & RIGHT RAIL ── */}
+          <div className="col-span-12 lg:col-span-8 flex flex-col gap-5">
+            <div className="card-hero p-6 md:p-8 relative overflow-hidden group h-full min-h-[220px] flex flex-col justify-between">
+              {/* Note: card-hero already handles the top accent line and thick border */}
+              <div className="absolute top-0 right-0 w-64 h-64 bg-[#1040C0] opacity-[0.04] rounded-full pointer-events-none" />
+              <p className="text-[#717182] text-[10px] font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
+                {displayMode === 'RAW' ? <Wallet className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
+                {displayMode === 'RAW' ? 'Current Broker Equity' : 'Simulated Equity Model'}
+              </p>
+
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 relative z-10 flex-1">
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-baseline gap-4 mb-2">
+                    <h2 className="text-4xl lg:text-6xl font-extrabold text-[#121212] tracking-tight font-number">
+                      {formatUsd(currentEndingBalance)}
+                    </h2>
+                    <div className={`flex items-center gap-1 text-lg font-bold font-number px-2.5 py-1 border-2 ${currentPnl >= 0 ? 'bg-[var(--profit-dim)] text-[var(--profit)] border-[var(--profit)]' : 'bg-[var(--loss-dim)] text-[var(--loss)] border-[var(--loss)]'}`}>
+                      {currentPnl >= 0 ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                      {currentPnl >= 0 ? '+' : ''}{formatPercent(currentGrowth)}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 mt-4">
+                    <Badge variant={displayMode === 'RAW' ? 'neutral' : 'blue'}>
+                      {displayMode === 'RAW' ? 'Raw Market Data' : metrics.usedAssumedRR ? `Assumed RR ${metrics.assumedRRValue} Active` : 'Fixed Risk Active'}
+                    </Badge>
+                    <span className="text-xs text-[#717182] font-bold uppercase tracking-wider">
+                      {metrics.totalTrades} Executed Trades
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-right flex flex-col items-end md:items-end w-full md:w-auto p-4 bg-white border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212]">
+                  <p className="text-[#717182] text-[9px] font-bold uppercase tracking-widest mb-1">Net Profit</p>
+                  <p className={`text-3xl font-bold font-number ${currentPnl >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
+                    {currentPnl >= 0 ? '+' : ''}{formatUsd(currentPnl)}
+                  </p>
+                  <div className="mt-2 text-[10px] text-[#717182] font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Activity className="w-3 h-3" />
+                    Realized PnL
+                  </div>
+                </div>
               </div>
             </div>
-
-            {/* Execute Button */}
-            <button
-              onClick={handleCsvUpdate}
-              disabled={!csvUpdateFile || isUpdating}
-              className="w-full py-2.5 bg-gradient-to-r from-accentCyan to-accentBlue hover:from-accentCyan/90 hover:to-accentBlue/90 disabled:opacity-40 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition "
-            >
-              {isUpdating ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Memproses...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-3.5 h-3.5" />
-                  <span>Jalankan Update</span>
-                </>
-              )}
-            </button>
           </div>
 
-          {/* Result feedback */}
-          {updateResult && (
-            <div className={`relative flex items-center space-x-2 px-4 py-3 rounded-xl text-xs font-semibold border ${
-              updateResult.ok 
-                ? 'bg-[rgba(14,203,129,0.08)] border-accentEmerald/20 text-[#0ecb81]' 
-                : 'bg-[rgba(246,70,93,0.08)] border-[rgba(246,70,93,0.2)] text-[#f6465d]'
-            }`}>
-              {updateResult.ok 
-                ? <CheckCircle2 className="w-4 h-4 shrink-0" />
-                : <AlertTriangle className="w-4 h-4 shrink-0" />
-              }
-              <span>
-                {updateResult.ok 
-                  ? `✓ CSV berhasil diperbarui — ${updateResult.validCount} trade valid, ${updateResult.invalidCount} invalid.`
-                  : `✗ ${updateResult.error}`
-                }
-              </span>
+          <div className="col-span-12 lg:col-span-4 flex flex-col gap-5">
+            <div className="bg-white border-2 border-[#121212] p-5 relative">
+              <div className="absolute top-0 left-0 bottom-0 w-[4px] bg-[#1040C0]" />
+              <h4 className="text-[10px] font-bold text-[#717182] uppercase tracking-widest mb-1 flex items-center gap-1.5 ml-2">
+                <Info className="w-3.5 h-3.5" /> Mode Status
+              </h4>
+              <p className="text-sm font-extrabold text-[#121212] ml-2">
+                {displayMode === 'RAW' ? 'Raw Broker PnL Active' : 'Risk Simulation Active'}
+              </p>
+              <p className="text-xs text-[#717182] mt-1 ml-2 font-medium">
+                {displayMode === 'RAW'
+                  ? 'Menampilkan performa berdasarkan data riil dari broker/sumber asli.'
+                  : 'Menampilkan performa berdasarkan model risiko statis (Fixed Risk/Assumed RR).'}
+              </p>
             </div>
-          )}
 
-          {updateMode === 'REPLACE' && !updateResult && (
-            <div className="relative flex items-start space-x-2 px-3 py-2.5 bg-orange-500/10 border border-orange-500/20 rounded-xl text-[10px] text-orange-400 font-semibold">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              <span>Mode Replace akan menghapus semua data trade lama di sesi ini sebelum mengimport.</span>
+            <div className="bg-white border-2 border-[#121212] p-5 relative">
+              <div className={`absolute top-0 left-0 bottom-0 w-[4px] ${metrics.usedAssumedRR ? 'bg-[var(--warning)]' : 'bg-[var(--profit)]'}`} />
+              <h4 className="text-[10px] font-bold text-[#717182] uppercase tracking-widest mb-1 flex items-center gap-1.5 ml-2">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Calculation Confidence
+              </h4>
+              <p className={`text-sm font-extrabold ml-2 ${metrics.usedAssumedRR ? 'text-[var(--warning)]' : 'text-[var(--profit)]'}`}>
+                {metrics.usedAssumedRR ? 'Low Confidence (Assumed RR)' : 'High Confidence'}
+              </p>
+              <p className="text-xs text-[#717182] mt-1 ml-2 font-medium">
+                {metrics.usedAssumedRR
+                  ? `Data import tidak memiliki Stop Loss. Menggunakan rasio asumsi ${metrics.assumedRRValue} untuk simulasi risiko.`
+                  : 'Data lengkap dengan rasio Reward:Risk yang presisi.'}
+              </p>
             </div>
-          )}
+          </div>
+
+          {/* ── PRIMARY PERFORMANCE ROW ── */}
+          <div className="col-span-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
+            <MetricCard title="Initial Balance" value={formatUsd(metrics.initialBalance)} icon={DollarSign} accent="dark" />
+            <MetricCard
+              title="Max Drawdown"
+              value={formatUsd(-currentDrawdown)}
+              subtitle={formatPercent(-currentDrawdownPct)}
+              valueColorClass="loss"
+              icon={TrendingDown}
+              accent="loss"
+            />
+            <MetricCard
+              title="Profit Factor"
+              value={currentProfitFactor === Infinity ? '∞' : formatNumber(currentProfitFactor, 2)}
+              valueColorClass={currentProfitFactor >= 1.5 ? 'profit' : currentProfitFactor >= 1.0 ? 'profit' : 'loss'}
+              subtitle="Gross Profit / Gross Loss"
+              accent={currentProfitFactor >= 1.0 ? 'profit' : 'loss'}
+            />
+            <MetricCard
+              title="Win Rate"
+              value={formatPercent(metrics.winrate)}
+              valueColorClass="profit"
+              subtitle={`Loss Rate: ${formatPercent(metrics.lossrate)}`}
+              accent="profit"
+            />
+            <MetricCard
+              title="Average R:R"
+              value={avgRR !== null ? formatR(avgRR) : 'N/A'}
+              valueColorClass={avgRR !== null ? (avgRR >= 1 ? 'profit' : 'loss') : 'neutral'}
+              icon={Target}
+              accent={avgRR !== null && avgRR >= 1 ? 'profit' : avgRR !== null ? 'loss' : 'dark'}
+            />
+          </div>
+
+          {/* ── PERFORMANCE VISUALIZER GRID ── */}
+          <div className="col-span-12 w-full mt-4">
+            <DashboardCharts session={session} trades={trades} onSelectionChange={setAnalyticsSelection} />
+          </div>
+
+          {/* ── SECONDARY METRICS GRID ── */}
+          <div className="col-span-12 mt-6 space-y-4">
+            <SectionLabel label="Distribusi & Harapan Imbal Balik" shape="diamond" color="yellow" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+              <MetricCard title="Gross Profit" value={formatUsd(metrics.grossProfit)} valueColorClass="profit" />
+              <MetricCard title="Gross Loss" value={formatUsd(-metrics.grossLoss)} valueColorClass="loss" />
+              <MetricCard title="Avg Trade PnL" value={`${metrics.averageTrade >= 0 ? '+' : ''}${formatUsd(metrics.averageTrade)}`} valueColorClass={metrics.averageTrade >= 0 ? 'profit' : 'loss'} />
+              <MetricCard title="Best Trade" value={formatUsd(metrics.bestTrade)} valueColorClass="profit" />
+              <MetricCard title="Worst Trade" value={formatUsd(metrics.worstTrade)} valueColorClass="loss" />
+
+              <MetricCard title="Win / Loss Streak" value={`W:${metrics.maxConsecutiveWins} / L:${metrics.maxConsecutiveLosses}`} subtitle="Maximum Streak" />
+              <MetricCard title="Expectancy" value={formatUsd(metrics.expectancyUsd)} valueColorClass={metrics.expectancyUsd >= 0 ? 'profit' : 'loss'} subtitle={metrics.expectancyR !== null ? `E(R): ${formatR(metrics.expectancyR)}` : 'R Term: N/A'} />
+              <MetricCard title="Avg Hold Time" value={formatDuration(metrics.averageTradeDurationMs)} icon={Clock} />
+              <MetricCard title="MFE (Favorable)" value={formatUsd(metrics.averageFavorableExcursionUsd)} valueColorClass="profit" subtitle="Avg Fav Excursion" />
+              <MetricCard title="MAE (Adverse)" value={formatUsd(metrics.averageAdverseExcursionUsd)} valueColorClass="loss" subtitle="Avg Adv Excursion" />
+            </div>
+          </div>
         </div>
       )}
 
-      {/* METRICS DISPLAY GRIDS */}
-      <div className="space-y-6">
-        
-        {/* GROUP 1: CAPITAL ACCOUNT SUMMARY */}
-        <div className="space-y-2">
-          <h3 className="text-[10px] font-bold text-[#707a8a] uppercase tracking-widest flex items-center space-x-1.5">
-            <DollarSign className="w-3.5 h-3.5" />
-            <span>Modal & Saldo Akun</span>
-            {session.balanceCurrency === 'CENT' && (
-              <span className="ml-2 px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-bold">CENT → USD Converted</span>
-            )}
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            <MetricCard 
-              title="Modal Awal" 
-              value={formatUsd(metrics.initialBalance)} 
-              icon={DollarSign}
-            />
-            <MetricCard 
-              title="Saldo Akhir" 
-              value={formatUsd(metrics.endingBalance)} 
-              icon={Layers}
-              glow={true}
-            />
-            <MetricCard 
-              title="Net PnL USD" 
-              value={`${metrics.netPnlUsd >= 0 ? '+' : ''}${formatUsd(metrics.netPnlUsd)}`} 
-              valueColorClass={metrics.netPnlUsd >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}
-              icon={metrics.netPnlUsd >= 0 ? TrendingUp : TrendingDown}
-            />
-            <MetricCard 
-              title="Net PnL IDR" 
-              value={`${metrics.netPnlIdr >= 0 ? '+' : ''}${formatIdr(metrics.netPnlIdr)}`} 
-              valueColorClass={metrics.netPnlUsd >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}
-              icon={DollarSign}
-            />
-            <MetricCard 
-              title="Net PnL (%)" 
-              value={`${metrics.netPnlUsd >= 0 ? '+' : ''}${formatPercent(metrics.netPnlPct)}`} 
-              valueColorClass={metrics.netPnlUsd >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}
-              icon={Percent}
-            />
-          </div>
-        </div>
-
-        {/* GROUP 2: LEDGER DISTRIBUTION & FINANCIAL AVERAGES */}
-        <div className="space-y-2">
-          <h3 className="text-[10px] font-bold text-[#707a8a] uppercase tracking-widest flex items-center space-x-1.5">
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>Kinerja & Distribusi Transaksi</span>
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-            <MetricCard 
-              title="Total Trades" 
-              value={metrics.totalTrades} 
-              subtitle={`Win: ${metrics.win} | Loss: ${metrics.loss} | BE: ${metrics.breakEven}`}
-            />
-            <MetricCard 
-              title="Win Rate" 
-              value={formatPercent(metrics.winrate)} 
-              valueColorClass="text-[#0ecb81]"
-              subtitle={`Loss Rate: ${formatPercent(metrics.lossrate)}`}
-            />
-            <MetricCard 
-              title="Profit Factor" 
-              value={metrics.profitFactor === Infinity ? '∞' : formatNumber(metrics.profitFactor, 2)} 
-              valueColorClass={metrics.profitFactor >= 1.5 ? 'text-[#0ecb81]' : metrics.profitFactor >= 1.0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}
-              subtitle="GP / GL Ratio"
-            />
-            <MetricCard 
-              title="Gross Profit" 
-              value={formatUsd(metrics.grossProfit)} 
-              valueColorClass="text-[#0ecb81]"
-            />
-            <MetricCard 
-              title="Gross Loss" 
-              value={formatUsd(-metrics.grossLoss)} 
-              valueColorClass="text-[#f6465d]"
-            />
-            <MetricCard 
-              title="Avg Trade PnL" 
-              value={`${metrics.averageTrade >= 0 ? '+' : ''}${formatUsd(metrics.averageTrade)}`} 
-              valueColorClass={metrics.averageTrade >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}
-              subtitle={`Win: ${formatUsd(metrics.averageWin)} | Loss: ${formatUsd(-metrics.averageLoss)}`}
-            />
-          </div>
-        </div>
-
-        {/* GROUP 3: RISK, R:R & EXPECTANCY */}
-        <div className="space-y-2">
-          <h3 className="text-[10px] font-bold text-[#707a8a] uppercase tracking-widest flex items-center space-x-1.5">
-            <ShieldAlert className="w-3.5 h-3.5" />
-            <span>Risiko, R:R & Harapan Imbal Balik</span>
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-            <MetricCard 
-              title="Best Trade" 
-              value={formatUsd(metrics.bestTrade)} 
-              valueColorClass="text-[#0ecb81]"
-            />
-            <MetricCard 
-              title="Worst Trade" 
-              value={formatUsd(metrics.worstTrade)} 
-              valueColorClass="text-[#f6465d]"
-            />
-            <MetricCard 
-              title="Max Drawdown" 
-              value={formatUsd(-metrics.maxDrawdownUsd)} 
-              valueColorClass="text-[#f6465d]"
-              subtitle={formatPercent(-metrics.maxDrawdownPct)}
-            />
-            <MetricCard 
-              title="Beruntun Win/Loss" 
-              value={`W:${metrics.maxConsecutiveWins} / L:${metrics.maxConsecutiveLosses}`}
-              subtitle="Streak Maksimum"
-            />
-            {/* Average R:R — computed from trades with rMultiple */}
-            <MetricCard 
-              title={`Avg R:R (${tradesWithR.length} trades)`}
-              value={avgRR !== null ? formatR(avgRR) : 'N/A'}
-              valueColorClass={avgRR !== null ? (avgRR >= 1 ? 'text-[#0ecb81]' : avgRR >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]') : 'text-[#707a8a]'}
-              subtitle={metrics.netR !== null ? `Net R: ${formatR(metrics.netR)}` : session.riskMode === 'NO_R' ? 'R Calc: Off' : 'Belum ada R'}
-              icon={Target}
-            />
-            <MetricCard 
-              title="Expectancy" 
-              value={formatUsd(metrics.expectancyUsd)}
-              valueColorClass={metrics.expectancyUsd >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}
-              subtitle={metrics.expectancyR !== null ? `E(R): ${formatR(metrics.expectancyR)}` : 'R Term: N/A'}
-            />
-          </div>
-        </div>
-
-        {/* GROUP 4: HOLD TIMES & DIRECTIONAL RATIOS */}
-        <div className="space-y-2">
-          <h3 className="text-[10px] font-bold text-[#707a8a] uppercase tracking-widest flex items-center space-x-1.5">
-            <Clock className="w-3.5 h-3.5" />
-            <span>Excursion & Sisi Winrate</span>
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <MetricCard 
-              title="Avg Hold Time" 
-              value={formatDuration(metrics.averageTradeDurationMs)} 
-              icon={Clock}
-            />
-            <MetricCard 
-              title="Avg Fav Excursion (MFE)" 
-              value={formatUsd(metrics.averageFavorableExcursionUsd)} 
-              icon={Award}
-              valueColorClass="text-[#0ecb81]"
-            />
-            <MetricCard 
-              title="Avg Adv Excursion (MAE)" 
-              value={formatUsd(metrics.averageAdverseExcursionUsd)} 
-              icon={ShieldAlert}
-              valueColorClass="text-[#f6465d]"
-            />
-            <MetricCard 
-              title="Winrate LONG vs SHORT" 
-              value={`L:${formatPercent(metrics.longWinrate)} / S:${formatPercent(metrics.shortWinrate)}`}
-              icon={Activity}
-            />
-          </div>
-        </div>
+      {/* ── SHARED COMPONENTS (CALENDAR & LEDGER) ── */}
+      <div id="calendar" className="w-full mt-8">
+        <JournalCalendar mode="BACKTEST" title="Journal Calendar" trades={trades} currency="USD" storageKey="replayfx:showBacktestCalendar" defaultCollapsed={true} contextType="BACKTEST_SESSION" contextId={session.id} />
       </div>
 
-      {/* RECHARTS PLOTS COMPONENT */}
-      <div className=" rounded-xl border border-[#2b3139] p-6">
-        <h3 className="text-xs font-bold text-[#929aa5] uppercase tracking-wider mb-6 flex items-center space-x-1.5">
-          <BarChart3 className="w-4 h-4 text-[#0ecb81]" />
-          <span>Visualisasi Grafik Performa</span>
-        </h3>
-        <DashboardCharts session={session} trades={trades} />
-      </div>
-
-      <div id="calendar">
-        <JournalCalendar
-          mode="BACKTEST"
-          title="Journal Calendar"
-          trades={trades}
-          currency="USD"
-          storageKey="replayfx:showBacktestCalendar"
-          defaultCollapsed={true}
-          contextType="BACKTEST_SESSION"
-          contextId={session.id}
-        />
-      </div>
-
-      {/* TRADE TABLE LEDGER COMPONENT */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-[#929aa5] uppercase tracking-widest flex items-center space-x-2">
-            <Hash className="w-4 h-4 text-[#707a8a]" />
-            <span>Ledger Transaksi Backtest</span>
-          </h3>
-          {/* Quick R summary badge */}
-          {avgRR !== null && (
-            <div className={`flex items-center space-x-1.5 text-[10px] font-bold px-3 py-1.5 rounded-lg border ${
-              avgRR >= 1 ? 'bg-[rgba(14,203,129,0.08)] border-accentEmerald/20 text-[#0ecb81]'
-              : avgRR >= 0 ? 'bg-[rgba(14,203,129,0.08)] border-[rgba(14,203,129,0.2)] text-[#0ecb81]'
-              : 'bg-[rgba(246,70,93,0.08)] border-[rgba(246,70,93,0.2)] text-[#f6465d]'
-            }`}>
-              <Target className="w-3 h-3" />
-              <span>Avg R:R — {formatR(avgRR)} dari {tradesWithR.length} trade</span>
+      <div className="w-full mt-8 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <SectionLabel label={analyticsSelection ? `Ledger Fokus · ${analyticsSelection.label}` : 'Ledger Transaksi Backtest'} shape="square" color="blue" />
+          {analyticsSelection && (
+            <div className="rounded border border-[#121212] bg-white px-3 py-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[#121212] shadow-[2px_2px_0px_0px_#121212]">
+              {focusedLedgerTrades.length} trade{focusedLedgerTrades.length === 1 ? '' : 's'} · {analyticsSelection.value}
             </div>
           )}
         </div>
-        <TradeTable 
-          trades={trades} 
-          onSelectTrade={(t) => setSelectedTrade(t)}
-          onDeleteTrade={handleDeleteTradeRecord}
-        />
+        <TradeTable trades={focusedLedgerTrades} onSelectTrade={setSelectedTrade} onDeleteTrade={async (id) => await deleteTrade(id)} />
       </div>
 
-      {/* DETAIL MODAL EDITOR */}
       {selectedTrade && (
-        <TradeDetailModal 
-          trade={selectedTrade}
-          onClose={() => setSelectedTrade(null)}
-          onSave={handleSaveTradeJournal}
-        />
+        <TradeDetailModal trade={selectedTrade} onClose={() => setSelectedTrade(null)} onSave={async (id, up) => await updateTrade(id, up)} />
       )}
     </div>
   );

@@ -4,6 +4,8 @@ import { BarChart3, CheckCircle2, RefreshCw, Zap } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
 import { formatUsd, formatPercent } from '../utils/formatters';
 import { HelpCard, PageGuide } from '../components/help/HelpSystem';
+import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { Button } from '../components/ui/Button';
 
 export default function QuickLogger() {
   const navigate = useNavigate();
@@ -84,26 +86,31 @@ export default function QuickLogger() {
 
   if (sessions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 space-y-6">
-        <Zap className="w-12 h-12 text-[#707a8a]" />
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-white">Quick Logger</h2>
-          <p className="text-[#929aa5] mt-2">Buat atau import sesi dulu sebelum quick log.</p>
+      <div className="flex flex-col items-center justify-center py-20 space-y-8 max-w-lg mx-auto text-center border-4 border-[#121212] bg-white p-12 shadow-[12px_12px_0px_0px_#121212]">
+        <Zap className="w-16 h-16 text-[#121212]" strokeWidth={2.5} />
+        <div>
+          <h2 className="text-[28px] font-black text-[#121212] uppercase tracking-tighter">Quick Logger</h2>
+          <p className="text-[14px] font-bold text-[#717182] mt-3 leading-relaxed">Buat atau import sesi dulu sebelum mencatat trade menggunakan Quick Logger.</p>
         </div>
-        <div className="flex gap-3">
-          <Link to="/create-session" className="px-5 py-2 bg-[#fcd535] text-black rounded-lg font-bold text-sm">Create Session</Link>
-          <Link to="/csv-import" className="px-5 py-2 bg-[#2b3139] text-white rounded-lg font-bold text-sm">Import CSV</Link>
+        <div className="flex flex-col w-full gap-4 mt-4">
+          <Link to="/create-session" className="w-full text-center px-6 py-4 bg-[#1040C0] text-white border-4 border-[#121212] shadow-[4px_4px_0px_0px_#121212] font-black uppercase tracking-widest hover:-translate-y-1 hover:shadow-[6px_6px_0px_0px_#121212] transition-all">Create Session</Link>
+          <Link to="/csv-import" className="w-full text-center px-6 py-4 bg-[#F0F0F0] text-[#121212] border-4 border-[#121212] shadow-[4px_4px_0px_0px_#121212] font-black uppercase tracking-widest hover:-translate-y-1 hover:shadow-[6px_6px_0px_0px_#121212] transition-all">Import CSV</Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 max-w-5xl min-w-0">
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 min-w-0">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2"><Zap className="w-5 h-5 text-[#fcd535]" /> Quick Logger</h1>
+    <div className="space-y-8 max-w-5xl mx-auto">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
+        <div>
+          <div className="flex flex-wrap items-center gap-4">
+            <PageHeader 
+              label="Logger"
+              title="Quick Logger"
+              subtitle="Tambah trade manual cepat ke sesi backtest yang dipilih."
+              labelColor="blue"
+            />
             <PageGuide
               title="Quick Logger"
               purpose="Quick Logger dipakai untuk mencatat trade manual dengan cepat tanpa upload CSV."
@@ -125,107 +132,216 @@ export default function QuickLogger() {
               nextAction="Setelah save, klik View Dashboard untuk cek metrik terbaru."
             />
           </div>
-          <p className="text-sm text-[#929aa5] mt-1">Tambah trade manual cepat ke sesi backtest yang dipilih.</p>
         </div>
-        <select
-          value={sessionId}
-          onChange={(e) => {
-            setSessionId(e.target.value);
-            selectSession(e.target.value);
-            navigate(`/quick-logger?sessionId=${e.target.value}`, { replace: true });
-          }}
-          className="bn-card border border-[#2b3139] rounded-lg py-2 px-3 text-white text-sm min-w-[260px]"
-          style={{ maxWidth: '100%' }}
-        >
-          {sessions.map(s => <option key={s.id} value={s.id}>{s.name} ({s.symbol})</option>)}
-        </select>
+        
+        <div className="w-full md:w-80 relative">
+          <select
+            value={sessionId}
+            onChange={(e) => {
+              setSessionId(e.target.value);
+              selectSession(e.target.value);
+              navigate(`/quick-logger?sessionId=${e.target.value}`, { replace: true });
+            }}
+            className="w-full bg-white border-4 border-[#121212] py-4 px-5 text-[#121212] text-[14px] font-black uppercase tracking-wider shadow-[6px_6px_0px_0px_#121212] appearance-none cursor-pointer outline-none focus:border-[#1040C0]"
+          >
+            {sessions.map(s => <option key={s.id} value={s.id}>{s.name} ({s.symbol})</option>)}
+          </select>
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-5 text-[#121212]">
+            <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+          </div>
+        </div>
       </div>
 
-      <HelpCard title="Fast R mode">
+      <HelpCard title="Fast R mode" tone="neutral">
         Mode ini cocok jika kamu hanya tahu hasil trade secara risk/reward. Contoh: risk $50, RR 2, result WIN akan membuat trade profit +$100.
       </HelpCard>
 
       {selectedSession && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bn-card border border-[#2b3139] rounded-lg p-3 min-w-0"><p className="text-[10px] text-[#707a8a]">Session</p><p className="text-sm text-white font-bold truncate" title={selectedSession.name}>{selectedSession.name}</p></div>
-          <div className="bn-card border border-[#2b3139] rounded-lg p-3"><p className="text-[10px] text-[#707a8a]">Trades</p><p className="text-sm text-white font-bold">{selectedSession.tradeCount}</p></div>
-          <div className="bn-card border border-[#2b3139] rounded-lg p-3"><p className="text-[10px] text-[#707a8a]">Winrate</p><p className="text-sm text-white font-bold">{selectedSession.tradeCount ? formatPercent(selectedSession.winrate) : '-'}</p></div>
-          <div className="bn-card border border-[#2b3139] rounded-lg p-3"><p className="text-[10px] text-[#707a8a]">Net PnL</p><p className={`text-sm font-bold ${selectedSession.netPnlUsd >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>{formatUsd(selectedSession.netPnlUsd)}</p></div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212] min-w-0">
+            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1">Session</p>
+            <p className="text-[14px] text-[#121212] font-black uppercase tracking-wide truncate" title={selectedSession.name}>{selectedSession.name}</p>
+          </div>
+          <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
+            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1">Trades</p>
+            <p className="text-[20px] text-[#121212] font-black font-number leading-none">{selectedSession.tradeCount}</p>
+          </div>
+          <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
+            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1">Winrate</p>
+            <p className="text-[20px] text-[#121212] font-black font-number leading-none">{selectedSession.tradeCount ? formatPercent(selectedSession.winrate) : '-'}</p>
+          </div>
+          <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
+            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1">Net PnL</p>
+            <p className={`text-[20px] font-black font-number leading-none ${selectedSession.netPnlUsd >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
+              {formatUsd(selectedSession.netPnlUsd)}
+            </p>
+          </div>
         </div>
       )}
 
-      {error && <div className="rounded-lg border border-[rgba(246,70,93,0.25)] bg-[rgba(246,70,93,0.08)] p-4 text-sm text-[#f6465d]">{error}</div>}
+      {error && (
+        <div className="bg-[var(--loss-dim)] border-4 border-[var(--loss)] p-5 text-[14px] font-bold text-[var(--loss)] shadow-[4px_4px_0px_0px_var(--loss)]">
+          {error}
+        </div>
+      )}
+      
       {success && (
-        <div className="rounded-lg border border-[rgba(14,203,129,0.25)] bg-[rgba(14,203,129,0.08)] p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="text-sm text-[#0ecb81] font-semibold flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Quick log saved. Dashboard stats refreshed.</div>
-          <button onClick={() => navigate(`/dashboard?sessionId=${sessionId}`)} className="px-4 py-2 bg-[#fcd535] text-black rounded-lg text-xs font-bold flex items-center justify-center gap-1.5">
-            <BarChart3 className="w-3.5 h-3.5" /> View Dashboard
-          </button>
+        <div className="bg-[var(--profit-dim)] border-4 border-[var(--profit)] p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-[4px_4px_0px_0px_var(--profit)]">
+          <div className="text-[14px] text-[var(--profit)] font-black uppercase tracking-wide flex items-center gap-3">
+            <CheckCircle2 className="w-6 h-6 shrink-0" strokeWidth={2.5} /> 
+            <span>Quick log saved. Dashboard stats refreshed.</span>
+          </div>
+          <Button onClick={() => navigate(`/dashboard?sessionId=${sessionId}`)} variant="profit">
+            <BarChart3 className="w-4 h-4 mr-2" /> View Dashboard
+          </Button>
         </div>
       )}
 
-      <form onSubmit={submit} className="bn-card border border-[#2b3139] rounded-xl p-6 space-y-5">
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setMode('FAST_R')} className={`px-4 py-2 rounded-lg text-sm font-bold ${mode === 'FAST_R' ? 'bg-[#fcd535] text-black' : 'bg-[#2b3139] text-[#929aa5]'}`}>Fast R mode</button>
-          <button type="button" onClick={() => setMode('DETAILED')} className={`px-4 py-2 rounded-lg text-sm font-bold ${mode === 'DETAILED' ? 'bg-[#fcd535] text-black' : 'bg-[#2b3139] text-[#929aa5]'}`}>Detailed trade mode</button>
+      <form onSubmit={submit} className="bg-[#F0F0F0] border-4 border-[#121212] p-6 md:p-8 space-y-8 shadow-[8px_8px_0px_0px_#121212]">
+        <div className="flex flex-wrap gap-3 pb-6 border-b-4 border-[#121212]">
+          <button 
+            type="button" 
+            onClick={() => setMode('FAST_R')} 
+            className={`px-6 py-3 font-extrabold uppercase tracking-widest text-[12px] border-2 border-[#121212] transition-all ${
+              mode === 'FAST_R' 
+                ? 'bg-[#121212] text-white shadow-[4px_4px_0px_0px_#121212] -translate-y-0.5' 
+                : 'bg-white text-[#717182] hover:bg-[#F0F0F0] hover:text-[#121212] hover:shadow-[4px_4px_0px_0px_#121212] hover:-translate-y-0.5'
+            }`}
+          >
+            Fast R mode
+          </button>
+          <button 
+            type="button" 
+            onClick={() => setMode('DETAILED')} 
+            className={`px-6 py-3 font-extrabold uppercase tracking-widest text-[12px] border-2 border-[#121212] transition-all ${
+              mode === 'DETAILED' 
+                ? 'bg-[#121212] text-white shadow-[4px_4px_0px_0px_#121212] -translate-y-0.5' 
+                : 'bg-white text-[#717182] hover:bg-[#F0F0F0] hover:text-[#121212] hover:shadow-[4px_4px_0px_0px_#121212] hover:-translate-y-0.5'
+            }`}
+          >
+            Detailed trade mode
+          </button>
         </div>
 
         {mode === 'FAST_R' ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <label className="block text-xs text-[#929aa5] mb-1">Result</label>
-              <select value={result} onChange={(e: any) => setResult(e.target.value)} className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white">
+              <label className="block text-[11px] font-extrabold text-[#717182] uppercase tracking-widest mb-2">Result</label>
+              <select 
+                value={result} 
+                onChange={(e: any) => setResult(e.target.value)} 
+                className={`w-full border-4 border-[#121212] py-3 px-4 text-[#121212] font-black uppercase tracking-wider outline-none focus:border-[#1040C0] transition-colors appearance-none bg-white ${
+                  result === 'WIN' ? 'border-l-8 border-l-[var(--profit)]' : 
+                  result === 'LOSS' ? 'border-l-8 border-l-[var(--loss)]' : 
+                  'border-l-8 border-l-[#717182]'
+                }`}
+              >
                 <option value="WIN">WIN</option>
                 <option value="LOSS">LOSS</option>
-                <option value="BE">BE</option>
+                <option value="BE">BREAKEVEN</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs text-[#929aa5] mb-1">Risk per trade</label>
-              <input value={riskPerTrade} onChange={e => setRiskPerTrade(e.target.value)} type="number" step="0.01" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+              <label className="block text-[11px] font-extrabold text-[#717182] uppercase tracking-widest mb-2">Risk per trade ($)</label>
+              <input 
+                value={riskPerTrade} 
+                onChange={e => setRiskPerTrade(e.target.value)} 
+                type="number" 
+                step="0.01" 
+                className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black font-number outline-none focus:border-[#1040C0] transition-colors" 
+              />
             </div>
             <div>
-              <label className="block text-xs text-[#929aa5] mb-1">RR / R multiple</label>
-              <input value={rr} onChange={e => setRr(e.target.value)} type="number" step="0.01" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+              <label className="block text-[11px] font-extrabold text-[#717182] uppercase tracking-widest mb-2">RR / R multiple</label>
+              <input 
+                value={rr} 
+                onChange={e => setRr(e.target.value)} 
+                type="number" 
+                step="0.01" 
+                className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black font-number outline-none focus:border-[#1040C0] transition-colors" 
+              />
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
             <div>
-              <label className="block text-xs text-[#929aa5] mb-1">Side</label>
-              <select value={side} onChange={(e: any) => setSide(e.target.value)} className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white">
-                <option value="BUY">BUY</option>
-                <option value="SELL">SELL</option>
+              <label className="block text-[11px] font-extrabold text-[#717182] uppercase tracking-widest mb-2">Side</label>
+              <select 
+                value={side} 
+                onChange={(e: any) => setSide(e.target.value)} 
+                className={`w-full border-4 border-[#121212] py-3 px-4 text-[#121212] font-black uppercase tracking-wider outline-none focus:border-[#1040C0] transition-colors appearance-none bg-white ${
+                  side === 'BUY' ? 'border-l-8 border-l-[var(--profit)]' : 'border-l-8 border-l-[var(--loss)]'
+                }`}
+              >
+                <option value="BUY">BUY / LONG</option>
+                <option value="SELL">SELL / SHORT</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs text-[#929aa5] mb-1">Entry price</label>
-              <input value={entryPrice} onChange={e => setEntryPrice(e.target.value)} type="number" step="0.00001" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+              <label className="block text-[11px] font-extrabold text-[#717182] uppercase tracking-widest mb-2">Entry price</label>
+              <input 
+                value={entryPrice} 
+                onChange={e => setEntryPrice(e.target.value)} 
+                type="number" 
+                step="0.00001" 
+                className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black font-number outline-none focus:border-[#1040C0] transition-colors" 
+              />
             </div>
             <div>
-              <label className="block text-xs text-[#929aa5] mb-1">Exit price</label>
-              <input value={exitPrice} onChange={e => setExitPrice(e.target.value)} type="number" step="0.00001" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+              <label className="block text-[11px] font-extrabold text-[#717182] uppercase tracking-widest mb-2">Exit price</label>
+              <input 
+                value={exitPrice} 
+                onChange={e => setExitPrice(e.target.value)} 
+                type="number" 
+                step="0.00001" 
+                className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black font-number outline-none focus:border-[#1040C0] transition-colors" 
+              />
             </div>
             <div>
-              <label className="block text-xs text-[#929aa5] mb-1">Lot optional</label>
-              <input value={lot} onChange={e => setLot(e.target.value)} type="number" step="0.01" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+              <label className="block text-[11px] font-extrabold text-[#717182] uppercase tracking-widest mb-2">Lot (optional)</label>
+              <input 
+                value={lot} 
+                onChange={e => setLot(e.target.value)} 
+                type="number" 
+                step="0.01" 
+                className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black font-number outline-none focus:border-[#1040C0] transition-colors" 
+              />
             </div>
             <div>
-              <label className="block text-xs text-[#929aa5] mb-1">Profit/Loss optional</label>
-              <input value={profit} onChange={e => setProfit(e.target.value)} type="number" step="0.01" className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+              <label className="block text-[11px] font-extrabold text-[#717182] uppercase tracking-widest mb-2">Profit/Loss (optional)</label>
+              <input 
+                value={profit} 
+                onChange={e => setProfit(e.target.value)} 
+                type="number" 
+                step="0.01" 
+                className="w-full bg-white border-4 border-[#121212] py-3 px-4 text-[#121212] font-black font-number outline-none focus:border-[#1040C0] transition-colors" 
+              />
             </div>
           </div>
         )}
 
         <div>
-          <label className="block text-xs text-[#929aa5] mb-1">Notes</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full bg-black border border-[#2b3139] rounded-lg py-2 px-3 text-white" />
+          <label className="block text-[11px] font-extrabold text-[#717182] uppercase tracking-widest mb-2">Notes</label>
+          <textarea 
+            value={notes} 
+            onChange={e => setNotes(e.target.value)} 
+            rows={4} 
+            className="w-full bg-white border-4 border-[#121212] py-4 px-5 text-[#121212] font-bold outline-none focus:border-[#1040C0] transition-colors shadow-inner resize-y" 
+            placeholder="Add context to this manual log..."
+          />
         </div>
 
-        <button disabled={saving} className="px-5 py-2.5 bg-[#fcd535] hover:bg-[#f0b90b] disabled:opacity-50 text-black rounded-lg text-sm font-bold flex items-center gap-2">
-          {saving && <RefreshCw className="w-4 h-4 animate-spin" />}
-          Save Quick Log
-        </button>
+        <div className="pt-4">
+          <Button 
+            type="submit" 
+            disabled={saving} 
+            variant="dark"
+            className="w-full md:w-auto"
+          >
+            {saving ? <RefreshCw className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" strokeWidth={2.5} />}
+            <span className="text-[14px]">Save Quick Log</span>
+          </Button>
+        </div>
       </form>
     </div>
   );

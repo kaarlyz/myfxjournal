@@ -39,6 +39,7 @@ export interface ValidTradeData {
   entrySignal: string;
   exitSignal: string;
   status: 'CLOSED';
+  symbol?: string;
 }
 
 export interface InvalidTradeData {
@@ -155,6 +156,7 @@ function findWithCurrencySuffix(row: Record<string, string>, baseKey: string): s
 export function parseTradingViewCsv(csvText: string): {
   validTrades: ValidTradeData[];
   invalidTrades: InvalidTradeData[];
+  detectedSymbol?: string;
 } {
   const parsed = Papa.parse(csvText, {
     header: true,
@@ -248,6 +250,7 @@ export function parseTradingViewCsv(csvText: string): {
     // Price: try "Price USD", then any "Price XXX" (e.g., "Price JPY", "Price EUR")
     const entryPriceVal = findWithCurrencySuffix(entryRow, 'Price');
     const entrySignal = findFlexible(entryRow, 'Signal').trim();
+    const symbolVal = findFlexible(entryRow, 'Symbol').trim();
 
     // Read attributes from exit
     const exitTimeStr = findFlexible(exitRow, 'Date and time').trim();
@@ -354,14 +357,19 @@ export function parseTradingViewCsv(csvText: string): {
       entrySignal,
       exitSignal,
       status: 'CLOSED',
+      symbol: symbolVal || undefined,
     });
   });
 
   // Sort valid trades by trade number ascending
   validTrades.sort((a, b) => a.tradeNumber - b.tradeNumber);
 
+  // Attempt to find a global detected symbol
+  const detectedSymbol = validTrades.find(t => t.symbol)?.symbol;
+
   return {
     validTrades,
     invalidTrades,
+    detectedSymbol,
   };
 }

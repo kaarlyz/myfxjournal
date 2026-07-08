@@ -32,12 +32,14 @@ import {
   statusLabel,
   waBox,
 } from './eaFormatter';
+import { resolveBotBannerPath } from './botMenuMedia';
 
 export type EaBotResponse = {
   response: string;
   status: string;
   replyMarkup?: any;
   commandId?: string;
+  mediaPath?: string | null;
 };
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
@@ -87,6 +89,186 @@ const CONFIG_BLOCKED_KEYS = new Set([
   'authorization',
   'password',
 ]);
+const CONFIG_GROUP_ORDER = [
+  'General',
+  'Risk & Limits',
+  'Entry / Setup',
+  'Trend Filter',
+  'Candle Filter',
+  'Wick Filter',
+  'Martingale',
+  'Session',
+  'Panel / Display',
+];
+
+const BRIDGE_FIELD_REGISTRY: Record<'momentum' | 'ers' | 'crt', Set<string>> = {
+  momentum: new Set([
+    'signaltf',
+    'biastf',
+    'usetrendfilter',
+    'emabiasperiod',
+    'ematimingperiod',
+    'emaslopecandles',
+    'maxdistfromemapct',
+    'emaflatthresholdpip',
+    'minbodypip',
+    'minbodypips',
+    'usebodypercentfilter',
+    'minbodypercent',
+    'usewickfilter',
+    'maxoppwickpct',
+    'tpfibolevel',
+    'slfibolevel',
+    'slbufferpip',
+    'userrmode',
+    'targetrr',
+    'rr',
+    'manualentrylevel',
+    'riskpercent',
+    'maxtradesday',
+    'maxtradesperday',
+    'maxprofitdaypercent',
+    'maxprofitmonthpercent',
+    'pendingexpirybars',
+    'maxspread',
+    'allowbuy',
+    'allowsell',
+    'usemartingale',
+    'martstartlot',
+    'martfulltplevel',
+    'usesurvivalmode',
+    'survivaltriggerpct',
+    'minsurvivalprofit',
+    'usesessionfilter',
+    'sessionasia',
+    'sessionlondon',
+    'sessionnewyork',
+    'usecustomsession',
+    'customstarthour',
+    'customstartmin',
+    'customendhour',
+    'customendmin',
+    'showpanel',
+    'panelwidth',
+    'compactpanel',
+  ]),
+  ers: new Set([
+    'lot',
+    'levelsperside',
+    'middlegappips',
+    'gridsteppips',
+    'maxtpmoney',
+    'maxfloatinglossmoney',
+    'restartdelayseconds',
+    'skipsideways',
+    'sidewaystf',
+    'atrperiod',
+    'minatrpips',
+    'pipinpoints',
+    'deviationpoints',
+    'usebrokermindistance',
+    'extrastopbufferpoints',
+    'clearretryattempts',
+    'clearretrysleepms',
+    'showpanel',
+    'panelwidth',
+    'panelx',
+    'panely',
+    'allowbuy',
+    'allowsell',
+  ]),
+  crt: new Set([
+    'pairmode',
+    'customrangetf',
+    'customexectf',
+    'useriskpercent',
+    'riskpercent',
+    'fixedlot',
+    'allowminlotwhenrisksmall',
+    'allowminlotwhenriskttoosmall',
+    'rr',
+    'slbufferpoints',
+    'maxspreadpoints',
+    'maxentrydistancepoints',
+    'deviationpoints',
+    'maxpositions',
+    'magic',
+    'waitexectfnewbar',
+    'maxsignalexecutionbars',
+    'bothsweepmode',
+    'usetradinghours',
+    'starthour',
+    'endhour',
+    'drawranges',
+    'drawmidline',
+    'lineextendbars',
+    'maxdrawnranges',
+    'showpanel',
+    'panelupdatesec',
+  ]),
+};
+
+function normalizeGroupLabel(group?: string | null, key?: string) {
+  const text = `${group || ''} ${key || ''}`.toLowerCase();
+  if (!text.trim()) return 'General';
+  if (text.includes('trend') || text.includes('ema') || text.includes('bias') || text.includes('slope')) return 'Trend Filter';
+  if (text.includes('wick')) return 'Wick Filter';
+  if (text.includes('candle') || text.includes('body')) return 'Candle Filter';
+  if (text.includes('mart') || text.includes('survival')) return 'Martingale';
+  if (text.includes('session') || text.includes('asia') || text.includes('london') || text.includes('newyork') || text.includes('customstart') || text.includes('customend')) return 'Session';
+  if (text.includes('panel') || text.includes('display') || text.includes('draw') || text.includes('showpanel') || text.includes('lineextend') || text.includes('updatesec')) return 'Panel / Display';
+  if (text.includes('risk') || text.includes('limit') || text.includes('spread') || text.includes('loss') || text.includes('profit') || text.includes('deviation') || text.includes('magic')) return 'Risk & Limits';
+  if (text.includes('entry') || text.includes('setup') || text.includes('fibo') || text.includes('signal') || text.includes('pair') || text.includes('grid') || text.includes('level')) return 'Entry / Setup';
+  return 'General';
+}
+
+function getConfigFamily(instance: any, snapshot: any): 'momentum' | 'ers' | 'crt' | 'unknown' {
+  const text = [
+    instance?.eaName,
+    instance?.templateName,
+    instance?.fileName,
+    snapshot?.heartbeat?.eaName,
+    parseJson<any>(snapshot?.heartbeat?.payloadJson, {})?.fileName,
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (text.includes('momentum') || text.includes('fibomomentum')) return 'momentum';
+  if (text.includes('ers') || text.includes('grid')) return 'ers';
+  if (text.includes('crt') || text.includes('candle range')) return 'crt';
+  return 'unknown';
+}
+
+function isKnownConfigFamily(family: string) {
+  return family === 'momentum' || family === 'ers' || family === 'crt';
+}
+
+function bridgeFieldSet(family: string) {
+  return isKnownConfigFamily(family) ? BRIDGE_FIELD_REGISTRY[family as keyof typeof BRIDGE_FIELD_REGISTRY] : new Set<string>();
+}
+
+function isBridgeEditableField(family: string, field: any, liveItem?: any) {
+  if (liveItem) return true;
+  if (!isKnownConfigFamily(family)) return false;
+  const registry = bridgeFieldSet(family);
+  const candidates = [
+    field?.key,
+    field?.parameterKey,
+    field?.rawName,
+    String(field?.parameterKey || '').replace(/^Inp/, ''),
+    String(field?.rawName || '').replace(/^Inp/, '').replace(/^ReplayFX_/, ''),
+  ]
+    .filter(Boolean)
+    .map((value: string) => normalizeConfigLookup(String(value)));
+  return candidates.some(candidate => registry.has(candidate));
+}
+
+function fieldAcceptedExamples(meta: ConfigFieldMeta) {
+  if (meta.type === 'boolean') return ['true', 'false', '1', '0'];
+  if (meta.type === 'mode') return MODES.slice();
+  if (meta.type === 'number') return Number.isInteger(meta.defaultValue) ? ['1', '5', '10'] : ['0.5', '1.0', '2.5'];
+  if (meta.options?.length) return meta.options.slice(0, 6);
+  if (meta.key.toLowerCase().includes('hour')) return ['0', '8', '13', '22'];
+  if (meta.key.toLowerCase().includes('min')) return ['0', '15', '30', '45'];
+  return ['text value'];
+}
 
 function isTelegram(channel: EaBotChannel) {
   return channel === 'TELEGRAM';
@@ -107,11 +289,12 @@ function navRows(includeRefresh = false) {
   return includeRefresh ? [row, [{ text: '🔄 Refresh', id: 'nav:refresh' }]] : [row];
 }
 
-function withKeyboard(channel: EaBotChannel, text: string, buttons: Array<Array<{ text: string; id: string }>> = [], status = 'SUCCESS', commandId?: string): EaBotResponse {
+function withKeyboard(channel: EaBotChannel, text: string, buttons: Array<Array<{ text: string; id: string }>> = [], status = 'SUCCESS', commandId?: string, mediaPath?: string | null): EaBotResponse {
   return {
     response: text,
     status,
     commandId,
+    mediaPath: mediaPath || null,
     replyMarkup: isTelegram(channel) ? rows(buttons) : undefined,
   };
 }
@@ -227,6 +410,7 @@ async function buildConfigFieldMeta(instance: any, snapshot: any): Promise<Confi
   const actual = snapshot?.actualConfig || {};
   const stored = snapshot?.storedConfig || {};
   const heartbeatPayload = parseJson<any>(snapshot?.heartbeat?.payloadJson, {});
+  const family = getConfigFamily(instance, snapshot);
   const template = instance?.templateId
     ? await prisma.eaTemplate.findUnique({ where: { id: instance.templateId } }).catch(() => null)
     : await findTemplate(String(heartbeatPayload?.fileName || snapshot?.heartbeat?.eaName || instance?.eaName || '')).catch(() => null);
@@ -239,10 +423,12 @@ async function buildConfigFieldMeta(instance: any, snapshot: any): Promise<Confi
     liveSchemaByKey.set(normalizeConfigLookup(key), item);
   }
   const allDetected = new Map<string, any>();
-  for (const item of detectedSchema) {
-    const aliases = fieldAliases(item);
-    for (const alias of aliases) {
-      allDetected.set(normalizeConfigLookup(alias), item);
+  if (isKnownConfigFamily(family)) {
+    for (const item of detectedSchema) {
+      const aliases = fieldAliases(item);
+      for (const alias of aliases) {
+        allDetected.set(normalizeConfigLookup(alias), item);
+      }
     }
   }
 
@@ -254,8 +440,10 @@ async function buildConfigFieldMeta(instance: any, snapshot: any): Promise<Confi
     keys.set(normalized, { key: existing.key || key, detected: existing.detected || detected, live: existing.live || live });
   };
 
-  for (const item of detectedSchema) {
-    pushKey(String(item.key || item.parameterKey || item.rawName), item, undefined);
+  if (isKnownConfigFamily(family)) {
+    for (const item of detectedSchema) {
+      pushKey(String(item.key || item.parameterKey || item.rawName), item, undefined);
+    }
   }
   for (const [normalized, item] of liveSchemaByKey.entries()) {
     pushKey(String(item?.key || item?.parameterKey || item?.rawName || normalized), undefined, item);
@@ -289,13 +477,17 @@ async function buildConfigFieldMeta(instance: any, snapshot: any): Promise<Confi
       stored: storedValue,
       actual: actualValue,
       source: actualValue !== undefined ? 'actual' : storedValue !== undefined ? 'stored' : liveItem ? 'heartbeat' : detectedItem ? 'detected' : 'inferred',
-      group: detectedItem?.group || null,
+      group: normalizeGroupLabel(detectedItem?.group || liveItem?.group || null, key),
       comment: detectedItem?.comment || null,
       sourceFile: detectedItem?.sourceFile || null,
       lineNumber: detectedItem?.lineNumber || null,
-      liveEditable: !!liveItem || actualValue !== undefined,
+      liveEditable: isBridgeEditableField(family, {
+        key,
+        parameterKey: String(detectedItem?.parameterKey || liveItem?.parameterKey || detectedItem?.rawName || liveItem?.rawName || key),
+        rawName: String(detectedItem?.rawName || liveItem?.rawName || detectedItem?.parameterKey || liveItem?.parameterKey || key),
+      }, liveItem),
       detected: !!detectedItem,
-      liveConfig: !!liveItem || actualValue !== undefined,
+      liveConfig: !!liveItem || actualValue !== undefined || storedValue !== undefined,
       defaultValue: detectedItem?.defaultValue,
       options: liveItem?.options || detectedItem?.options,
       safeEditable: detectedItem?.safeEditable !== false,
@@ -430,7 +622,7 @@ async function mainMenu(channel: EaBotChannel) {
     [{ text: '❓ Help', id: 'm:help' }],
   ];
   if (isTelegram(channel)) {
-    return withKeyboard(channel, `${title}\n\nChoose what you want to manage. Manual BUY/SELL/CLOSE_ALL/MODIFY_SL/MODIFY_TP commands are disabled.`, telegramButtons);
+    return withKeyboard(channel, `${title}\n\nChoose what you want to manage. Manual BUY/SELL/CLOSE_ALL/MODIFY_SL/MODIFY_TP commands are disabled.`, telegramButtons, 'SUCCESS', undefined, resolveBotBannerPath());
   }
   const terminals = await latestTerminals();
   const terminal = terminals[0];
@@ -440,7 +632,7 @@ async function mainMenu(channel: EaBotChannel) {
     broker: terminal?.broker,
     balance: terminal?.balance,
     equity: terminal?.equity,
-  }));
+  }), [], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function terminalScreen(channel: EaBotChannel, senderId: string, flow: string) {
@@ -456,7 +648,7 @@ async function terminalScreen(channel: EaBotChannel, senderId: string, flow: str
   });
   const buttons = terminals.map((t: any, index: number) => [{ text: `${terminalOnline(t) ? '🟢' : '🔴'} ${t.terminalId}`, id: `t:${index}` }]);
   const body = isTelegram(channel) ? waNumbered(channel, title, options, 'Reply with a number.') : waScreen(channel, 'Select Terminal', ['Choose a terminal for this workflow.'], options, 'Reply with a number.');
-  return withKeyboard(channel, body, [...buttons, ...navRows(true)]);
+  return withKeyboard(channel, body, [[{ text: 'Back to Config', id: 'cfg:back' }], ...buttons, ...navRows(true)], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 function flowLabel(flow: string) {
@@ -488,12 +680,12 @@ async function templateScreen(channel: EaBotChannel, senderId: string) {
   setEaSession(channel, senderId, { flow: 'attach', step: 'select_template', data: { templates: templates.map(t => t.id) } });
   const title = `${breadcrumb(channel, ['ReplayFX', 'Attach EA', 'Select EA'])}\n\n${fmtBold(channel, 'Select EA template')}`;
   if (!templates.length) {
-    return withKeyboard(channel, `${title}\n\nNo templates found. Copy ReplayFX EA .mq5 templates into the EA library folder and run template scan.`, navRows(true), 'FAILED');
+    return withKeyboard(channel, `${title}\n\nNo templates found. Copy ReplayFX EA .mq5 templates into the EA library folder and run template scan.`, navRows(true), 'FAILED', undefined, resolveBotBannerPath());
   }
   const options = templates.map((t: any) => ({ label: `${t.name} | ${t.category || 'EA'} | ${t.defaultMode || 'NOTIFY_ONLY'}` }));
   const buttons = templates.slice(0, 12).map((t: any, i: number) => [{ text: `${t.name}`, id: `e:${i}` }]);
   const body = isTelegram(channel) ? waNumbered(channel, title, options, 'Reply with a number.') : `${formatWaEaLibrary(templates)}\n\nReply with a number.`;
-  return withKeyboard(channel, body, [...buttons, ...navRows()]);
+  return withKeyboard(channel, body, [...buttons, ...navRows()], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function selectTemplate(channel: EaBotChannel, senderId: string, index: number) {
@@ -550,7 +742,7 @@ async function symbolScreen(channel: EaBotChannel, senderId: string, flow: strin
   const body = isTelegram(channel)
     ? (shown.length ? waNumbered(channel, title, options, `Page ${safePage + 1}/${pageCount}. Reply number or type a search.`) : `${title}\n\nNo matching symbols. Type another search.`)
     : (shown.length ? waScreen(channel, 'Search Symbol', [`Query: ${(query ?? session?.searchQuery) || 'all'}`, `Page ${safePage + 1}/${pageCount}`], options, 'Reply number or type another search like xau, btc, usd.') : waBox('Search Symbol', ['No matching symbols.', 'Type another search like xau, btc, usd.']));
-  return withKeyboard(channel, body, [...quick, ...symbolButtons, ...pager, ...navRows(true)]);
+  return withKeyboard(channel, body, [...quick, ...symbolButtons, ...pager, ...navRows(true)], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function selectSymbol(channel: EaBotChannel, senderId: string, index: number) {
@@ -570,7 +762,7 @@ function timeframeScreen(channel: EaBotChannel, senderId: string, flow: string) 
     [{ text: 'H1', id: 'tf:H1' }, { text: 'H4', id: 'tf:H4' }, { text: 'D1', id: 'tf:D1' }],
   ];
   const body = isTelegram(channel) ? waNumbered(channel, title, TIMEFRAMES.map(label => ({ label })), 'Reply with a number.') : waScreen(channel, 'Select Timeframe', ['Choose the chart timeframe.'], TIMEFRAMES.map(label => ({ label })), 'Reply with a number.');
-  return withKeyboard(channel, body, [...buttons, ...navRows()]);
+  return withKeyboard(channel, body, [...buttons, ...navRows()], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 function modeScreen(channel: EaBotChannel, senderId: string) {
@@ -578,7 +770,7 @@ function modeScreen(channel: EaBotChannel, senderId: string) {
   const title = `${breadcrumb(channel, ['ReplayFX', 'Attach EA', 'Select Mode'])}\n\n${fmtBold(channel, 'Select mode')}`;
   const buttons = MODES.map(mode => [{ text: mode, id: `mode:${mode}` }]);
   const body = isTelegram(channel) ? waNumbered(channel, title, MODES.map(label => ({ label })), 'Reply with a number.') : waScreen(channel, 'Select Mode', ['NOTIFY_ONLY is safest for monitoring.', 'AUTO lets the EA follow its own configured logic.', 'PAUSED attaches without running.'], MODES.map(label => ({ label })), 'Reply with a number.');
-  return withKeyboard(channel, body, [...buttons, ...navRows()]);
+  return withKeyboard(channel, body, [...buttons, ...navRows()], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function attachPreview(channel: EaBotChannel, senderId: string) {
@@ -613,7 +805,7 @@ async function attachPreview(channel: EaBotChannel, senderId: string) {
     [{ text: '✏ Change Symbol', id: 'a:change_symbol' }, { text: '✏ Change Timeframe', id: 'a:change_tf' }],
     [{ text: '✏ Change EA', id: 'a:change_ea' }],
     ...navRows(),
-  ]);
+  ], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function confirmAttach(channel: EaBotChannel, senderId: string) {
@@ -646,7 +838,7 @@ async function confirmAttach(channel: EaBotChannel, senderId: string) {
   const queued = isTelegram(channel)
     ? `${fmtBold(channel, '⏳ Command queued')}\n\n${fmtBold(channel, 'Action:')} APPLY_TEMPLATE\n${fmtBold(channel, 'Command:')} ${fmtCode(channel, shortCommandId(command.id))}`
     : waBox('Command Queued', [`⏳ APPLY_TEMPLATE`, `Command: ${shortCommandId(command.id)}`, 'Waiting for MT5 Controller result.']);
-  return withKeyboard(channel, queued, [], 'QUEUED', command.id);
+  return withKeyboard(channel, queued, [], 'QUEUED', command.id, resolveBotBannerPath());
 }
 
 function screenshotSourceScreen(channel: EaBotChannel, senderId: string) {
@@ -664,7 +856,7 @@ function screenshotSourceScreen(channel: EaBotChannel, senderId: string) {
     [{ text: 'Select from open charts', id: 'ss:charts' }],
     [{ text: 'Search symbol', id: 'ss:search' }],
     ...navRows(),
-  ]);
+  ], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function screenshotPreview(channel: EaBotChannel, senderId: string) {
@@ -682,7 +874,7 @@ async function screenshotPreview(channel: EaBotChannel, senderId: string) {
       `🖥 Terminal: ${session?.selectedTerminalId || '-'}`,
       '🖼 Size: 1280x720',
     ])}\n\nReply *yes* to confirm or *cancel*.`;
-  return withKeyboard(channel, text, [[{ text: '✅ Confirm Screenshot', id: 's:confirm' }], ...navRows()]);
+  return withKeyboard(channel, text, [[{ text: '✅ Confirm Screenshot', id: 's:confirm' }], ...navRows()], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function confirmScreenshot(channel: EaBotChannel, senderId: string) {
@@ -716,7 +908,7 @@ async function chartsScreen(channel: EaBotChannel, senderId: string) {
   if (!charts.length) {
     const terminal = await requireOnlineTerminal(session?.selectedTerminalId);
     const command = await createEaCommand({ terminalId: terminal.terminalId, commandType: 'LIST_CHARTS', source: channel === 'TELEGRAM' ? 'TELEGRAM' : 'WHATSAPP_BAILEYS' });
-    return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Charts'])}\n\nNo cached open charts. Refresh requested from MT5 Controller.\nCommand: ${fmtCode(channel, shortCommandId(command.id))}`, navRows(true), 'QUEUED', command.id);
+    return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Charts'])}\n\nNo cached open charts. Refresh requested from MT5 Controller.\nCommand: ${fmtCode(channel, shortCommandId(command.id))}`, navRows(true), 'QUEUED', command.id, resolveBotBannerPath());
   }
   const options = charts.slice(0, 12).map((chart: any) => {
     const instance = instances.find(i => i.symbol === chart.symbol && i.timeframe === chart.timeframe);
@@ -726,7 +918,7 @@ async function chartsScreen(channel: EaBotChannel, senderId: string) {
   const body = isTelegram(channel)
     ? waNumbered(channel, `${breadcrumb(channel, ['ReplayFX', 'Charts'])}\n\n${fmtBold(channel, '🖥 Open Charts')}`, options, 'Open a chart for screenshot, attach, config, pause, or resume.')
     : waScreen(channel, 'Open Charts', ['Choose a chart to open actions.'], options, 'Reply chart number to open actions.');
-  return withKeyboard(channel, body, [...buttons, ...navRows(true)]);
+  return withKeyboard(channel, body, [...buttons, ...navRows(true)], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function chartDetail(channel: EaBotChannel, senderId: string, index: number) {
@@ -769,7 +961,7 @@ async function instanceScreen(channel: EaBotChannel, senderId: string, flow: 'co
   const visible = filterActiveInstances(instances, session);
   setEaSession(channel, senderId, { flow, step: 'select_instance', data: { instances: visible.map(i => i.id), activeInstanceIds: instances.map(i => i.id), activeInstanceFilter: filter } });
   const title = `${breadcrumb(channel, ['ReplayFX', flowLabel(flow), 'Select EA'])}\n\n${fmtBold(channel, 'Select active EA')}`;
-  if (!instances.length) return withKeyboard(channel, `${title}\n\nNo EA heartbeat received yet.`, navRows(true), 'FAILED');
+  if (!instances.length) return withKeyboard(channel, `${title}\n\nNo EA heartbeat received yet.`, navRows(true), 'FAILED', undefined, resolveBotBannerPath());
   const visibleButtons = visible.slice(0, 12).map((instance, i) => [{ text: `${isFreshHeartbeat(instance.lastHeartbeatAt) ? '🟢' : '🟡'} ${instance.symbol} ${instance.timeframe}`, id: `inst:${i}` }]);
   const options = visible.slice(0, 12).map(i => ({ label: activeInstanceLabel(i) }));
   const body = isTelegram(channel)
@@ -788,7 +980,7 @@ async function instanceScreen(channel: EaBotChannel, senderId: string, flow: 'co
     { text: 'Cleanup stale instances', id: 'instf:cleanup' },
     { text: 'Refresh', id: 'nav:refresh' },
   ];
-  return withKeyboard(channel, body, [...visibleButtons, filterRow, searchRow, cleanupRow, ...navRows(true)]);
+  return withKeyboard(channel, body, [...visibleButtons, filterRow, searchRow, cleanupRow, ...navRows(true)], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function configDetail(channel: EaBotChannel, senderId: string, index?: number) {
@@ -811,7 +1003,8 @@ async function configDetail(channel: EaBotChannel, senderId: string, index?: num
     flow: 'config',
     step: 'config_detail',
     selectedInstanceId: instance.id,
-    selectedConfigKey: undefined,
+    selectedGroup: session?.selectedGroup,
+    selectedConfigKey: session?.selectedConfigKey,
     page,
     data: {
       instances: ids,
@@ -900,21 +1093,21 @@ Diff:
 ${diffText.slice(0, 900)}`;
 
   const telegramButtons = [
-    [{ text: 'Change Mode', id: 'cfg:mode' }, { text: 'Edit Parameter', id: `cfg:edit:${page}` }],
+    [{ text: 'Change Mode', id: 'cfg:mode' }, { text: 'Edit Parameter', id: 'cfg:edit' }],
     [{ text: 'Sync DB from EA', id: 'cfg:sync' }, { text: 'Apply Stored to EA', id: 'cfg:apply' }],
     [{ text: 'Refresh', id: 'nav:refresh' }, { text: 'Clear Drift', id: 'cfg:clear' }],
     [{ text: 'Back', id: 'nav:back' }],
   ];
   if (!isTelegram(channel)) {
-    return withKeyboard(channel, body, [
-      [{ text: 'Change Mode', id: 'cfg:mode' }, { text: 'Edit Parameter', id: `cfg:edit:${page}` }],
-      [{ text: 'Sync DB from EA', id: 'cfg:sync' }, { text: 'Apply Stored to EA', id: 'cfg:apply' }],
-      [{ text: 'Refresh', id: 'nav:refresh' }, { text: 'Clear Drift', id: 'cfg:clear' }],
-      [{ text: 'Back', id: 'nav:back' }],
-      ...navRows(true),
-    ]);
+  return withKeyboard(channel, body, [
+    [{ text: 'Change Mode', id: 'cfg:mode' }, { text: 'Edit Parameter', id: 'cfg:edit' }],
+    [{ text: 'Sync DB from EA', id: 'cfg:sync' }, { text: 'Apply Stored to EA', id: 'cfg:apply' }],
+    [{ text: 'Refresh', id: 'nav:refresh' }, { text: 'Clear Drift', id: 'cfg:clear' }],
+    [{ text: 'Back', id: 'nav:back' }],
+    ...navRows(true),
+    ], 'SUCCESS', undefined, resolveBotBannerPath());
   }
-  return withKeyboard(channel, body, telegramButtons);
+  return withKeyboard(channel, body, telegramButtons, 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function configParamScreen(channel: EaBotChannel, senderId: string, page = 0) {
@@ -922,43 +1115,192 @@ async function configParamScreen(channel: EaBotChannel, senderId: string, page =
   const instance = await prisma.eaInstance.findUnique({ where: { id: session?.selectedInstanceId || '' } }).catch(() => null);
   if (!instance) return instanceScreen(channel, senderId, 'config');
   const snapshot = await getEaConfigSnapshot(instance.id).catch(() => null);
-  const fields = await buildConfigFieldMeta(instance, snapshot);
+  const allFields = await buildConfigFieldMeta(instance, snapshot);
+  const liveFields = allFields.filter(field => field.liveEditable);
+  const grouped = CONFIG_GROUP_ORDER
+    .map(group => ({ group, fields: liveFields.filter(field => field.group === group) }))
+    .filter(entry => entry.fields.length > 0);
+
+  if (!grouped.length) {
+    setEaSession(channel, senderId, {
+      flow: 'config',
+      step: 'config_groups',
+      selectedInstanceId: instance.id,
+      selectedGroup: undefined,
+      selectedConfigKey: undefined,
+      configPage: 0,
+      page: 0,
+      data: {
+        configKeys: [],
+        configGroups: [],
+        configPage: 0,
+        currentConfig: snapshot?.actualConfig || null,
+        storedConfig: snapshot?.storedConfig || null,
+        pendingConfigPatch: undefined,
+        pendingConfigReason: undefined,
+      },
+    });
+    return withKeyboard(
+      channel,
+      `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Edit Parameter'])}\n\n${fmtBold(channel, 'No live editable parameters are available for this EA.')}\n${fmtText(channel, 'Detected source inputs are shown in the config detail page, but this EA has no supported runtime bridge fields yet.')}`,
+      [[{ text: 'Back to Config', id: 'cfg:back' }], ...navRows(true)],
+      'FAILED',
+      undefined,
+      resolveBotBannerPath(),
+    );
+  }
+
+  const selectedGroup = session?.selectedGroup && grouped.some(entry => entry.group === session.selectedGroup)
+    ? session.selectedGroup
+    : grouped[0].group;
+  setEaSession(channel, senderId, {
+    flow: 'config',
+    step: 'config_groups',
+    selectedInstanceId: instance.id,
+    selectedGroup,
+    selectedConfigKey: session?.selectedConfigKey,
+    configPage: 0,
+    page: 0,
+    data: {
+      configGroups: grouped.map(entry => ({ group: entry.group, count: entry.fields.length })),
+      configPage: 0,
+      currentConfig: snapshot?.actualConfig || null,
+      storedConfig: snapshot?.storedConfig || null,
+      pendingConfigPatch: undefined,
+      pendingConfigReason: undefined,
+    },
+  });
+  const options = [
+    ...grouped.map(entry => ({
+      label: `${entry.group} (${entry.fields.length})`,
+    })),
+    { label: 'Back to Config' },
+  ];
+  const buttons = grouped.map((entry, index) => [{ text: `${index + 1}. ${entry.group}`, id: `cfg:group:${index}` }]);
+  const body = isTelegram(channel)
+    ? `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Edit Parameter'])}\n\n${fmtBold(channel, 'Select a parameter group')}\n${fmtText(channel, 'Only groups with supported live editable fields are shown.')}\n\n${options.map((option, index) => `${index + 1}. ${escapeHtml(option.label)}`).join('\n')}`
+    : waScreen(channel, 'Edit Parameter', ['Select a parameter group.', 'Only groups with supported live editable fields are shown.'], options, 'Reply with a number.');
+  return withKeyboard(channel, body, [...buttons, ...navRows(true)], 'SUCCESS', undefined, resolveBotBannerPath());
+}
+
+async function configParamListScreen(channel: EaBotChannel, senderId: string, group?: string, page = 0) {
+  const session = getEaSession(channel, senderId);
+  const instance = await prisma.eaInstance.findUnique({ where: { id: session?.selectedInstanceId || '' } }).catch(() => null);
+  if (!instance) return instanceScreen(channel, senderId, 'config');
+  const snapshot = await getEaConfigSnapshot(instance.id).catch(() => null);
+  const allFields = await buildConfigFieldMeta(instance, snapshot);
+  const liveFields = allFields.filter(field => field.liveEditable);
+  const availableGroups = CONFIG_GROUP_ORDER
+    .map(entry => ({ group: entry, fields: liveFields.filter(field => field.group === entry) }))
+    .filter(entry => entry.fields.length > 0);
+  const safeGroup = group && availableGroups.some(entry => entry.group === group) ? group : availableGroups[0]?.group;
+  if (!safeGroup) return configParamScreen(channel, senderId, page);
+  const fields = liveFields.filter(field => field.group === safeGroup);
   const pageCount = Math.max(1, Math.ceil(fields.length / CONFIG_PAGE_SIZE));
   const safePage = Math.min(Math.max(0, page), pageCount - 1);
   const visible = fields.slice(safePage * CONFIG_PAGE_SIZE, safePage * CONFIG_PAGE_SIZE + CONFIG_PAGE_SIZE);
+
   setEaSession(channel, senderId, {
     flow: 'config',
-    step: 'config_select',
+    step: 'config_params',
     selectedInstanceId: instance.id,
+    selectedGroup: safeGroup,
     page: safePage,
+    configPage: safePage,
     data: {
+      configGroups: availableGroups.map(entry => ({ group: entry.group, count: entry.fields.length })),
       configKeys: fields.map(field => field.key),
       configPage: safePage,
       currentConfig: snapshot?.actualConfig || null,
       storedConfig: snapshot?.storedConfig || null,
-      configSchema: fields.map(field => ({ key: field.key, label: field.label, type: field.type, source: field.source })),
-      selectedParameter: undefined,
-      pendingEdit: undefined,
-      previousSchema: undefined,
-      previousConfig: undefined,
-      cachedParameterList: undefined,
       pendingConfigPatch: undefined,
       pendingConfigReason: undefined,
       configFieldMeta: undefined,
     },
   });
-  const title = `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Edit Parameter'])}\n\n${fmtBold(channel, 'Select parameter')}`;
-  const options = visible.map((field, index) => ({ label: `${field.key}: ${formatConfigValue(configFieldValue(field))} [${field.liveEditable ? 'live' : 'detected'}]` }));
-  const buttons = visible.map((field, index) => [{ text: `${index + 1}. ${field.key}`, id: `cfgk:${safePage}:${index}` }]);
+
+  const title = `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Edit Parameter'])}\n\n${fmtBold(channel, safeGroup)}`;
+  const instanceLabel = `${snapshot?.heartbeat?.eaName || (instance as any)?.eaName || (instance as any)?.templateName || 'EA'}`;
+  const lines = [
+    `EA: ${instanceLabel}`,
+    `Instance: ${String(instance.id).slice(0, 8)}`,
+    `Supported fields: ${fields.length}`,
+    `Page: ${safePage + 1}/${pageCount}`,
+  ];
+  const options = [
+    ...visible.map(field => ({
+      label: `${field.label}: ${formatConfigValue(configFieldValue(field))} ${field.sourceFile ? `[${field.sourceFile}:${field.lineNumber || '-'}]` : ''}`.trim(),
+    })),
+    { label: 'Back to Config' },
+  ];
+  const buttons = visible.map((field, index) => [{ text: `${index + 1}. ${field.label}`, id: `cfg:field:${safeGroup}:${safePage}:${index}` }]);
   const pager = [[
     { text: '◀ Prev', id: 'cfgpage:prev' },
-    { text: `Page ${safePage + 1}/${pageCount}`, id: 'noop' },
+    { text: `${safeGroup}`, id: 'cfg:groups' },
     { text: 'Next ▶', id: 'cfgpage:next' },
-  ], [{ text: 'Back to Config', id: 'cfg:back' }]];
+  ], [{ text: 'Back to Config', id: 'cfg:backconfig' }]];
   const body = isTelegram(channel)
-    ? `${title}\n\n${options.map((option, index) => `${index + 1}. ${escapeHtml(option.label)}`).join('\n')}\n\nReply with a number or use the buttons.`
-    : waScreen(channel, 'Edit Parameter', ['Select the parameter to edit.'], options, 'Reply with a number.');
-  return withKeyboard(channel, body, [...buttons, ...pager]);
+    ? `${title}\n${lines.map(line => escapeHtml(line)).join('\n')}\n\n${options.map((option, index) => `${index + 1}. ${escapeHtml(option.label)}`).join('\n')}\n\nReply with a number or use the buttons.`
+    : waScreen(channel, 'Edit Parameter', [...lines, 'Select a parameter to inspect before editing.'], options, 'Reply with a number.');
+  return withKeyboard(channel, body, [...buttons, ...pager], 'SUCCESS', undefined, resolveBotBannerPath());
+}
+
+async function configParamDetailScreen(channel: EaBotChannel, senderId: string, key?: string) {
+  const session = getEaSession(channel, senderId);
+  const instance = await prisma.eaInstance.findUnique({ where: { id: session?.selectedInstanceId || '' } }).catch(() => null);
+  if (!instance) return instanceScreen(channel, senderId, 'config');
+  const snapshot = await getEaConfigSnapshot(instance.id).catch(() => null);
+  const allFields = await buildConfigFieldMeta(instance, snapshot);
+  const liveFields = allFields.filter(field => field.liveEditable);
+  const selectedKey = key || session?.selectedConfigKey || '';
+  const meta = allFields.find(field => field.key === selectedKey) || liveFields.find(field => field.key === selectedKey) || null;
+  if (!meta) return configParamScreen(channel, senderId, session?.page || 0);
+  const group = meta.group || 'General';
+  const currentPage = session?.configPage ?? session?.page ?? 0;
+
+  setEaSession(channel, senderId, {
+    flow: 'config',
+    step: 'config_param_detail',
+    selectedInstanceId: instance.id,
+    selectedGroup: group,
+    selectedConfigKey: meta.key,
+    configPage: currentPage,
+    page: currentPage,
+    data: {
+      configFieldMeta: meta,
+      configKeys: liveFields.filter(field => field.group === group).map(field => field.key),
+      configPage: currentPage,
+      currentConfig: snapshot?.actualConfig || null,
+      storedConfig: snapshot?.storedConfig || null,
+      pendingConfigPatch: undefined,
+      pendingConfigReason: undefined,
+    },
+  });
+
+  const examples = fieldAcceptedExamples(meta);
+  const lines = [
+    `Label: ${meta.label}`,
+    `Key: ${meta.key}`,
+    `Type: ${meta.type}`,
+    `Current actual value: ${formatConfigValue(meta.actual)}`,
+    `Stored value: ${formatConfigValue(meta.stored)}`,
+    `Default value: ${formatConfigValue(meta.defaultValue)}`,
+    `Group: ${meta.group || 'General'}`,
+    `Source: ${meta.sourceFile && meta.lineNumber ? `${meta.sourceFile}:${meta.lineNumber}` : meta.sourceFile || '-'}`,
+    `Live editable: ${meta.liveEditable ? 'yes' : 'no'}`,
+    `Accepted input examples: ${examples.join(', ')}`,
+  ];
+  if (meta.comment) lines.push(`Note: ${meta.comment}`);
+  const body = isTelegram(channel)
+    ? `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Parameter'])}\n\n${fmtBold(channel, meta.label)}\n${lines.map(line => escapeHtml(line)).join('\n')}\n\n${meta.comment ? `${fmtBold(channel, 'Note:')} ${fmtText(channel, meta.comment)}\n\n` : ''}${meta.liveEditable ? fmtText(channel, 'Press Edit to change this live parameter.') : fmtText(channel, 'This parameter is documentation only and cannot be edited live yet.')}`
+    : waBox('Parameter Detail', lines);
+  const buttons = meta.liveEditable
+    ? [[{ text: 'Edit Parameter', id: 'cfg:editvalue' }], [{ text: 'Back to Group', id: 'cfg:back' }, { text: 'Back to Config', id: 'cfg:backconfig' }], ...navRows(true)]
+    : [[{ text: 'Back to Group', id: 'cfg:back' }, { text: 'Back to Config', id: 'cfg:backconfig' }], ...navRows(true)];
+  if (!isTelegram(channel)) {
+    return withKeyboard(channel, `${body}\n\n${meta.liveEditable ? '1. Edit Parameter\n2. Back to Group\n3. Back to Config' : '1. Back to Group\n2. Back to Config'}`, buttons);
+  }
+  return withKeyboard(channel, body, buttons, 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function configDecisionScreen(channel: EaBotChannel, senderId: string, patch: Record<string, any>, reason: string) {
@@ -970,11 +1312,15 @@ async function configDecisionScreen(channel: EaBotChannel, senderId: string, pat
     flow: 'config',
     step: 'config_confirm',
     selectedInstanceId: instance.id,
+    selectedGroup: session?.selectedGroup,
+    selectedConfigKey: session?.selectedConfigKey,
+    configPage: session?.configPage ?? session?.page ?? 0,
+    page: session?.page ?? 0,
     data: {
       pendingConfigPatch: patch,
       pendingConfigReason: reason,
       configKeys: session?.data?.configKeys || [],
-      configPage: session?.data?.configPage || 0,
+      configPage: session?.data?.configPage ?? session?.configPage ?? session?.page ?? 0,
     },
   });
   const lines = Object.entries(patch).map(([key, value]) => `${key}: ${value}`);
@@ -993,7 +1339,7 @@ async function configDecisionScreen(channel: EaBotChannel, senderId: string, pat
         [{ text: 'Cancel', id: 'nav:cancel' }],
       ]
     : [[{ text: 'Confirm Save', id: 'cfgconfirm:apply' }], ...navRows()];
-  return withKeyboard(channel, body, buttons, drift ? 'CONFIRMATION_REQUIRED' : 'CONFIRMATION_REQUIRED');
+  return withKeyboard(channel, body, buttons, drift ? 'CONFIRMATION_REQUIRED' : 'CONFIRMATION_REQUIRED', undefined, resolveBotBannerPath());
 }
 
 async function executeConfigApply(channel: EaBotChannel, senderId: string) {
@@ -1008,11 +1354,24 @@ async function executeConfigApply(channel: EaBotChannel, senderId: string) {
     source: channel === 'TELEGRAM' ? 'TELEGRAM' : 'WHATSAPP_BAILEYS',
     payload: { terminalId: instance.terminalId, instanceId: instance.id, chartId: instance.chartId, symbol: instance.symbol, timeframe: instance.timeframe, config: { ...patch }, customConfig: { ...patch }, ...patch },
   });
-  clearEaSession(channel, senderId);
-  const body = isTelegram(channel)
-    ? `${fmtBold(channel, 'Config update queued')}\n${fmtBold(channel, 'Command:')} ${fmtCode(channel, shortCommandId(command.id))}`
-    : waBox('Config Update Queued', [`Command: ${shortCommandId(command.id)}`, ...Object.entries(patch).map(([key, value]) => `${key}: ${value}`)]);
-  return withKeyboard(channel, body, [], 'QUEUED', command.id);
+  setEaSession(channel, senderId, {
+    flow: 'config',
+    step: 'config_post_save',
+    selectedInstanceId: instance.id,
+    selectedGroup: session?.selectedGroup,
+    selectedConfigKey: session?.selectedConfigKey,
+    configPage: session?.configPage ?? session?.page ?? 0,
+    page: session?.page ?? 0,
+    data: {
+      pendingConfigPatch: null,
+      pendingConfigReason: null,
+      lastSavedConfigPatch: patch,
+      lastSavedCommandId: command.id,
+      configKeys: session?.data?.configKeys || [],
+      configPage: session?.data?.configPage ?? session?.configPage ?? session?.page ?? 0,
+    },
+  });
+  return configPostSaveScreen(channel, senderId, command.id, instance, patch);
 }
 
 async function executeConfigSync(channel: EaBotChannel, senderId: string) {
@@ -1021,14 +1380,22 @@ async function executeConfigSync(channel: EaBotChannel, senderId: string) {
   if (!instance) return instanceScreen(channel, senderId, 'config');
   try {
     const result = await syncEaRuntimeConfigFromActual(instance.id);
-    clearEaSession(channel, senderId);
-    const body = isTelegram(channel)
-      ? `${fmtBold(channel, 'DB synced from EA')}\n${fmtBold(channel, 'Mode:')} ${fmtCode(channel, result.config?.mode || '-')}\n${fmtBold(channel, 'Sync status:')} ${fmtCode(channel, result.snapshot.syncStatus || 'UNKNOWN')}`
-      : waBox('Sync DB from EA', [
-        `Mode: ${result.config?.mode || '-'}`,
-        `Sync status: ${result.snapshot.syncStatus || 'UNKNOWN'}`,
-      ]);
-    return withKeyboard(channel, body, [[{ text: 'Refresh', id: 'nav:refresh' }], ...navRows(true)], 'SUCCESS');
+    setEaSession(channel, senderId, {
+      flow: 'config',
+      step: 'config_detail',
+      selectedInstanceId: instance.id,
+      selectedGroup: session?.selectedGroup,
+      selectedConfigKey: session?.selectedConfigKey,
+      configPage: session?.configPage ?? session?.page ?? 0,
+      page: session?.page ?? 0,
+      data: {
+        pendingConfigPatch: null,
+        pendingConfigReason: null,
+        lastSyncMode: result.config?.mode || null,
+        configPage: session?.data?.configPage ?? session?.configPage ?? session?.page ?? 0,
+      },
+    });
+    return configDetail(channel, senderId);
   } catch (error: any) {
     return withKeyboard(channel, error.message || 'Failed to sync DB from EA.', navRows(true), 'FAILED');
   }
@@ -1040,28 +1407,58 @@ async function executeApplyStored(channel: EaBotChannel, senderId: string) {
   if (!instance) return instanceScreen(channel, senderId, 'config');
   try {
     const result = await applyEaStoredConfigToController(instance.id, channel === 'TELEGRAM' ? 'TELEGRAM' : 'WHATSAPP_BAILEYS');
-    clearEaSession(channel, senderId);
-    const body = isTelegram(channel)
-      ? `${fmtBold(channel, 'Stored config queued to EA')}\n${fmtBold(channel, 'Command:')} ${fmtCode(channel, shortCommandId(result.command.id))}`
-      : waBox('Apply Stored to EA', [
-        `Command: ${shortCommandId(result.command.id)}`,
-        `Terminal: ${result.instance.terminalId}`,
-      ]);
-    return withKeyboard(channel, body, [[{ text: 'Refresh', id: 'nav:refresh' }], ...navRows(true)], 'QUEUED', result.command.id);
+    setEaSession(channel, senderId, {
+      flow: 'config',
+      step: 'config_post_save',
+      selectedInstanceId: instance.id,
+      selectedGroup: session?.selectedGroup,
+      selectedConfigKey: session?.selectedConfigKey,
+      configPage: session?.configPage ?? session?.page ?? 0,
+      page: session?.page ?? 0,
+      data: {
+        pendingConfigPatch: null,
+        pendingConfigReason: null,
+        lastAppliedStoredCommandId: result.command.id,
+        configPage: session?.data?.configPage ?? session?.configPage ?? session?.page ?? 0,
+      },
+    });
+    return configPostSaveScreen(channel, senderId, result.command.id, instance, result.storedConfig || {});
   } catch (error: any) {
     return withKeyboard(channel, error.message || 'Failed to apply stored config.', navRows(true), 'FAILED');
   }
+}
+
+function configPostSaveScreen(channel: EaBotChannel, senderId: string, commandId: string, instance: any, patch: Record<string, any>) {
+  const session = getEaSession(channel, senderId);
+  const lines = Object.entries(patch).map(([key, value]) => `${key}: ${formatConfigValue(value)}`);
+  const instanceLabel = `${instance?.eaName || instance?.templateName || instance?.symbol || '-'} ${instance?.timeframe || ''}`.trim();
+  const body = isTelegram(channel)
+    ? `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Saved'])}\n\n${fmtBold(channel, 'Config saved and queued')}\n${fmtBold(channel, 'Command:')} ${fmtCode(channel, shortCommandId(commandId))}\n${fmtBold(channel, 'Instance:')} ${fmtCode(channel, instanceLabel)}\n${lines.length ? `\n${lines.map(line => fmtCode(channel, line)).join('\n')}` : ''}`
+    : waBox('Config Saved', [
+      `Command: ${shortCommandId(commandId)}`,
+      `Instance: ${instanceLabel}`,
+      ...lines,
+    ]);
+  const buttons = [
+    [{ text: 'Edit parameter lain', id: 'cfg:edit' }, { text: 'Edit parameter ini lagi', id: 'cfg:again' }],
+    [{ text: 'Back to Config', id: 'cfg:back' }, { text: 'Refresh', id: 'nav:refresh' }],
+    [{ text: 'Menu', id: 'm:home' }],
+  ];
+  if (!isTelegram(channel)) {
+    return withKeyboard(channel, `${body}\n\n1. Edit parameter lain\n2. Edit parameter ini lagi\n3. Back to Config\n4. Refresh\n5. Menu`, buttons, 'QUEUED', commandId);
+  }
+  return withKeyboard(channel, body, buttons, 'QUEUED', commandId);
 }
 
 async function commandLogScreen(channel: EaBotChannel, senderId: string) {
   const commands = await prisma.eaCommandQueue.findMany({ orderBy: { createdAt: 'desc' }, take: 10 });
   setEaSession(channel, senderId, { flow: 'logs', step: 'list', data: { commands: commands.map(c => c.id) } });
   const title = `${breadcrumb(channel, ['ReplayFX', 'Command Log'])}\n\n${fmtBold(channel, 'Last 10 Commands')}`;
-  if (!commands.length) return withKeyboard(channel, `${title}\n\nNo commands yet.`, navRows(true));
+  if (!commands.length) return withKeyboard(channel, `${title}\n\nNo commands yet.`, navRows(true), 'SUCCESS', undefined, resolveBotBannerPath());
   const options = commands.map(c => ({ label: `${statusLabel(c.status)} ${c.commandType} ${shortCommandId(c.id)}` }));
   const buttons = commands.map((c, i) => [{ text: `${statusLabel(c.status)} ${c.commandType}`, id: `log:${i}` }]);
   const body = isTelegram(channel) ? waNumbered(channel, title, options, 'Open a command for payload/result and retry actions.') : waScreen(channel, 'Command Log', ['Last 10 EA Control commands.'], options, 'Reply number to open details.');
-  return withKeyboard(channel, body, [...buttons, ...navRows(true)]);
+  return withKeyboard(channel, body, [...buttons, ...navRows(true)], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function commandDetail(channel: EaBotChannel, senderId: string, index: number) {
@@ -1098,12 +1495,12 @@ Result: \`${JSON.stringify(result).slice(0, 500)}\`
   return withKeyboard(channel, text, [
     [{ text: 'Retry', id: 'log:retry' }, { text: 'Screenshot related chart', id: 'log:ss' }],
     ...navRows(true),
-  ]);
+  ], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function cleanupScreen(channel: EaBotChannel, senderId: string) {
   setEaSession(channel, senderId, { flow: 'cleanup', step: 'confirm' });
-  return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Cleanup'])}\n\n${fmtBold(channel, 'Confirm Cleanup')}\nThis cancels queued/executing EA-control commands.`, [[{ text: '✅ Confirm Cleanup', id: 'clean:confirm' }], ...navRows()]);
+  return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Cleanup'])}\n\n${fmtBold(channel, 'Confirm Cleanup')}\nThis cancels queued/executing EA-control commands.`, [[{ text: '✅ Confirm Cleanup', id: 'clean:confirm' }], ...navRows()], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function confirmCleanup(channel: EaBotChannel, senderId: string) {
@@ -1116,12 +1513,12 @@ async function confirmCleanup(channel: EaBotChannel, senderId: string) {
   });
   await (prisma.eaCommandQueue as any).update({ where: { id: command.id }, data: { status: 'SUCCESS', executedAt: now, resultAt: now, resultJson: JSON.stringify({ terminalId: terminal.terminalId, cancelled: result.count, message: 'Pending EA commands cancelled.' }) } });
   clearEaSession(channel, senderId);
-  return withKeyboard(channel, `${fmtBold(channel, '🧹 Cleanup Complete')}\n\nCancelled ${result.count} pending command(s).`, [], 'SUCCESS', command.id);
+  return withKeyboard(channel, `${fmtBold(channel, '🧹 Cleanup Complete')}\n\nCancelled ${result.count} pending command(s).`, [], 'SUCCESS', command.id, resolveBotBannerPath());
 }
 
 async function processShortcut(channel: EaBotChannel, senderId: string, text: string) {
   const intent = parseEaControlIntent(text);
-  if (intent.type === 'blocked_manual_trade') return withKeyboard(channel, 'Remote manual trade execution is disabled for safety. Use EA management controls only.', [], 'REJECTED');
+  if (intent.type === 'blocked_manual_trade') return withKeyboard(channel, 'Remote manual trade execution is disabled for safety. Use EA management controls only.', [], 'REJECTED', undefined, resolveBotBannerPath());
   if (intent.type === 'menu') return await mainMenu(channel);
   if (intent.type === 'help') return helpScreen(channel);
   if (intent.type === 'status') return statusScreen(channel);
@@ -1153,23 +1550,23 @@ async function queuePauseResume(channel: EaBotChannel, senderId: string, action:
     where: symbol ? { symbol: { contains: symbol }, ...(timeframe ? { timeframe: timeframe.toUpperCase() } : {}) } : { id: getEaSession(channel, senderId)?.selectedInstanceId || '' },
     orderBy: { updatedAt: 'desc' },
   });
-  if (!instance) return withKeyboard(channel, 'EA instance not found. Open Runtime Config or Charts first.', navRows(true), 'REJECTED');
+  if (!instance) return withKeyboard(channel, 'EA instance not found. Open Runtime Config or Charts first.', navRows(true), 'REJECTED', undefined, resolveBotBannerPath());
   await requireOnlineTerminal(instance.terminalId);
   const mode = action === 'pause' ? 'PAUSED' : 'NOTIFY_ONLY';
   await upsertRuntimeConfig(instance.id, { mode });
   const command = await createEaCommand({ terminalId: instance.terminalId, commandType: action === 'pause' ? 'PAUSE_EA' : 'RESUME_EA', source: channel === 'TELEGRAM' ? 'TELEGRAM' : 'WHATSAPP_BAILEYS', payload: { instanceId: instance.id, symbol: instance.symbol, timeframe: instance.timeframe, mode } });
   clearEaSession(channel, senderId);
-  return withKeyboard(channel, `${fmtBold(channel, action === 'pause' ? '⏸ Pause queued' : '▶ Resume queued')}\n\n${instance.symbol} ${instance.timeframe}\nCommand: ${fmtCode(channel, shortCommandId(command.id))}`, [], 'QUEUED', command.id);
+  return withKeyboard(channel, `${fmtBold(channel, action === 'pause' ? '⏸ Pause queued' : '▶ Resume queued')}\n\n${instance.symbol} ${instance.timeframe}\nCommand: ${fmtCode(channel, shortCommandId(command.id))}`, [], 'QUEUED', command.id, resolveBotBannerPath());
 }
 
 async function libraryScreen(channel: EaBotChannel, senderId: string) {
   const templates = (await listTemplates()).map(attachParameterSchema);
   setEaSession(channel, senderId, { flow: 'library', step: 'list', data: { templates: templates.map(t => t.id) } });
   const title = `${breadcrumb(channel, ['ReplayFX', 'EA Library'])}\n\n${fmtBold(channel, 'EA Templates')}`;
-  if (!templates.length) return withKeyboard(channel, `${title}\n\nNo templates found. Copy ReplayFX EA .mq5 templates into the EA library folder.`, navRows(true), 'FAILED');
+  if (!templates.length) return withKeyboard(channel, `${title}\n\nNo templates found. Copy ReplayFX EA .mq5 templates into the EA library folder.`, navRows(true), 'FAILED', undefined, resolveBotBannerPath());
   const options = templates.map((t: any) => ({ label: `${t.name} | ${t.category || 'EA'} | ${t.defaultMode}` }));
   const buttons = templates.slice(0, 12).map((t: any, i: number) => [{ text: t.name, id: `lib:${i}` }]);
-  return withKeyboard(channel, waNumbered(channel, title, options, 'Open an EA for details or attach.'), [...buttons, ...navRows(true)]);
+  return withKeyboard(channel, waNumbered(channel, title, options, 'Open an EA for details or attach.'), [...buttons, ...navRows(true)], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function libraryDetail(channel: EaBotChannel, senderId: string, index: number) {
@@ -1185,7 +1582,7 @@ async function libraryDetail(channel: EaBotChannel, senderId: string, index: num
     `${fmtBold(channel, 'category:')} ${fmtText(channel, template.category || '-')}\n` +
     `${fmtBold(channel, 'default timeframe:')} ${fmtText(channel, template.defaultTimeframe || '-')}\n` +
     `${fmtBold(channel, 'supported config:')} ${fmtText(channel, fields || '-')}`;
-  return withKeyboard(channel, text, [[{ text: '🚀 Attach this EA', id: 'lib:attach' }, { text: '⚙ Default config', id: 'lib:config' }], [{ text: '📄 Details', id: 'lib:details' }], ...navRows()]);
+  return withKeyboard(channel, text, [[{ text: '🚀 Attach this EA', id: 'lib:attach' }, { text: '⚙ Default config', id: 'lib:config' }], [{ text: '📄 Details', id: 'lib:details' }], ...navRows()], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function statusScreen(channel: EaBotChannel) {
@@ -1201,14 +1598,14 @@ async function statusScreen(channel: EaBotChannel) {
       terminals.map(t => ({ ...t, online: terminalOnline(t) })),
       visible.map(i => ({ ...i, online: !!(i.lastHeartbeatAt && Date.now() - new Date(i.lastHeartbeatAt).getTime() < 90_000) })),
     );
-  return withKeyboard(channel, body, [[{ text: 'Active EAs', id: 'm:config' }, { text: 'Refresh', id: 'nav:refresh' }], ...navRows(true)]);
+  return withKeyboard(channel, body, [[{ text: 'Active EAs', id: 'm:config' }, { text: 'Refresh', id: 'nav:refresh' }], ...navRows(true)], 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 function helpScreen(channel: EaBotChannel) {
   const body = isTelegram(channel)
     ? `${breadcrumb(channel, ['ReplayFX', 'Help'])}\n\n${fmtBold(channel, 'Safe EA management only')}\n\nShortcuts:\n${fmtCode(channel, 'status')}\n${fmtCode(channel, 'symbols xau')}\n${fmtCode(channel, 'charts')}\n${fmtCode(channel, 'screenshot BTCUSD H1')}\n${fmtCode(channel, 'attach ERS BTCUSD H1')}\n${fmtCode(channel, 'config')}\n${fmtCode(channel, 'cleanup')}\n\nManual BUY, SELL, CLOSE_ALL, MODIFY_SL, and MODIFY_TP commands are disabled.`
     : formatWaHelp();
-  return withKeyboard(channel, body, navRows());
+  return withKeyboard(channel, body, navRows(), 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 async function handleCallback(channel: EaBotChannel, senderId: string, id: string): Promise<EaBotResponse> {
@@ -1263,20 +1660,20 @@ async function handleCallback(channel: EaBotChannel, senderId: string, id: strin
     if (key === 'stale') filter.showStale = !filter.showStale;
     if (key === 'ea') {
       setEaSession(channel, senderId, { flow: 'config', step: 'select_instance_filter', data: { activeInstanceFilter: { ...filter, inputKey: 'ea' } } });
-      return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Filter by EA'])}\n\nType part of EA name.`, navRows(true));
+      return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Filter by EA'])}\n\nType part of EA name.`, navRows(true), 'SUCCESS', undefined, resolveBotBannerPath());
     }
     if (key === 'symbol') {
       setEaSession(channel, senderId, { flow: 'config', step: 'select_instance_filter', data: { activeInstanceFilter: { ...filter, inputKey: 'symbol' } } });
-      return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Filter by Symbol'])}\n\nType part of symbol, e.g. ${fmtCode(channel, 'BTC')}.`, navRows(true));
+      return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Filter by Symbol'])}\n\nType part of symbol, e.g. ${fmtCode(channel, 'BTC')}.`, navRows(true), 'SUCCESS', undefined, resolveBotBannerPath());
     }
     if (key === 'timeframe') {
       setEaSession(channel, senderId, { flow: 'config', step: 'select_instance_filter', data: { activeInstanceFilter: { ...filter, inputKey: 'timeframe' } } });
-      return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Filter by Timeframe'])}\n\nType timeframe like ${fmtCode(channel, 'M5')} or ${fmtCode(channel, 'H1')}.`, navRows(true));
+      return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Filter by Timeframe'])}\n\nType timeframe like ${fmtCode(channel, 'M5')} or ${fmtCode(channel, 'H1')}.`, navRows(true), 'SUCCESS', undefined, resolveBotBannerPath());
     }
     if (key === 'cleanup') {
       const stale = dedupeActiveInstances(await prisma.eaInstance.findMany({ orderBy: { updatedAt: 'desc' }, take: 100 })).filter(i => !isFreshHeartbeat(i.lastHeartbeatAt));
       setEaSession(channel, senderId, { flow: 'config', step: 'cleanup_stale_confirm', data: { staleInstanceIds: stale.map(i => i.id) } });
-      return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Cleanup Stale'])}\n\n${stale.length} stale instance(s) detected. This will not delete records; it only removes stale entries from the current selector view. Reply yes to clear the filter cache.`, [[{ text: 'Confirm Cleanup', id: 'instf:cleanup_confirm' }], ...navRows()]);
+      return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Cleanup Stale'])}\n\n${stale.length} stale instance(s) detected. This will not delete records; it only removes stale entries from the current selector view. Reply yes to clear the filter cache.`, [[{ text: 'Confirm Cleanup', id: 'instf:cleanup_confirm' }], ...navRows()], 'SUCCESS', undefined, resolveBotBannerPath());
     }
     if (key === 'cleanup_confirm') {
       setEaSession(channel, senderId, { flow: 'config', step: 'select_instance', data: { activeInstanceFilter: { onlineOnly: true, showStale: false, ea: '', symbol: '', timeframe: '' } } });
@@ -1361,24 +1758,87 @@ async function handleCallback(channel: EaBotChannel, senderId: string, id: strin
   return await mainMenu(channel);
 }
 
-async function handleConfigCallback(channel: EaBotChannel, senderId: string, key: string) {
+async function handleConfigCallback(channel: EaBotChannel, senderId: string, key: string): Promise<EaBotResponse> {
   const session = getEaSession(channel, senderId);
   if (!session?.selectedInstanceId) return instanceScreen(channel, senderId, 'config');
   if (key === 'sync') return executeConfigSync(channel, senderId);
   if (key === 'clear') return executeConfigSync(channel, senderId);
   if (key === 'apply') return executeApplyStored(channel, senderId);
+  if (key === 'groups' || key === 'edit') return configParamScreen(channel, senderId, session.configPage ?? session.page ?? 0);
+  if (key === 'again') return configParamDetailScreen(channel, senderId, session.selectedConfigKey);
+  if (key === 'editvalue') {
+    return session.selectedConfigKey ? handleConfigCallback(channel, senderId, session.selectedConfigKey) : configParamScreen(channel, senderId, session.configPage ?? session.page ?? 0);
+  }
+  if (key.startsWith('group:')) {
+    const index = Number(key.split(':')[1]);
+    const groups = session?.data?.configGroups || [];
+    const group = groups[index]?.group || session.selectedGroup;
+    return configParamListScreen(channel, senderId, group, 0);
+  }
+  if (key.startsWith('field:')) {
+    const [, group, pageStr, indexStr] = key.split(':');
+    const page = Number(pageStr);
+    const index = Number(indexStr);
+    const keys = session?.data?.configKeys || [];
+    const selected = keys[page * CONFIG_PAGE_SIZE + index];
+    if (!selected) return configParamListScreen(channel, senderId, group || session.selectedGroup, Number.isFinite(page) ? page : 0);
+    return configParamDetailScreen(channel, senderId, selected);
+  }
+  if (
+    key === 'edit' &&
+    session.selectedConfigKey &&
+    session.data?.configFieldMeta &&
+    session.step !== 'config_select'
+  ) {
+    const meta = session.data.configFieldMeta;
+
+    setEaSession(channel, senderId, {
+      flow: 'config',
+      step: 'config_value',
+      selectedInstanceId: session.selectedInstanceId,
+      selectedConfigKey: session.selectedConfigKey,
+      page: session.page || 0,
+      data: {
+        ...(session.data || {}),
+        configFieldMeta: meta,
+      },
+    });
+
+    const examples =
+      meta.type === 'boolean' ? 'true / false, on / off, 1 / 0' :
+      meta.type === 'mode' ? MODES.join(', ') :
+      meta.type === 'number' ? '0.5, 1, 2, 10' :
+      'text value';
+
+    return withKeyboard(
+      channel,
+      `Send new value for ${meta.key}.\n\nCurrent: ${formatConfigValue(configFieldValue(meta))}\nType: ${meta.type}\nExamples: ${examples}`,
+      [[{ text: 'Back to Parameter', id: `cfg:${meta.key}` }], ...navRows(true)]
+    );
+  }
+
   if (key.startsWith('edit')) {
     const page = key.includes(':') ? Number(key.split(':')[1]) : session.page || 0;
     return configParamScreen(channel, senderId, Number.isFinite(page) ? page : 0);
   }
-  if (key === 'back') return configDetail(channel, senderId);
-  if (key.startsWith('page:')) return configParamScreen(channel, senderId, Number(key.slice(5)) || 0);
+  if (key === 'back') {
+    if (session.step === 'config_param_detail') return configParamListScreen(channel, senderId, session.selectedGroup, session.configPage ?? session.page ?? 0);
+    if (session.step === 'config_params') return configParamScreen(channel, senderId, session.configPage ?? session.page ?? 0);
+    return configDetail(channel, senderId);
+  }
+  if (key === 'backconfig') return configDetail(channel, senderId);
+  if (key.startsWith('page:')) return configParamListScreen(channel, senderId, session.selectedGroup, Number(key.slice(5)) || 0);
   if (key === 'save') {
     return executeApplyStored(channel, senderId);
   }
   if (key === 'mode') {
-    setEaSession(channel, senderId, { step: 'config_mode', selectedConfigKey: 'mode', data: { options: MODES } });
-    return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Change Mode'])}\n\nSelect mode.`, MODES.map(mode => [{ text: mode, id: `cfgmode:${mode}` }]).concat(navRows()));
+    setEaSession(channel, senderId, {
+      step: 'config_mode',
+      selectedConfigKey: 'mode',
+      selectedGroup: 'General',
+      data: { options: MODES },
+    });
+    return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Change Mode'])}\n\nSelect mode.`, MODES.map(mode => [{ text: mode, id: `cfgmode:${mode}` }]).concat(navRows()), 'SUCCESS', undefined, resolveBotBannerPath());
   }
   if (key === 'allowBuy' || key === 'allowSell') {
     const config = await prisma.eaRuntimeConfig.findUnique({ where: { instanceId: session.selectedInstanceId } }).catch(() => null);
@@ -1395,16 +1855,33 @@ async function handleConfigCallback(channel: EaBotChannel, senderId: string, key
   const meta = fields.find(field => field.key === key);
   if (!meta) return configDetail(channel, senderId);
   if (!meta.liveEditable) {
-    const message = `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', meta.key])}\n\n${fmtBold(channel, 'Detected from source, but this EA does not apply it live yet.')}\n${fmtText(channel, 'Rebuild the EA with ReplayFX runtime bridge to edit this parameter live.')}\n${fmtCode(channel, `${meta.parameterKey} = ${formatConfigValue(meta.defaultValue)}`)}\n\n${fmtBold(channel, 'Source:')} ${fmtText(channel, `${meta.sourceFile || '-'}:${meta.lineNumber || '-'}`)}`;
-    return withKeyboard(channel, message, [[{ text: 'Back to Config', id: 'cfg:back' }], ...navRows(true)], 'REJECTED');
+    return configParamDetailScreen(channel, senderId, meta.key);
   }
-  setEaSession(channel, senderId, { step: 'config_value', selectedConfigKey: key, data: { configFieldMeta: meta, configKeys: session.data.configKeys || fields.map(field => field.key), configPage: session.data.configPage || 0 } });
+  setEaSession(channel, senderId, {
+    step: 'config_value',
+    selectedConfigKey: key,
+    selectedGroup: meta.group || session.selectedGroup,
+    data: {
+      configFieldMeta: meta,
+      configKeys: session.data.configKeys || fields.filter(field => field.group === meta.group).map(field => field.key),
+      configPage: session.data.configPage ?? session.configPage ?? session.page ?? 0,
+    },
+  });
   const valueHint = meta.type === 'boolean' ? 'true/false' : meta.type === 'mode' ? `one of ${MODES.join(', ')}` : meta.type === 'number' ? 'numeric value' : 'text value';
-  return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', meta.key])}\n\nCurrent value: ${fmtCode(channel, formatConfigValue(configFieldValue(meta)))}\nType a new ${valueHint} for ${fmtCode(channel, meta.key)}.`, navRows(true));
+  return withKeyboard(channel, `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', meta.key])}\n\nCurrent value: ${fmtCode(channel, formatConfigValue(configFieldValue(meta)))}\nType a new ${valueHint} for ${fmtCode(channel, meta.key)}.\n${fmtText(channel, `Group: ${meta.group || 'General'} | Live editable: ${meta.liveEditable ? 'yes' : 'no'}`)}`, navRows(true), 'SUCCESS', undefined, resolveBotBannerPath());
 }
 
 function configConfirmScreen(channel: EaBotChannel, senderId: string, patch: Record<string, any>) {
-  const session = setEaSession(channel, senderId, { step: 'config_confirm', data: { pendingConfigPatch: patch } });
+  const current = getEaSession(channel, senderId);
+  const session = setEaSession(channel, senderId, {
+    step: 'config_confirm',
+    selectedGroup: current?.selectedGroup,
+    selectedConfigKey: current?.selectedConfigKey,
+    data: {
+      pendingConfigPatch: patch,
+      configPage: current?.configPage ?? current?.page ?? 0,
+    },
+  });
   const lines = Object.entries(patch).map(([key, value]) => `${key}: ${value}`);
   const body = isTelegram(channel)
     ? `${breadcrumb(channel, ['ReplayFX', 'Runtime Config', 'Confirm'])}\n\n${fmtBold(channel, 'Confirm config update')}\n${lines.map(line => fmtCode(channel, line)).join('\n')}\n\nReply ${fmtCode(channel, 'yes')} to queue UPDATE_CONFIG.`
@@ -1412,7 +1889,7 @@ function configConfirmScreen(channel: EaBotChannel, senderId: string, patch: Rec
       `Instance: ${session.selectedInstanceId || '-'}`,
       ...lines,
     ])}\n\nReply *yes* to confirm or *cancel*.`;
-  return withKeyboard(channel, body, [[{ text: 'Confirm Save', id: 'cfgconfirm:apply' }], ...navRows()], 'CONFIRMATION_REQUIRED');
+  return withKeyboard(channel, body, [[{ text: 'Confirm Save', id: 'cfgconfirm:apply' }], ...navRows()], 'CONFIRMATION_REQUIRED', undefined, resolveBotBannerPath());
 }
 
 async function confirmConfigUpdate(channel: EaBotChannel, senderId: string, action: 'apply' | 'sync' = 'apply') {
@@ -1422,18 +1899,7 @@ async function confirmConfigUpdate(channel: EaBotChannel, senderId: string, acti
   if (action === 'sync') return executeConfigSync(channel, senderId);
   const instance = await prisma.eaInstance.findUnique({ where: { id: session.selectedInstanceId } }).catch(() => null);
   if (!instance) return instanceScreen(channel, senderId, 'config');
-  await upsertRuntimeConfig(session.selectedInstanceId, patch);
-  const command = await createEaCommand({
-    terminalId: instance.terminalId,
-    commandType: 'UPDATE_CONFIG',
-    source: channel === 'TELEGRAM' ? 'TELEGRAM' : 'WHATSAPP_BAILEYS',
-    payload: { instanceId: session.selectedInstanceId, symbol: instance.symbol, timeframe: instance.timeframe, ...patch },
-  });
-  clearEaSession(channel, senderId);
-  const body = isTelegram(channel)
-    ? `${fmtBold(channel, 'Config update queued')}\n${fmtBold(channel, 'Command:')} ${fmtCode(channel, shortCommandId(command.id))}`
-    : waBox('Config Update Queued', [`Command: ${shortCommandId(command.id)}`, ...Object.entries(patch).map(([key, value]) => `${key}: ${value}`)]);
-  return withKeyboard(channel, body, [], 'QUEUED', command.id);
+  return executeConfigApply(channel, senderId);
 }
 
 async function renderCurrent(channel: EaBotChannel, senderId: string, refresh = false): Promise<EaBotResponse> {
@@ -1458,13 +1924,123 @@ async function renderCurrent(channel: EaBotChannel, senderId: string, refresh = 
   if (session.flow === 'library') return libraryScreen(channel, senderId);
   if (session.flow === 'config') {
     if (!session.selectedInstanceId) return instanceScreen(channel, senderId, 'config');
-    if (session.step === 'config_select') return configParamScreen(channel, senderId, session.page || 0);
+    if (session.step === 'config_groups') return configParamScreen(channel, senderId, session.page || 0);
+    if (session.step === 'config_params') return configParamListScreen(channel, senderId, session.selectedGroup, session.configPage ?? session.page ?? 0);
+    if (session.step === 'config_param_detail') return configParamDetailScreen(channel, senderId, session.selectedConfigKey);
     if (session.step === 'config_confirm' && session.data?.pendingConfigPatch) return configDecisionScreen(channel, senderId, session.data.pendingConfigPatch, session.data.pendingConfigReason || 'Confirm config update.');
+    if (session.step === 'config_post_save') {
+      const instance = await prisma.eaInstance.findUnique({ where: { id: session.selectedInstanceId } }).catch(() => null);
+      if (!instance) return instanceScreen(channel, senderId, 'config');
+      return configPostSaveScreen(channel, senderId, session.data?.lastSavedCommandId || session.data?.lastAppliedStoredCommandId || '', instance, session.data?.lastSavedConfigPatch || session.data?.pendingConfigPatch || {});
+    }
     return configDetail(channel, senderId);
   }
   if (session.flow === 'logs') return commandLogScreen(channel, senderId);
   if (session.flow === 'cleanup') return cleanupScreen(channel, senderId);
   return await mainMenu(channel);
+}
+
+
+function shouldTreatConfigTextAsValue(session: any): boolean {
+  if (!session || session.flow !== 'config') return false;
+  if (!session.selectedInstanceId || !session.selectedConfigKey) return false;
+
+  const step = String(session.step || '');
+
+  const blocked = new Set([
+    'select_instance',
+    'select_instance_filter',
+    'config_select',
+    'config_group',
+    'config_groups',
+    'config_group_select',
+    'config_confirm',
+    'config_mode',
+  ]);
+
+  return !blocked.has(step);
+}
+
+async function tryHandleConfigTypedValue(channel: EaBotChannel, senderId: string, rawText: string, session: any) {
+  if (!shouldTreatConfigTextAsValue(session)) return null;
+
+  const instance = await prisma.eaInstance.findUnique({
+    where: { id: session.selectedInstanceId },
+  }).catch(() => null);
+
+  if (!instance) return instanceScreen(channel, senderId, 'config');
+
+  const snapshot = await getEaConfigSnapshot(instance.id).catch(() => null);
+  const fields: any[] = await buildConfigFieldMeta(instance, snapshot) as any[];
+
+  const selectedKey = String(session.selectedConfigKey || '');
+  const sessionMeta = session.data?.configFieldMeta;
+
+  const meta: any =
+    (sessionMeta && normalizeConfigLookup(sessionMeta.key) === normalizeConfigLookup(selectedKey) ? sessionMeta : null) ||
+    fields.find((field: any) =>
+      field.key === selectedKey ||
+      field.parameterKey === selectedKey ||
+      field.rawName === selectedKey ||
+      normalizeConfigLookup(field.key) === normalizeConfigLookup(selectedKey) ||
+      normalizeConfigLookup(field.parameterKey) === normalizeConfigLookup(selectedKey) ||
+      normalizeConfigLookup(field.rawName) === normalizeConfigLookup(selectedKey)
+    );
+
+  if (!meta) {
+    return withKeyboard(
+      channel,
+      `Parameter ${selectedKey} not found. Reopen Runtime Config and select the parameter again.`,
+      [[{ text: 'Back to Config', id: 'cfg:back' }], ...navRows(true)],
+      'REJECTED'
+    );
+  }
+
+  if (!meta.liveEditable) {
+    return withKeyboard(
+      channel,
+      `${meta.key} is not live editable yet. Choose another parameter.`,
+      [[{ text: 'Back to Config', id: 'cfg:back' }], ...navRows(true)],
+      'REJECTED'
+    );
+  }
+
+  const parsed = parseConfigInputValue(rawText, meta);
+  if (!parsed.ok) {
+    const examples =
+      meta.type === 'boolean' ? 'true / false, on / off, 1 / 0' :
+      meta.type === 'mode' ? MODES.join(', ') :
+      meta.type === 'number' ? '0.5, 1, 2, 10' :
+      'text value';
+
+    return withKeyboard(
+      channel,
+      `Invalid value for ${meta.key}: ${parsed.error || 'Invalid input.'}\n\nAccepted examples: ${examples}`,
+      [[{ text: 'Back to Parameter', id: `cfg:${meta.key}` }], ...navRows(true)],
+      'REJECTED'
+    );
+  }
+
+  const patch = { [meta.key]: parsed.value };
+  const reason = `Parameter ${meta.key} changed from ${formatConfigValue(configFieldValue(meta))} to ${formatConfigValue(parsed.value)}.`;
+
+  setEaSession(channel, senderId, {
+    flow: 'config',
+    step: 'config_confirm',
+    selectedInstanceId: instance.id,
+    selectedConfigKey: meta.key,
+    page: session.page || 0,
+    data: {
+      ...(session.data || {}),
+      configFieldMeta: meta,
+      pendingConfigPatch: patch,
+      pendingConfigReason: reason,
+      configKeys: session.data?.configKeys || fields.map((field: any) => field.key),
+      configPage: session.data?.configPage || session.page || 0,
+    },
+  });
+
+  return configDecisionScreen(channel, senderId, patch, reason);
 }
 
 async function handleTypedSession(channel: EaBotChannel, senderId: string, text: string): Promise<EaBotResponse | null> {
@@ -1480,6 +2056,11 @@ async function handleTypedSession(channel: EaBotChannel, senderId: string, text:
     popEaSession(channel, senderId);
     return renderCurrent(channel, senderId);
   }
+  // Runtime Config value input must run before numeric menu selection.
+  // Example: martStartLot=0.5, maxTradesPerDay=1, useTrendFilter=false.
+  const configTypedValueResult = await tryHandleConfigTypedValue(channel, senderId, trimmed, session);
+  if (configTypedValueResult) return configTypedValueResult;
+
   if (/^\d+$/.test(trimmed)) {
     const index = Number(trimmed) - 1;
     if (session.flow === 'menu' && session.step === 'home') {
@@ -1527,11 +2108,21 @@ async function handleTypedSession(channel: EaBotChannel, senderId: string, text:
       if (index === 5) return chartsScreen(channel, senderId);
     }
     if (session.step === 'select_instance') return session.flow === 'pause' ? queuePauseResume(channel, senderId, 'pause') : configDetail(channel, senderId, index);
-    if (session.step === 'config_select') {
+    if (session.step === 'config_groups') {
+      const groups = session.data.configGroups || [];
+      const group = groups[index]?.group;
+      if (group) return handleConfigCallback(channel, senderId, `group:${index}`);
+    }
+    if (session.step === 'config_params') {
       const keys = session.data.configKeys || [];
-      const page = session.data.configPage || 0;
+      const page = session.data.configPage || session.configPage || 0;
       const key = keys[page * CONFIG_PAGE_SIZE + index];
-      if (key) return handleConfigCallback(channel, senderId, key);
+      if (key) return handleConfigCallback(channel, senderId, `field:${session.selectedGroup || 'General'}:${page}:${index}`);
+    }
+    if (session.step === 'config_param_detail') {
+      if (index === 0 && session.selectedConfigKey) return handleConfigCallback(channel, senderId, 'editvalue');
+      if (index === 1) return handleConfigCallback(channel, senderId, 'groups');
+      if (index === 2) return handleConfigCallback(channel, senderId, 'backconfig');
     }
     if (session.step === 'config_confirm') {
       if (index === 0) return confirmConfigUpdate(channel, senderId, 'apply');
@@ -1548,6 +2139,13 @@ async function handleTypedSession(channel: EaBotChannel, senderId: string, text:
       if (index === 2) return handleConfigCallback(channel, senderId, 'sync');
       if (index === 3) return handleConfigCallback(channel, senderId, 'apply');
       if (index === 4) return renderCurrent(channel, senderId, true);
+    }
+    if (session.step === 'config_post_save') {
+      if (index === 0) return handleConfigCallback(channel, senderId, 'edit');
+      if (index === 1) return handleConfigCallback(channel, senderId, 'again');
+      if (index === 2) return handleConfigCallback(channel, senderId, 'back');
+      if (index === 3) return renderCurrent(channel, senderId, true);
+      if (index === 4) return mainMenu(channel);
     }
     if (session.flow === 'logs' && session.step === 'list') return commandDetail(channel, senderId, index);
     if (session.flow === 'logs' && session.step === 'detail') {
@@ -1571,17 +2169,44 @@ async function handleTypedSession(channel: EaBotChannel, senderId: string, text:
     setEaSession(channel, senderId, { flow: 'config', step: 'select_instance', data: { activeInstanceFilter: filter } });
     return instanceScreen(channel, senderId, 'config');
   }
-    if (session.step === 'config_value' && session.selectedConfigKey && session.selectedInstanceId) {
-      const meta = session.data?.configFieldMeta || null;
-      const parsed = meta ? parseConfigInputValue(trimmed, meta) : { ok: true, value: trimmed };
-      if (!parsed.ok) return withKeyboard(channel, parsed.error || 'Invalid value.', navRows(true), 'REJECTED');
-      const patch = { [session.selectedConfigKey]: parsed.value };
-      const snapshot = await getEaConfigSnapshot(session.selectedInstanceId).catch(() => null);
-      if (snapshot?.syncStatus === 'DRIFT') {
-        return configDecisionScreen(channel, senderId, patch, `Parameter ${session.selectedConfigKey} changed from ${formatConfigValue(configFieldValue(meta || { stored: null, actual: null, key: session.selectedConfigKey } as any))} to ${formatConfigValue(parsed.value)}.`);
-      }
-      return configConfirmScreen(channel, senderId, patch);
+  if (session.step === 'config_groups') {
+    const groups = session.data.configGroups || [];
+    const index = Number(trimmed) - 1;
+    if (index === groups.length) return handleConfigCallback(channel, senderId, 'back');
+    const group = groups.find((entry: any, idx: number) => idx === index)?.group;
+    if (group) return configParamListScreen(channel, senderId, group, 0);
+  }
+  if (session.step === 'config_params') {
+    const keys = session.data.configKeys || [];
+    const page = session.data.configPage || session.configPage || 0;
+    const index = Number(trimmed) - 1;
+    if (index === keys.length) return handleConfigCallback(channel, senderId, 'backconfig');
+    const key = keys[page * CONFIG_PAGE_SIZE + index];
+    if (key) return configParamDetailScreen(channel, senderId, key);
+  }
+  if (session.step === 'config_param_detail') {
+    if (session.selectedConfigKey && ['edit', 'edit parameter'].includes(lower)) return handleConfigCallback(channel, senderId, 'editvalue');
+    if (['group', 'groups', 'back to group'].includes(lower)) return handleConfigCallback(channel, senderId, 'groups');
+    if (['back', 'config', 'back to config'].includes(lower)) return handleConfigCallback(channel, senderId, 'backconfig');
+  }
+  if (session.step === 'config_post_save') {
+    if (['edit', 'edit parameter lain', 'parameter lain', '1'].includes(lower)) return handleConfigCallback(channel, senderId, 'edit');
+    if (['again', 'edit parameter ini lagi', 'this', '2'].includes(lower)) return handleConfigCallback(channel, senderId, 'again');
+    if (['back', '3'].includes(lower)) return handleConfigCallback(channel, senderId, 'back');
+    if (['refresh', '4'].includes(lower)) return renderCurrent(channel, senderId, true);
+    if (['menu', 'home', '5'].includes(lower)) return mainMenu(channel);
+  }
+  if (session.step === 'config_value' && session.selectedConfigKey && session.selectedInstanceId) {
+    const meta = session.data?.configFieldMeta || null;
+    const parsed = meta ? parseConfigInputValue(trimmed, meta) : { ok: true, value: trimmed };
+    if (!parsed.ok) return withKeyboard(channel, parsed.error || 'Invalid value.', navRows(true), 'REJECTED');
+    const patch = { [session.selectedConfigKey]: parsed.value };
+    const snapshot = await getEaConfigSnapshot(session.selectedInstanceId).catch(() => null);
+    if (snapshot?.syncStatus === 'DRIFT') {
+      return configDecisionScreen(channel, senderId, patch, `Parameter ${session.selectedConfigKey} changed from ${formatConfigValue(configFieldValue(meta || { stored: null, actual: null, key: session.selectedConfigKey } as any))} to ${formatConfigValue(parsed.value)}.`);
     }
+    return configConfirmScreen(channel, senderId, patch);
+  }
   return null;
 }
 

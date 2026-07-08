@@ -111,6 +111,24 @@ router.get('/eas/:fileName/parameters', async (req, res) => {
   }
 });
 
+router.get('/eas/:fileName/parameters/debug', async (req, res) => {
+  try {
+    const result = await getEaParametersByFileName(req.params.fileName);
+    const liveEditableCount = result.parameters.filter(p => p.liveEditable).length;
+    res.json({
+      ok: true,
+      fileName: result.fileName,
+      eaName: result.eaName,
+      schemaCacheKey: result.sourceFile,
+      detectedParamCount: result.parameters.length,
+      liveEditableCount,
+      first20Parameters: result.parameters.slice(0, 20).map(p => p.rawName),
+    });
+  } catch (error: any) {
+    res.status(404).json({ ok: false, error: error?.message || 'EA parameters not found' });
+  }
+});
+
 router.get('/eas/:fileName/bridge', async (req, res) => {
   try {
     const result = await getEaParametersByFileName(req.params.fileName);
@@ -196,9 +214,18 @@ router.get('/instances', async (_req, res) => {
     const key = `${shot.terminalId || ''}|${shot.symbol || ''}|${shot.timeframe || ''}`;
     if (!screenshotByInstance.has(key)) screenshotByInstance.set(key, shot);
   }
+  // Deduplicate: keep the most recently updated instance per terminalId|symbol|timeframe
+  const seenKey = new Map<string, boolean>();
+  const dedupedInstances = instances.filter(i => {
+    const key = `${i.terminalId}|${i.symbol}|${i.timeframe}`;
+    if (seenKey.has(key)) return false;
+    seenKey.set(key, true);
+    return true;
+  });
+
   res.json({
     ok: true,
-    instances: await Promise.all(instances.map(async i => {
+    instances: await Promise.all(dedupedInstances.map(async i => {
       const hb = heartbeatByInstance.get(`${i.terminalId}|${i.chartId || ''}|${i.symbol}|${i.timeframe}`) ||
         heartbeatByInstance.get(`${i.terminalId}||${i.symbol}|${i.timeframe}`);
       const shot = screenshotByInstance.get(`${i.terminalId}|${i.symbol}|${i.timeframe}`) || null;
@@ -224,45 +251,187 @@ router.get('/instances', async (_req, res) => {
 });
 
 router.get('/config', requireEaToken, async (req, res) => {
-  const terminalId = String(req.query.terminalId || '');
-  const instanceId = String(req.query.instanceId || '');
-  const instance = instanceId
-    ? await prisma.eaInstance.findUnique({ where: { id: instanceId } }).catch(() => null)
-    : await prisma.eaInstance.findFirst({ where: { terminalId }, orderBy: { updatedAt: 'desc' } });
-  if (!instance) {
-    return res.json({
-      ok: true,
-      config: { mode: 'NOTIFY_ONLY', allowBuy: true, allowSell: true, takeScreenshotOnSignal: true, showZones: true, showStats: true },
-      actualConfig: null,
-      storedConfig: null,
-      configSyncStatus: 'UNKNOWN',
-      configDiffs: [],
-    });
-  }
-  const snapshot = await getEaConfigSnapshot(instance.id);
-  const configVersion = await getRuntimeConfigVersion(instance.id);
-  const fallbackStored = mergeConfigCustomParams(await prisma.eaRuntimeConfig.findUnique({ where: { instanceId: instance.id } })) || {
-    instanceId: instance.id,
-    mode: instance.mode,
+  const terminalId = String(req.query.terminalId || '').trim();
+  const instanceId = String(req.query.instanceId || '').trim();
+  const chartId = req.query.chartId !== undefined ? String(req.query.chartId || '').trim() : '';
+  const symbol = req.query.symbol !== undefined ? String(req.query.symbol || '').trim() : '';
+  const timeframe = req.query.timeframe !== undefined ? String(req.query.timeframe || '').trim() : '';
+
+  const defaultConfig: Record<string, any> = {
+    mode: 'NOTIFY_ONLY',
+    riskPercent: 0,
+    rr: 0,
     allowBuy: true,
     allowSell: true,
+    maxSpread: 0,
+    maxDailyLoss: 0,
+    maxTradesPerDay: 0,
     takeScreenshotOnSignal: true,
+    panelWidth: 360,
+    compactPanel: false,
     showZones: true,
     showStats: true,
+    useSpreadFilter: false,
+    entryMode: '',
+    lookback: 0,
+    breakBufferPips: 0,
+    manualSLPips: 0,
+    onePositionOnly: true,
+    oneEntryPerBar: true,
+    lot: 0,
+    gridDistance: 0,
+    gridDistancePips: 0,
+    layers: 0,
+    multiplier: 0,
+    maxFloatingLoss: 0,
+    targetProfit: 0,
+    minBodyPips: 0,
+    minBodyPercent: 0,
+    atrFilter: false,
+    showPanel: true,
+    skipSideways: true,
+    atrPeriod: 0,
+    deviationPoints: 0,
+    panelX: 0,
+    panelY: 0,
   };
-  res.json({
+
+  const asObject = (value: any): Record<string, any> => {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  };
+
+  let instance = instanceId
+    ? await prisma.eaInstance.findUnique({ where: { id: instanceId } }).catch(() => null)
+    : null;
+
+  if (!instance && terminalId && chartId) {
+    instance = await prisma.eaInstance.findFirst({
+      where: { terminalId, chartId },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  if (!instance && terminalId && symbol && timeframe) {
+    instance = await prisma.eaInstance.findFirst({
+      where: { terminalId, symbol, timeframe },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  if (!instance && terminalId) {
+    instance = await prisma.eaInstance.findFirst({
+      where: { terminalId },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  if (!instance) {
+    const fallbackEffective = {
+      ...defaultConfig,
+      mode: 'NOTIFY_ONLY',
+      configVersion: '0',
+    };
+
+    return res.json({
+      ok: true,
+      instanceId: null,
+      chartId: null,
+      terminalId,
+      // IMPORTANT: top-level fields for MQL5 SDK.
+      ...fallbackEffective,
+
+      effectiveConfig: fallbackEffective,
+      config: fallbackEffective,
+      customConfig: fallbackEffective,
+      storedConfig: fallbackEffective,
+      actualConfig: null,
+      configSyncStatus: 'UNKNOWN',
+      configDiffs: [],
+      heartbeat: null,
+      diagnostics: {
+        storedMode: null,
+        customMode: null,
+        actualMode: null,
+        effectiveMode: fallbackEffective.mode,
+      },
+    });
+  }
+
+  const snapshot = await getEaConfigSnapshot(instance.id);
+  const configVersion = String(await getRuntimeConfigVersion(instance.id));
+
+  const runtimeRow = await prisma.eaRuntimeConfig.findUnique({
+    where: { instanceId: instance.id },
+  });
+
+  const fallbackStored =
+    mergeConfigCustomParams(runtimeRow) || {
+      instanceId: instance.id,
+      mode: instance.mode,
+      allowBuy: true,
+      allowSell: true,
+      takeScreenshotOnSignal: true,
+      showZones: true,
+      showStats: true,
+    };
+
+  const storedConfig = {
+    ...asObject(mergeConfigCustomParams(snapshot?.storedConfig as any)),
+    ...asObject(mergeConfigCustomParams(fallbackStored as any)),
+  };
+
+  const actualConfig = asObject(snapshot?.actualConfig);
+
+  // Effective config is what the EA must actually use.
+  // Priority: defaults < latest actual heartbeat fallback < stored/custom runtime config.
+  // Stale actualConfig must NEVER override stored/custom config.
+  const effectiveConfig: Record<string, any> = {
+    ...defaultConfig,
+    ...actualConfig,
+    ...storedConfig,
+    instanceId: instance.id,
+    mode: normalizeMode(storedConfig.mode || instance.mode || actualConfig.mode || defaultConfig.mode),
+    configVersion,
+  };
+
+  const diagnostics = {
+    storedMode: storedConfig.mode || null,
+    customMode: storedConfig.mode || null,
+    actualMode: actualConfig.mode || null,
+    effectiveMode: effectiveConfig.mode,
+  };
+
+  return res.json({
     ok: true,
     instanceId: instance.id,
     chartId: instance.chartId,
     terminalId: instance.terminalId,
-    configVersion,
-    config: { ...(snapshot?.storedConfig || fallbackStored), configVersion },
-    customConfig: snapshot?.storedConfig || fallbackStored,
-    storedConfig: snapshot?.storedConfig || fallbackStored,
-    actualConfig: snapshot?.actualConfig || null,
+    // IMPORTANT:
+    // Top-level fields must be present because ReplayFX_RemoteSDK.mqh reads simple keys like "mode".
+    // Do not remove this spread.
+    ...effectiveConfig,
+
+    effectiveConfig,
+    config: effectiveConfig,
+    customConfig: storedConfig,
+    storedConfig,
+
+    // IMPORTANT:
+    // Do not return nested actualConfig/heartbeat objects here.
+    // The MQL5 SDK uses a simple JSON key reader and can accidentally read stale nested
+    // fields like actualConfig.mode=NOTIFY_ONLY instead of the effective top-level mode=AUTO.
+    actualConfig: null,
+    heartbeat: null,
+
     configSyncStatus: snapshot?.syncStatus || 'UNKNOWN',
     configDiffs: snapshot?.comparison?.diffs || [],
-    heartbeat: snapshot?.heartbeat || null,
+
+    diagnostics: {
+      ...diagnostics,
+      actualMode: actualConfig.mode || null,
+      actualConfigVersion: actualConfig.configVersion || null,
+      heartbeatAt: snapshot?.heartbeat?.timestamp || null,
+    },
   });
 });
 
@@ -1111,7 +1280,8 @@ function resolveScreenshotPath(screenshot: any): string | null {
 
   if (filePath.startsWith('http://') || filePath.startsWith('https://')) return null;
 
-  const allowedBase = mt5FilesDir ? path.resolve(mt5FilesDir) : path.resolve(process.cwd(), '..', 'uploads', 'ea-screenshots');
+  const wineFallback = '/home/vallencia/wine-mt5/drive_c/Program Files/MetaTrader 5/MQL5/Files';
+  const allowedBase = mt5FilesDir ? path.resolve(mt5FilesDir) : fs.existsSync(wineFallback) ? path.resolve(wineFallback) : path.resolve(process.cwd(), '..', 'uploads', 'ea-screenshots');
   let resolved: string;
   if (filePath.startsWith('/')) {
     resolved = path.resolve(filePath);
@@ -1315,6 +1485,15 @@ router.post('/signals/:id/reject', async (req, res) => {
     res.json({ ok: true, signal });
   } catch (err: any) {
     res.status(500).json({ ok: false, error: err?.message || 'Failed to reject signal' });
+  }
+});
+
+router.post('/signals/:id/dismiss', async (req, res) => {
+  try {
+    const signal = await prisma.eaSignalProposal.update({ where: { id: req.params.id }, data: { status: 'DISMISSED', decidedAt: new Date() } });
+    res.json({ ok: true, signal });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message || 'Failed to dismiss signal' });
   }
 });
 

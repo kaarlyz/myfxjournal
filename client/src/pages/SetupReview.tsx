@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2, XCircle, RefreshCcw, Clock, ExternalLink, AlertTriangle } from 'lucide-react';
+import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
 
 type TradingViewSetup = {
   id: string;
@@ -30,13 +33,6 @@ function timeLeft(expiresAt: string) {
   const minutes = Math.floor(ms / 60000);
   const seconds = Math.floor((ms % 60000) / 1000);
   return `${minutes}m ${seconds}s`;
-}
-
-function statusClass(status: string) {
-  if (status === 'APPROVED') return 'bg-[rgba(14,203,129,0.12)] text-[#0ecb81] border-[rgba(14,203,129,0.25)]';
-  if (status === 'REJECTED' || status === 'EXPIRED') return 'bg-[rgba(246,70,93,0.12)] text-[#f6465d] border-[rgba(246,70,93,0.25)]';
-  if (status === 'EXECUTED') return 'bg-[#229ED9]/15 text-[#229ED9] border-[#229ED9]/25';
-  return 'bg-[#fcd535]/10 text-[#fcd535] border-[#fcd535]/25';
 }
 
 export default function SetupReview() {
@@ -95,25 +91,39 @@ export default function SetupReview() {
     }
   };
 
+  const getStatusBadgeVariant = (s: string, expired: boolean) => {
+    if (expired && s === 'PENDING_REVIEW') return 'loss';
+    if (s === 'APPROVED') return 'profit';
+    if (s === 'REJECTED' || s === 'EXPIRED') return 'loss';
+    if (s === 'EXECUTED') return 'blue';
+    return 'warning';
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Setup Review</h1>
-          <p className="text-sm text-[#929aa5] mt-1">Review Momentum Candle setups from TradingView before the EA approval bridge can consume them.</p>
-        </div>
-        <button onClick={fetchSetups} disabled={loading} className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-[#2b3139] rounded-lg text-xs font-bold text-white flex items-center">
+    <div className="space-y-8 max-w-7xl mx-auto">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+        <PageHeader 
+          label="TradingView"
+          title="Setup Review"
+          subtitle="Review Momentum Candle setups from TradingView before the EA approval bridge can consume them."
+          labelColor="blue"
+        />
+        <Button onClick={fetchSetups} disabled={loading} variant="secondary">
           <RefreshCcw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           Refresh
-        </button>
+        </Button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-3">
         {statuses.map(s => (
           <button
             key={s}
             onClick={() => setStatus(s)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${status === s ? 'bg-[#fcd535] text-black border-[#fcd535]' : 'bg-white/5 text-[#929aa5] border-[#2b3139] hover:text-white'}`}
+            className={`px-4 py-2 font-extrabold text-[12px] uppercase tracking-widest border-2 transition-all ${
+              status === s 
+                ? 'bg-[#121212] text-white border-[#121212] shadow-[4px_4px_0px_0px_#121212] -translate-y-0.5' 
+                : 'bg-white text-[#717182] border-[#121212] hover:bg-[#F0F0F0] hover:text-[#121212] shadow-none hover:shadow-[4px_4px_0px_0px_#121212] hover:-translate-y-0.5'
+            }`}
           >
             {s.replace('_', ' ')}
           </button>
@@ -121,96 +131,110 @@ export default function SetupReview() {
       </div>
 
       {error && (
-        <div className="bg-[rgba(246,70,93,0.1)] border border-[rgba(246,70,93,0.25)] rounded-xl p-4 text-sm text-[#f6465d] flex items-center">
-          <AlertTriangle className="w-4 h-4 mr-2" />
-          {error}
+        <div className="bg-[var(--loss-dim)] border-2 border-[var(--loss)] text-[var(--loss)] p-4 shadow-[4px_4px_0px_0px_var(--loss)] flex items-center gap-3">
+          <AlertTriangle className="w-6 h-6 shrink-0" strokeWidth={2.5} />
+          <span className="text-[13px] font-extrabold uppercase tracking-widest">{error}</span>
         </div>
       )}
 
       {sortedSetups.length === 0 ? (
-        <div className="border border-[#2b3139] rounded-xl p-10 text-center text-[#707a8a] bg-white/5">
-          No setups for this filter.
+        <div className="bg-[#F0F0F0] border-4 border-[#121212] border-dashed p-12 text-center shadow-[6px_6px_0px_0px_#121212]">
+           <p className="text-[14px] font-extrabold text-[#717182] uppercase tracking-wide">No setups for this filter.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {sortedSetups.map(setup => {
             const expired = new Date(setup.expiresAt).getTime() <= Date.now();
             const canReview = setup.status === 'PENDING_REVIEW' && !expired;
+            const badgeVariant = getStatusBadgeVariant(setup.status, expired);
+            
             return (
-              <div key={setup.id} className={`bn-card border rounded-xl overflow-hidden ${setup.id === selectedSetupId ? 'border-[#fcd535]' : 'border-[#2b3139]'}`}>
-                <div className="p-4 border-b border-[#2b3139] flex items-start justify-between gap-4">
+              <div key={setup.id} className={`bg-white border-4 border-[#121212] flex flex-col group relative ${
+                setup.id === selectedSetupId 
+                  ? 'shadow-[8px_8px_0px_0px_#1040C0] -translate-y-1' 
+                  : 'shadow-[6px_6px_0px_0px_#121212] hover:shadow-[8px_8px_0px_0px_#121212] hover:-translate-y-1 transition-all'
+              }`}>
+                {setup.id === selectedSetupId && (
+                  <div className="absolute top-0 left-0 right-0 h-2 bg-[#1040C0]" />
+                )}
+                
+                <div className="p-5 border-b-4 border-[#121212] flex items-start justify-between gap-4 bg-[#F0F0F0] mt-1">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-bold text-white">{setup.symbol} {setup.timeframe}</h2>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${setup.side === 'SELL' ? 'bg-[rgba(246,70,93,0.12)] text-[#f6465d] border-[rgba(246,70,93,0.25)]' : 'bg-[rgba(14,203,129,0.12)] text-[#0ecb81] border-[rgba(14,203,129,0.25)]'}`}>{setup.side}</span>
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-[20px] font-extrabold text-[#121212] uppercase tracking-wide">{setup.symbol} {setup.timeframe}</h2>
+                      <Badge variant={setup.side === 'SELL' ? 'loss' : 'profit'}>{setup.side}</Badge>
                     </div>
-                    <p className="text-xs text-[#707a8a] font-mono mt-1">{setup.id}</p>
+                    <p className="text-[11px] text-[#717182] font-black uppercase tracking-wider mt-1">ID: {setup.id}</p>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${statusClass(expired && setup.status === 'PENDING_REVIEW' ? 'EXPIRED' : setup.status)}`}>
+                  <Badge variant={badgeVariant}>
                     {expired && setup.status === 'PENDING_REVIEW' ? 'EXPIRED' : setup.status}
-                  </span>
+                  </Badge>
                 </div>
 
-                <div className="p-4 space-y-4">
-                  <div className="bg-black border border-[#2b3139] rounded-xl overflow-hidden">
+                <div className="p-5 space-y-5 flex-1">
+                  <div className="bg-[#F0F0F0] border-2 border-[#121212] p-1 shadow-[4px_4px_0px_0px_#121212] mb-6">
                     {setup.previewUrl ? (
-                      <img src={setup.previewUrl} alt={`${setup.symbol} setup preview`} className="w-full aspect-video object-cover" />
+                      <img src={setup.previewUrl} alt={`${setup.symbol} setup preview`} className="w-full aspect-video object-cover border border-[#121212]" />
                     ) : (
-                      <div className="aspect-video flex items-center justify-center text-[#707a8a] text-sm">No preview generated.</div>
+                      <div className="aspect-video flex items-center justify-center text-[#717182] font-bold text-[12px] bg-white border border-[#121212] uppercase tracking-widest">
+                        No preview generated.
+                      </div>
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                    <div className="bg-white/5 border border-[#2b3139] rounded-lg p-3">
-                      <p className="text-[#707a8a]">Price</p>
-                      <p className="text-white font-bold mt-1">{setup.price}</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[12px]">
+                    <div className="bg-[#F0F0F0] border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+                      <p className="text-[#717182] font-extrabold uppercase tracking-wider text-[10px]">Price</p>
+                      <p className="text-[#121212] font-black font-number mt-1">{setup.price}</p>
                     </div>
-                    <div className="bg-white/5 border border-[#2b3139] rounded-lg p-3">
-                      <p className="text-[#707a8a]">SL / TP</p>
-                      <p className="text-white font-bold mt-1">{setup.sl ?? '-'} / {setup.tp ?? '-'}</p>
+                    <div className="bg-[#F0F0F0] border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+                      <p className="text-[#717182] font-extrabold uppercase tracking-wider text-[10px]">SL / TP</p>
+                      <p className="text-[#121212] font-black font-number mt-1">{setup.sl ?? '-'} / {setup.tp ?? '-'}</p>
                     </div>
-                    <div className="bg-white/5 border border-[#2b3139] rounded-lg p-3">
-                      <p className="text-[#707a8a]">Body</p>
-                      <p className="text-white font-bold mt-1">{setup.bodySize ?? '-'}</p>
+                    <div className="bg-[#F0F0F0] border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+                      <p className="text-[#717182] font-extrabold uppercase tracking-wider text-[10px]">Body</p>
+                      <p className="text-[#121212] font-black font-number mt-1">{setup.bodySize ?? '-'}</p>
                     </div>
-                    <div className="bg-white/5 border border-[#2b3139] rounded-lg p-3">
-                      <p className="text-[#707a8a]">Volume</p>
-                      <p className="text-white font-bold mt-1">{setup.volume ?? '-'}</p>
+                    <div className="bg-[#F0F0F0] border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212]">
+                      <p className="text-[#717182] font-extrabold uppercase tracking-wider text-[10px]">Volume</p>
+                      <p className="text-[#121212] font-black font-number mt-1">{setup.volume ?? '-'}</p>
                     </div>
                   </div>
 
-                  <div className="text-sm text-[#929aa5]">
-                    <p className="text-white font-semibold mb-1">Reason</p>
-                    <p>{setup.reason || 'No reason provided.'}</p>
+                  <div className="text-[13px] text-[#717182] border-l-4 border-[#1040C0] pl-4">
+                    <p className="text-[#121212] font-extrabold uppercase tracking-widest text-[10px] mb-1">Reason</p>
+                    <p className="font-bold">{setup.reason || 'No reason provided.'}</p>
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 text-xs text-[#929aa5]">
-                    <span className="flex items-center"><Clock className="w-3 h-3 mr-1.5" />Expires: {timeLeft(setup.expiresAt)}</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[11px] font-bold text-[#717182] pt-4">
+                    <span className="flex items-center uppercase tracking-widest"><Clock className="w-4 h-4 mr-1.5" />Expires: <span className="ml-1 text-[#121212]">{timeLeft(setup.expiresAt)}</span></span>
                     {setup.chartUrl && (
-                      <a href={setup.chartUrl} target="_blank" rel="noreferrer" className="text-[#fcd535] hover:text-white flex items-center">
-                        Open chart <ExternalLink className="w-3 h-3 ml-1" />
+                      <a href={setup.chartUrl} target="_blank" rel="noreferrer" className="text-[#1040C0] hover:text-[#121212] flex items-center font-extrabold uppercase tracking-widest transition-colors">
+                        Open chart <ExternalLink className="w-4 h-4 ml-1" />
                       </a>
                     )}
                   </div>
+                </div>
 
-                  <div className="flex flex-wrap gap-2 pt-2 border-t border-[#2b3139]">
-                    <button
-                      onClick={() => review(setup.id, 'approve')}
-                      disabled={!canReview || busyId === setup.id}
-                      className="px-4 py-2 bg-[rgba(14,203,129,0.12)] hover:bg-[rgba(14,203,129,0.2)] disabled:opacity-40 text-[#0ecb81] rounded-lg text-xs font-bold flex items-center"
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-1.5" />
-                      Approve
-                    </button>
-                    <button
-                      onClick={() => review(setup.id, 'reject')}
-                      disabled={!canReview || busyId === setup.id}
-                      className="px-4 py-2 bg-[rgba(246,70,93,0.12)] hover:bg-[rgba(246,70,93,0.2)] disabled:opacity-40 text-[#f6465d] rounded-lg text-xs font-bold flex items-center"
-                    >
-                      <XCircle className="w-4 h-4 mr-1.5" />
-                      Reject
-                    </button>
-                  </div>
+                <div className="p-4 bg-[#F0F0F0] border-t-4 border-[#121212] flex flex-wrap gap-3 mt-auto">
+                  <Button
+                    onClick={() => review(setup.id, 'approve')}
+                    disabled={!canReview || busyId === setup.id}
+                    variant="profit"
+                    className="flex-1"
+                  >
+                    <CheckCircle2 className="w-4 h-4 mr-1.5" strokeWidth={2.5} />
+                    Approve
+                  </Button>
+                  <Button
+                    onClick={() => review(setup.id, 'reject')}
+                    disabled={!canReview || busyId === setup.id}
+                    variant="danger"
+                    className="flex-1"
+                  >
+                    <XCircle className="w-4 h-4 mr-1.5" strokeWidth={2.5} />
+                    Reject
+                  </Button>
                 </div>
               </div>
             );

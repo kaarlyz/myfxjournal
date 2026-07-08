@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Calendar, Tag, FileText, Image as ImageIcon, CheckCircle, TrendingUp, AlertTriangle } from 'lucide-react';
+import { X, Save, Calendar, Tag, FileText, Image as ImageIcon, CheckCircle, TrendingUp } from 'lucide-react';
 import { Trade } from '../shared/types';
-import { 
-  formatUsd, 
-  formatIdr, 
-  formatPercent, 
-  formatR, 
-  formatDate, 
-  formatDuration 
+import {
+  formatUsd,
+  formatR,
+  formatDate,
+  formatDuration
 } from '../utils/formatters';
+import { Button } from './ui/Button';
+import { Badge } from './ui/Badge';
+import { SectionLabel } from './ui/SectionLabel';
 
 interface TradeDetailModalProps {
   trade: Trade;
@@ -40,7 +41,7 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
       screenshotUrl: screenshotUrl.trim(),
     });
     setIsSaving(false);
-    
+
     if (success) {
       setSaveSuccess(true);
       setTimeout(() => {
@@ -50,73 +51,71 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
     }
   };
 
-  const durationMs = trade.entryTime && trade.exitTime 
-    ? new Date(trade.exitTime).getTime() - new Date(trade.entryTime).getTime() 
+  const durationMs = trade.entryTime && trade.exitTime
+    ? new Date(trade.exitTime).getTime() - new Date(trade.entryTime).getTime()
     : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       {/* Black backdrop overlay */}
-      <div 
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm" 
-        onClick={onClose} 
+      <div
+        className="absolute inset-0 bg-[#121212]/80 backdrop-blur-sm"
+        onClick={onClose}
       />
 
       {/* Modal Card content */}
-      <div className="relative w-full max-w-3xl  rounded-xl border border-[#2b3139] overflow-hidden flex flex-col max-h-[90vh] z-10 animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-3xl bg-white border-4 border-[#121212] flex flex-col max-h-[90vh] z-10 animate-fade-in" style={{ boxShadow: '12px 12px 0px 0px #121212' }}>
+        <div className="absolute top-0 left-0 right-0 h-[4px] bg-[#1040C0]" />
+
         {/* Header */}
-        <div className="p-6 border-b border-[#2b3139] flex justify-between items-center bg-[#1e2329]/20">
+        <div className="p-6 border-b-4 border-[#121212] flex justify-between items-center bg-[#F0F0F0]">
           <div>
-            <div className="flex items-center space-x-2">
-              <h2 className="text-lg font-bold text-white tracking-tight">
+            <div className="flex items-center space-x-3 mb-1">
+              <h2 className="text-2xl font-extrabold text-[#121212] tracking-tight font-display">
                 Detail Trade {trade.status === 'OPEN' ? '(Active)' : `#${trade.tradeNumber || '-'}`}
               </h2>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                trade.status === 'OPEN' 
-                  ? 'bg-[rgba(14,203,129,0.1)] text-[#0ecb81] animate-pulse' 
-                  : trade.result === 'WIN' 
-                  ? 'bg-accentEmerald/15 text-[#0ecb81]' 
-                  : trade.result === 'LOSS' 
-                  ? 'bg-lossRed/15 text-[#f6465d]' 
-                  : 'bg-[#2b3139] text-[#929aa5]'
-              }`}>
-                {trade.status === 'OPEN' ? 'OPEN' : trade.result}
-              </span>
+              {trade.status === 'OPEN' ? (
+                <Badge variant="blue" className="animate-pulse">OPEN</Badge>
+              ) : (
+                <Badge variant={trade.result === 'WIN' ? 'profit' : trade.result === 'LOSS' ? 'loss' : 'neutral'}>
+                  {trade.result}
+                </Badge>
+              )}
             </div>
-            <p className="text-xs text-[#707a8a] mt-1">
-              ID Sesi: {trade.sessionId} • Sumber: {trade.source}
+            <p className="text-xs text-[#717182] font-bold uppercase tracking-widest mt-2">
+              ID Sesi: <span className="text-[#121212]">{trade.sessionId}</span> • Sumber: <span className="text-[#121212]">{trade.source}</span>
             </p>
           </div>
-          <button 
+          <button
             onClick={onClose}
-            className="p-1.5 bg-[#2b3139] hover:bg-[#363e47] text-[#929aa5] hover:text-white rounded-lg transition"
+            className="w-10 h-10 border-2 border-[#121212] bg-white flex items-center justify-center text-[#121212] hover:bg-[#E0E0E0] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5 font-bold" strokeWidth={3} />
           </button>
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+        <div className="p-6 overflow-y-auto space-y-8 flex-1">
           {/* Main Attributes Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-[#1e2329]/35 border border-[#2b3139] rounded-xl p-3">
-              <span className="text-[10px] font-bold text-[#707a8a] uppercase tracking-wider block">Symbol / TF</span>
-              <span className="text-sm font-bold text-gray-200">{trade.symbol} / {trade.timeframe}</span>
+            <div className="bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212]">
+              <span className="text-[10px] font-bold text-[#717182] uppercase tracking-wider block mb-1">Symbol / TF</span>
+              <span className="text-lg font-extrabold text-[#121212] font-display">{trade.symbol} <span className="text-[#717182] font-semibold text-sm">/ {trade.timeframe}</span></span>
             </div>
-            <div className="bg-[#1e2329]/35 border border-[#2b3139] rounded-xl p-3">
-              <span className="text-[10px] font-bold text-[#707a8a] uppercase tracking-wider block">Arah Posisi</span>
-              <span className={`text-sm font-extrabold ${trade.side === 'LONG' ? 'text-[#0ecb81]' : 'text-orange-400'}`}>
+            <div className="bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212]">
+              <span className="text-[10px] font-bold text-[#717182] uppercase tracking-wider block mb-1">Arah Posisi</span>
+              <span className={`text-lg font-extrabold font-display ${trade.side === 'LONG' ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
                 {trade.side}
               </span>
             </div>
-            <div className="bg-[#1e2329]/35 border border-[#2b3139] rounded-xl p-3">
-              <span className="text-[10px] font-bold text-[#707a8a] uppercase tracking-wider block">Volume (Qty)</span>
-              <span className="text-sm font-bold text-gray-200">{trade.qty ? trade.qty.toLocaleString() : '-'}</span>
+            <div className="bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212]">
+              <span className="text-[10px] font-bold text-[#717182] uppercase tracking-wider block mb-1">Volume (Qty)</span>
+              <span className="text-lg font-extrabold text-[#121212] font-number">{trade.qty ? trade.qty.toLocaleString() : '-'}</span>
             </div>
-            <div className="bg-[#1e2329]/35 border border-[#2b3139] rounded-xl p-3">
-              <span className="text-[10px] font-bold text-[#707a8a] uppercase tracking-wider block">Realized PnL</span>
-              <span className={`text-sm font-bold ${
-                (trade.netPnlUsd || 0) >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'
+            <div className="bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212]">
+              <span className="text-[10px] font-bold text-[#717182] uppercase tracking-wider block mb-1">Realized PnL</span>
+              <span className={`text-lg font-extrabold font-number ${
+                (trade.netPnlUsd || 0) >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'
               }`}>
                 {trade.status === 'OPEN' ? 'Running' : formatUsd(trade.netPnlUsd)}
               </span>
@@ -127,80 +126,70 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Execution Details */}
             <div className="space-y-4">
-              <h3 className="text-xs font-bold text-[#929aa5] uppercase tracking-wider flex items-center space-x-1.5">
-                <Calendar className="w-3.5 h-3.5 text-[#0ecb81]" />
-                <span>Rincian Eksekusi</span>
-              </h3>
-              
-              <div className=" rounded-xl p-4 space-y-2.5 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-[#707a8a]">Harga Masuk</span>
-                  <span className="font-semibold text-[#eaecef]">{trade.entryPrice ? trade.entryPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '-'}</span>
+              <SectionLabel label="Rincian Eksekusi" shape="circle" color="blue" icon={<Calendar className="w-4 h-4" />} />
+              <div className="bg-white border-2 border-[#121212] p-5 space-y-3 font-[Outfit] text-[13px]">
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Harga Masuk</span>
+                  <span className="font-extrabold text-[#121212] font-number">{trade.entryPrice ? trade.entryPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '-'}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-[#707a8a]">Harga Keluar</span>
-                  <span className="font-semibold text-[#eaecef]">{trade.exitPrice ? trade.exitPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }) : 'Belum Keluar'}</span>
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Harga Keluar</span>
+                  <span className="font-extrabold text-[#121212] font-number">{trade.exitPrice ? trade.exitPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }) : 'Belum Keluar'}</span>
                 </div>
-                <div className="flex justify-between border-t border-[#2b3139] pt-2.5">
-                  <span className="text-[#707a8a]">Tanggal Masuk</span>
-                  <span className="font-semibold text-[#eaecef]">{trade.entryTime ? formatDate(trade.entryTime) : '-'}</span>
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Tanggal Masuk</span>
+                  <span className="font-bold text-[#121212]">{trade.entryTime ? formatDate(trade.entryTime) : '-'}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-[#707a8a]">Tanggal Keluar</span>
-                  <span className="font-semibold text-[#eaecef]">{trade.exitTime ? formatDate(trade.exitTime) : '-'}</span>
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Tanggal Keluar</span>
+                  <span className="font-bold text-[#121212]">{trade.exitTime ? formatDate(trade.exitTime) : '-'}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-[#707a8a]">Durasi Hold</span>
-                  <span className="font-semibold text-[#eaecef]">{trade.status === 'OPEN' ? '-' : formatDuration(durationMs)}</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Durasi Hold</span>
+                  <span className="font-bold text-[#121212]">{trade.status === 'OPEN' ? '-' : formatDuration(durationMs)}</span>
                 </div>
               </div>
             </div>
 
             {/* Strategy / Stats details */}
             <div className="space-y-4">
-              <h3 className="text-xs font-bold text-[#929aa5] uppercase tracking-wider flex items-center space-x-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-[#0ecb81]" />
-                <span>Excursion & Multiple</span>
-              </h3>
-              
-              <div className=" rounded-xl p-4 space-y-2.5 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-[#707a8a]">R-Multiple</span>
-                  <span className="font-semibold text-[#eaecef]">
+              <SectionLabel label="Excursion & Multiple" shape="diamond" color="yellow" icon={<TrendingUp className="w-4 h-4" />} />
+              <div className="bg-white border-2 border-[#121212] p-5 space-y-3 font-[Outfit] text-[13px]">
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">R-Multiple</span>
+                  <span className={`font-extrabold font-number text-[15px] ${trade.rMultiple !== null && trade.rMultiple !== undefined ? (trade.rMultiple >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]') : 'text-[#121212]'}`}>
                     {trade.rMultiple !== null && trade.rMultiple !== undefined ? formatR(trade.rMultiple) : 'N/A'}
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-[#707a8a]">Risk USD</span>
-                  <span className="font-semibold text-[#eaecef]">{trade.riskUsd ? formatUsd(trade.riskUsd) : 'N/A'}</span>
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Risk USD</span>
+                  <span className="font-extrabold text-[#121212] font-number">{trade.riskUsd ? formatUsd(trade.riskUsd) : 'N/A'}</span>
                 </div>
-                <div className="flex justify-between border-t border-[#2b3139] pt-2.5">
-                  <span className="text-[#707a8a] text-[#0ecb81]">MFE (Float Profit Terbesar)</span>
-                  <span className="font-semibold text-[#0ecb81]">{trade.favorableExcursionUsd ? formatUsd(trade.favorableExcursionUsd) : 'N/A'}</span>
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[var(--profit)] font-bold uppercase tracking-wider text-[10px]">MFE (Float Profit)</span>
+                  <span className="font-extrabold text-[var(--profit)] font-number">{trade.favorableExcursionUsd ? formatUsd(trade.favorableExcursionUsd) : 'N/A'}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-[#707a8a] text-[#f6465d]">MAE (Float Loss Terbesar)</span>
-                  <span className="font-semibold text-[#f6465d]">{trade.adverseExcursionUsd ? formatUsd(trade.adverseExcursionUsd) : 'N/A'}</span>
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[var(--loss)] font-bold uppercase tracking-wider text-[10px]">MAE (Float Loss)</span>
+                  <span className="font-extrabold text-[var(--loss)] font-number">{trade.adverseExcursionUsd ? formatUsd(trade.adverseExcursionUsd) : 'N/A'}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-[#707a8a]">Nilai Posisi</span>
-                  <span className="font-semibold text-[#eaecef]">{trade.positionValue ? formatUsd(trade.positionValue) : '-'}</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Nilai Posisi</span>
+                  <span className="font-bold text-[#121212] font-number">{trade.positionValue ? formatUsd(trade.positionValue) : '-'}</span>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Form input sections */}
-          <div className="space-y-4 border-t border-[#2b3139] pt-6">
-            <h3 className="text-xs font-bold text-[#929aa5] uppercase tracking-wider">
-              Jurnal Tambahan User
-            </h3>
+          <div className="space-y-6 pt-6 border-t-4 border-[#121212] border-dashed">
+            <SectionLabel label="Jurnal Tambahan User" shape="square" color="dark" />
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               {/* Setup Tag */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-[#707a8a] uppercase flex items-center space-x-1">
-                  <Tag className="w-3 h-3" />
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-[#121212] uppercase tracking-wider flex items-center space-x-1.5">
+                  <Tag className="w-3.5 h-3.5" />
                   <span>Setup Tag / Kategori</span>
                 </label>
                 <input
@@ -208,14 +197,14 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
                   placeholder="Contoh: SNR Breakout, Pullback..."
                   value={setupTag}
                   onChange={(e) => setSetupTag(e.target.value)}
-                  className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-medium"
+                  className="input font-bold"
                 />
               </div>
 
               {/* Screenshot URL */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-[#707a8a] uppercase flex items-center space-x-1">
-                  <ImageIcon className="w-3 h-3" />
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-[#121212] uppercase tracking-wider flex items-center space-x-1.5">
+                  <ImageIcon className="w-3.5 h-3.5" />
                   <span>URL Gambar / Screenshot</span>
                 </label>
                 <input
@@ -223,15 +212,15 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
                   placeholder="https://tradingview.com/x/..."
                   value={screenshotUrl}
                   onChange={(e) => setScreenshotUrl(e.target.value)}
-                  className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-medium"
+                  className="input font-bold"
                 />
               </div>
             </div>
 
             {/* Notes Textarea */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-[#707a8a] uppercase flex items-center space-x-1">
-                <FileText className="w-3 h-3" />
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-[#121212] uppercase tracking-wider flex items-center space-x-1.5">
+                <FileText className="w-3.5 h-3.5" />
                 <span>Catatan & Analisis Jurnal</span>
               </label>
               <textarea
@@ -239,25 +228,25 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={4}
-                className="w-full bg-[#1e2329] border border-[#2b3139] focus:border-[#fcd535]/50 outline-none rounded-lg p-2.5 text-xs text-gray-200 font-medium leading-relaxed resize-none"
+                className="w-full bg-white border-2 border-[#121212] focus:shadow-[4px_4px_0px_0px_#1040C0] outline-none p-3 text-[13px] text-[#121212] font-semibold leading-relaxed resize-none transition-all font-[Outfit]"
               />
             </div>
 
             {/* Preview Screenshot Image if exists */}
             {screenshotUrl.trim() && (
-              <div className="space-y-2 border border-[#2b3139] rounded-xl p-3 bg-[#1e2329]/10">
-                <span className="text-[10px] font-bold text-[#707a8a] uppercase">Preview Gambar:</span>
-                <div className="relative aspect-video max-h-48 overflow-hidden rounded-lg border border-[#2b3139] flex items-center justify-center bg-gray-950">
-                  <img 
-                    src={screenshotUrl} 
-                    alt="Trade Screenshot Preview" 
+              <div className="space-y-3 bg-white border-2 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
+                <span className="text-[11px] font-bold text-[#121212] uppercase tracking-wider">Preview Gambar:</span>
+                <div className="relative aspect-video max-h-64 overflow-hidden border-2 border-[#121212] flex items-center justify-center bg-[#F0F0F0]">
+                  <img
+                    src={screenshotUrl}
+                    alt="Trade Screenshot Preview"
                     className="max-h-full object-contain"
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none';
                       const parent = (e.target as HTMLElement).parentElement;
                       if (parent) {
                         const errText = document.createElement('div');
-                        errText.className = 'text-xs text-[#707a8a] flex items-center space-x-1';
+                        errText.className = 'text-[11px] font-bold uppercase tracking-wider text-[var(--loss)] flex items-center space-x-1';
                         errText.innerHTML = `<span>Gagal memuat URL gambar</span>`;
                         parent.appendChild(errText);
                       }
@@ -270,32 +259,33 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
         </div>
 
         {/* Footer Actions */}
-        <div className="p-6 border-t border-[#2b3139] bg-[#1e2329]/10 flex justify-between items-center">
-          <div className="flex items-center text-xs">
+        <div className="p-6 border-t-4 border-[#121212] bg-[#F0F0F0] flex justify-between items-center">
+          <div className="flex items-center text-[13px]">
             {saveSuccess && (
-              <span className="text-[#0ecb81] flex items-center space-x-1 font-semibold">
-                <CheckCircle className="w-4 h-4" />
+              <span className="text-[var(--profit)] flex items-center space-x-1.5 font-bold uppercase tracking-wider">
+                <CheckCircle className="w-5 h-5" strokeWidth={3} />
                 <span>Berhasil disimpan!</span>
               </span>
             )}
           </div>
 
           <div className="flex space-x-3">
-            <button
+            <Button
+              variant="secondary"
               onClick={onClose}
               disabled={isSaving}
-              className="px-4 py-2 border border-[#2b3139] text-[#929aa5] hover:text-white rounded-lg text-xs font-semibold hover:bg-[#2b3139]/40 transition disabled:opacity-50"
             >
               Batal
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="blue"
               onClick={handleSave}
               disabled={isSaving}
-              className="px-4 py-2 bg-gradient-to-r from-accentCyan to-accentBlue hover:from-accentCyan/90 hover:to-accentBlue/90 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5  transition disabled:opacity-50"
+              isLoading={isSaving}
             >
               <Save className="w-4 h-4" />
-              <span>{isSaving ? 'Menyimpan...' : 'Simpan Jurnal'}</span>
-            </button>
+              <span>Simpan Jurnal</span>
+            </Button>
           </div>
         </div>
       </div>

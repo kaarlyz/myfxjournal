@@ -89,7 +89,8 @@ async function resolveSignalScreenshot(signal: SignalLike) {
   const screenshot = await prisma.eaScreenshot.findUnique({ where: { id: signal.screenshotId } }).catch(() => null);
   if (!screenshot) return { resolvedPath: null as string | null, error: 'Screenshot record not found.' };
   const mt5FilesDir = process.env.MT5_FILES_DIR;
-  const allowedBase = mt5FilesDir ? path.resolve(mt5FilesDir) : path.resolve(process.cwd(), '..', 'uploads', 'ea-screenshots');
+  const wineFallback = '/home/vallencia/wine-mt5/drive_c/Program Files/MetaTrader 5/MQL5/Files';
+  const allowedBase = mt5FilesDir ? path.resolve(mt5FilesDir) : fs.existsSync(wineFallback) ? path.resolve(wineFallback) : path.resolve(process.cwd(), '..', 'uploads', 'ea-screenshots');
   const filePath = screenshot.localFilePath || screenshot.filePath || screenshot.url || null;
   if (!filePath || /^https?:\/\//i.test(filePath)) {
     return { resolvedPath: null as string | null, error: 'Screenshot file path is unavailable.' };
