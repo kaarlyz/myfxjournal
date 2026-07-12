@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Plus, Upload, Activity, BookOpen, DollarSign, Trash2,
-  BarChart3, MoreVertical, FileUp, Copy, Edit3, FileText, Camera,
-  FileSearch, Wallet, Link2, Zap, ShieldAlert, ArrowRight
+  Plus, Upload, Activity, BookOpen, Trash2,
+  BarChart3, MoreVertical, FileUp, Copy, Edit3, FileText,
+  FileSearch, Wallet, Link2, Zap
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useJournalStore } from '../store/useJournalStore';

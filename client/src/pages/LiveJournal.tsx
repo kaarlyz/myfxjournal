@@ -6,7 +6,7 @@ import JournalCalendar from '../components/JournalCalendar';
 import { Activity, Plus, FileText, ArrowUpRight, ArrowDownRight, RefreshCw, Camera } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { formatCurrency, formatPercent, formatPnL } from '../utils/numberUtils';
-import ErrorBoundary from '../components/ErrorBoundary';
+import WidgetErrorBoundary from '../components/WidgetErrorBoundary';
 import { buildExportFilename, exportElementAsPng } from '../utils/exportImage';
 import { HelpCard, PageGuide } from '../components/help/HelpSystem';
 import { Button } from '../components/ui/Button';
@@ -518,8 +518,8 @@ function LiveJournalContent() {
 
 export default function LiveJournal() {
   return (
-    <ErrorBoundary>
+    <WidgetErrorBoundary>
       <LiveJournalContent />
-    </ErrorBoundary>
+    </WidgetErrorBoundary>
   );
 }

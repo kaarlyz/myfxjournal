@@ -24,7 +24,7 @@ import MonteCarlo from './pages/MonteCarlo';
 import { useJournalStore } from './store/useJournalStore';
 import { useLiveJournalStore } from './store/useLiveJournalStore';
 import { AlertTriangle, Clock, Wifi, WifiOff, RefreshCw } from 'lucide-react';
-import ErrorBoundary from './components/ErrorBoundary';
+import WidgetErrorBoundary from './components/WidgetErrorBoundary';
 import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import { useOnboarding } from './hooks/useOnboarding';
 
@@ -41,7 +41,7 @@ function AnimatedRoutes() {
         transition={{ duration: 0.25, ease: 'easeOut' }}
         className="w-full max-w-none px-6 lg:px-8 2xl:px-12 py-6"
       >
-        <ErrorBoundary>
+        <WidgetErrorBoundary>
           <Routes location={location} key={location.pathname}>
             <Route path="/"                              element={<Home />} />
             <Route path="/sessions"                     element={<Home />} />
@@ -67,7 +67,7 @@ function AnimatedRoutes() {
             <Route path="/monte-carlo"                  element={<MonteCarlo />} />
             <Route path="*"                             element={<Navigate to="/" replace />} />
           </Routes>
-        </ErrorBoundary>
+        </WidgetErrorBoundary>
       </motion.div>
     </AnimatePresence>
   );

@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Bar, BarChart, ReferenceDot, Cell } from 'recharts';
 import { Maximize2, X } from 'lucide-react';
 import { SectionLabel } from './ui/SectionLabel';
-import { Button } from './ui/Button';
 
 const tick = (value: string) => String(value).slice(5, 10);
 

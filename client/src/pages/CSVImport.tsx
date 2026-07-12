@@ -16,7 +16,7 @@ import { HelpCard, PageGuide } from '../components/help/HelpSystem';
 import { SymbolSelect } from '../components/forms/SymbolSelect';
 import { TimeframeSelect } from '../components/forms/TimeframeSelect';
 import { MarketCategorySelect } from '../components/forms/MarketCategorySelect';
-import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { PageHeader } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
 
 export default function CSVImport() {

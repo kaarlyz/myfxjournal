@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useJournalStore } from '../store/useJournalStore';
-import { Dices, AlertTriangle, TrendingUp, Activity, Info, BookOpen, Target, Settings2 } from 'lucide-react';
+import { Dices, AlertTriangle, TrendingUp, Activity, BookOpen, Target, Settings2 } from 'lucide-react';
 import { runMonteCarlo, MonteCarloConfig } from '../lib/monteCarloEngine';
 import { formatUsd, formatPercent } from '../utils/formatters';
 import MetricCard from '../components/MetricCard';
@@ -11,7 +11,6 @@ import { SectionLabel, PageHeader } from '../components/ui/SectionLabel';
 import { Badge } from '../components/ui/Badge';
 import { formatCompactUsd } from '../utils/chartUtils';
 import { PremiumTooltip } from '../components/ui/PremiumTooltip';
-import { motion } from 'framer-motion';
 
 // Tooltip styles removed in favor of PremiumTooltip
 

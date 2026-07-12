@@ -3,7 +3,7 @@ import { useLiveJournalStore } from '../store/useLiveJournalStore';
 import { Wallet, Plus, Trash2, Shield, AlertCircle, Clock, Link as LinkIcon, Server, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { formatCurrency } from '../utils/numberUtils';
 import { HelpCard, PageGuide } from '../components/help/HelpSystem';
-import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { SectionLabel } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
 import { Input, Select } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';

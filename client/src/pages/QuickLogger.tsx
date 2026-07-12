@@ -4,7 +4,7 @@ import { BarChart3, CheckCircle2, RefreshCw, Zap } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
 import { formatUsd, formatPercent } from '../utils/formatters';
 import { HelpCard, PageGuide } from '../components/help/HelpSystem';
-import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { PageHeader } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
 
 export default function QuickLogger() {

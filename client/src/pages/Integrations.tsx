@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useJournalStore } from '../store/useJournalStore';
-import { Link2, Code, ShieldCheck, CheckCircle2, AlertCircle, RefreshCcw, MessageCircle, Phone, Bell, Terminal, Activity, Server, Database } from 'lucide-react';
+import { Link2, ShieldCheck, CheckCircle2, AlertCircle, RefreshCcw, MessageCircle, Phone, Bell, Terminal, Activity, Server, Database } from 'lucide-react';
 import { HelpCard, PageGuide } from '../components/help/HelpSystem';
 import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
@@ -8,11 +8,10 @@ import { Badge } from '../components/ui/Badge';
 import { Input, Select } from '../components/ui/Input';
 
 export default function Integrations() {
-  const { fetchSettings } = useJournalStore();
+  const { } = useJournalStore();
   const [activeTab, setActiveTab] = useState<'MT5' | 'TRADINGVIEW' | 'TELEGRAM' | 'WHATSAPP' | 'ALERTS' | 'COMMAND' | 'DIAGNOSTICS' | 'HEALTH'>('MT5');
   const [mt5Status, setMt5Status] = useState({ connected: false, lastSyncTime: null });
   const [telegramStatus, setTelegramStatus] = useState<any>({ configured: false });
-  const [whatsappStatus, setWhatsappStatus] = useState({ configured: false });
   const [commandLogs, setCommandLogs] = useState<any[]>([]);
   const [integrationLogs, setIntegrationLogs] = useState<any[]>([]);
   const [tradingViewEvents, setTradingViewEvents] = useState<any[]>([]);
@@ -70,7 +69,7 @@ export default function Integrations() {
 
         // WhatsApp
         const waRes = await fetch(`${API_BASE_URL}/integrations/whatsapp/status`);
-        if (waRes.ok) setWhatsappStatus(await waRes.json());
+        // if (waRes.ok) setWhatsappStatus(await waRes.json());
         const waDebugRes = await fetch(`${API_BASE_URL}/integrations/whatsapp/baileys/debug`);
         if (waDebugRes.ok) setWhatsappDebug(await waDebugRes.json());
 

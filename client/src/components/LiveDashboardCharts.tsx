@@ -5,7 +5,6 @@ import {
 } from 'recharts';
 import { motion } from 'framer-motion';
 import { formatTradeTime } from '../utils/timeUtils';
-import { formatUsd } from '../utils/formatters';
 import { formatCompactUsd, downsampleData } from '../utils/chartUtils';
 import { SectionLabel } from './ui/SectionLabel';
 import { PremiumTooltip } from './ui/PremiumTooltip';
@@ -102,7 +101,7 @@ export default function LiveDashboardCharts({ trades }: Props) {
                 fillOpacity={1}
                 fill="url(#colorEquityLive)"
                 dot={false}
-                activeDot={{ r: 6, stroke: '#121212', strokeWidth: 2 }}
+                activeDot={{ r: 6, stroke: 'var(--bg-dark)', strokeWidth: 2 }}
               />
             </AreaChart>
           </ResponsiveContainer>

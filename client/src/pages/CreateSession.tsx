@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, AlertCircle, BookOpen, Settings } from 'lucide-react';
+import { Save, AlertCircle, Settings } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
 import { SymbolSelect } from '../components/forms/SymbolSelect';
 import { TimeframeSelect } from '../components/forms/TimeframeSelect';

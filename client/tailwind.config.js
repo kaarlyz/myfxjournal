@@ -7,50 +7,36 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Bauhaus design tokens (from /copyit)
-        'bg-base':    '#F0F0F0',
-        'bg-surface': '#FFFFFF',
-        'bg-dark':    '#121212',
-        'bg-muted':   '#E0E0E0',
-        'bg-yellow':  '#F0C020',
+        // Bauhaus design tokens mapped to CSS variables
+        'bg-base':    'var(--bg-base)',
+        'bg-surface': 'var(--bg-surface)',
+        'bg-dark':    'var(--bg-dark)',
+        'bg-muted':   'var(--bg-muted)',
+        'bg-yellow':  'var(--bg-yellow)',
 
         // Bauhaus accent palette
-        'accent-red':    '#D02020',
-        'accent-blue':   '#1040C0',
-        'accent-yellow': '#F0C020',
-        'accent-dark':   '#121212',
+        'accent-red':    'var(--accent-red)',
+        'accent-blue':   'var(--accent-blue)',
+        'accent-yellow': 'var(--accent-yellow)',
+        'accent-dark':   'var(--accent-dark)',
 
-        // Trading semantics (readable financial data)
-        'profit':  '#059669',
-        'loss':    '#DC2626',
-        'warning': '#D97706',
+        // Trading semantics
+        'profit':      'var(--profit)',
+        'profit-dim':  'var(--profit-dim)',
+        'loss':        'var(--loss)',
+        'loss-dim':    'var(--loss-dim)',
+        'warning':     'var(--warning)',
+        'warning-dim': 'var(--warning-dim)',
+        'neutral':     'var(--neutral)',
 
-        // Legacy aliases (keep for backward compat in existing components)
-        primary:          '#D02020',
-        'primary-active': '#B01010',
-        ink:              '#121212',
-        body:             '#121212',
-        muted:            '#717182',
-        'muted-strong':   '#3a3a3a',
-        'hairline-dark':  'rgba(18,18,18,0.15)',
-        'hairline-light': 'rgba(18,18,18,0.08)',
-        'canvas-dark':    '#121212',
-        'canvas-light':   '#F0F0F0',
-        'card-dark':      '#FFFFFF',
-        'elevated-dark':  '#F8F8F8',
-        'surface-soft':   '#F0F0F0',
-        'on-primary':     '#FFFFFF',
-        'trading-up':     '#059669',
-        'trading-down':   '#DC2626',
+        // Text colors
+        'text-primary':   'var(--text-primary)',
+        'text-secondary': 'var(--text-secondary)',
+        'text-muted':     'var(--text-muted)',
+        'text-inverted':  'var(--text-inverted)',
 
-        // Further legacy
-        darkBg:        '#F0F0F0',
-        darkCard:      '#FFFFFF',
-        accentCyan:    '#059669',
-        accentEmerald: '#059669',
-        accentBlue:    '#1040C0',
-        winGreen:      '#059669',
-        lossRed:       '#DC2626',
+        // Border colors
+        'border-color': 'var(--border-color)',
       },
 
       fontFamily: {
@@ -76,12 +62,12 @@ export default {
       },
 
       boxShadow: {
-        'offset-lg': '8px 8px 0px 0px #121212',
-        'offset-md': '6px 6px 0px 0px #121212',
-        'offset-sm': '4px 4px 0px 0px #121212',
-        'offset-xs': '3px 3px 0px 0px #121212',
-        'offset-red': '6px 6px 0px 0px #D02020',
-        'offset-blue': '6px 6px 0px 0px #1040C0',
+        'offset-lg': 'var(--shadow-lg)',
+        'offset-md': 'var(--shadow-md)',
+        'offset-sm': 'var(--shadow-sm)',
+        'offset-xs': 'var(--shadow-xs)',
+        'offset-red': 'var(--shadow-red)',
+        'offset-blue': 'var(--shadow-blue)',
       },
 
       backgroundImage: {

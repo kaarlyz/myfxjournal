@@ -3,7 +3,6 @@ import { Calculator, Info } from 'lucide-react';
 import { formatCurrency, formatNumber } from '../utils/numberUtils';
 import { Input, Select } from './ui/Input';
 import { SectionLabel } from './ui/SectionLabel';
-import { Badge } from './ui/Badge';
 
 interface RiskCalculatorProps {
   onClose?: () => void;
@@ -224,6 +223,48 @@ export default function RiskCalculator({ onClose }: RiskCalculatorProps) {
               value={rrTarget} 
               onChange={e => setRrTarget(Number(e.target.value))} 
               step="0.1" 
+            />
+          </div>
+          
+          <div className="flex items-center gap-4 py-2 mt-2">
+            <div className="flex-1 border-t-2 border-[#121212]"></div>
+            <span className="text-[10px] font-extrabold text-[#121212] uppercase tracking-widest bg-white px-2 py-1 border-2 border-[#121212]">Advanced Settings</span>
+            <div className="flex-1 border-t-2 border-[#121212]"></div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <Select 
+              label="Currency" 
+              value={currency} 
+              onChange={e => setCurrency(e.target.value as any)}
+            >
+              <option value="USD">USD</option>
+              <option value="CENT">USC (Cent)</option>
+              <option value="IDR">IDR</option>
+            </Select>
+            <Input 
+              label="Lot Step" 
+              type="number" 
+              value={lotStep} 
+              onChange={e => setLotStep(Number(e.target.value))} 
+              step="0.01" 
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Input 
+              label="Min Lot" 
+              type="number" 
+              value={minLot} 
+              onChange={e => setMinLot(Number(e.target.value))} 
+              step="0.01" 
+            />
+            <Input 
+              label="Max Lot" 
+              type="number" 
+              value={maxLot} 
+              onChange={e => setMaxLot(Number(e.target.value))} 
+              step="1" 
             />
           </div>
         </div>

@@ -1,21 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { 
-  Activity, 
-  Terminal, 
   Copy, 
-  CheckCircle, 
   AlertTriangle, 
-  Info, 
   RefreshCw, 
   Clock, 
   Lock 
 } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
-import { formatDate, formatUsd, formatR } from '../utils/formatters';
+import { formatDate } from '../utils/formatters';
 import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { Input } from '../components/ui/Input';
 
 interface WebhookSummary {
   openTrades: any[];

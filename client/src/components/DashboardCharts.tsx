@@ -22,7 +22,7 @@ import { BarChart2, MousePointerClick } from 'lucide-react';
 import { Trade, BacktestSession } from '../shared/types';
 import { formatUsd, formatPercent } from '../utils/formatters';
 import { downsampleData, formatCompactUsd, getNiceDomain, getNegativeDomain, getMedian } from '../utils/chartUtils';
-import { SectionLabel } from './ui/SectionLabel';
+import WidgetErrorBoundary from './WidgetErrorBoundary';
 import { PremiumTooltip } from './ui/PremiumTooltip';
 import { SmartSummary } from './ui/SmartSummary';
 import { EmptyState } from './ui/EmptyState';
@@ -140,8 +140,6 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
     }));
   }, [closedTrades]);
 
-  const scatterMfeDomain = useMemo(() => getNiceDomain(scatterData.map((d) => d.mfe || 0), 0.08), [scatterData]);
-  const scatterMaeDomain = useMemo(() => getNiceDomain(scatterData.map((d) => d.mae || 0), 0.08), [scatterData]);
   const medianMfe = useMemo(() => getMedian(scatterData.map((d) => d.mfe || 0)), [scatterData]);
   const medianMae = useMemo(() => getMedian(scatterData.map((d) => d.mae || 0)), [scatterData]);
 
@@ -277,7 +275,8 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
               <SectionLabel label="Equity Growth Curve" shape="circle" color="blue" className="mt-1 mb-2" />
               <SmartSummary insights={insights.equityInsights} />
               <div className="h-[380px] w-full mt-4">
-                <ResponsiveContainer width="100%" height="100%">
+                <WidgetErrorBoundary widgetName="Equity Curve">
+                  <ResponsiveContainer width="100%" height="100%">
                   <AreaChart syncId="equityGroup" data={sampledEquityData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                     <defs>
                       <linearGradient id="equityGlow" x1="0" y1="0" x2="0" y2="1">
@@ -332,6 +331,7 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
                     <Legend content={renderLegend} />
                   </AreaChart>
                 </ResponsiveContainer>
+                </WidgetErrorBoundary>
               </div>
             </motion.div>
 
@@ -339,7 +339,8 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
               <div className="absolute top-0 left-0 right-0 h-[3px] bg-[var(--loss)]" />
               <SectionLabel label="Drawdown (%)" shape="square" color="red" className="mt-1 mb-5" />
               <div className="h-[380px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
+                <WidgetErrorBoundary widgetName="Drawdown Area">
+                  <ResponsiveContainer width="100%" height="100%">
                   <AreaChart syncId="equityGroup" data={sampledEquityData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                     <defs>
                       <linearGradient id="ddGlow" x1="0" y1="0" x2="0" y2="1">
@@ -373,6 +374,7 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
                     />
                   </AreaChart>
                 </ResponsiveContainer>
+                </WidgetErrorBoundary>
               </div>
             </motion.div>
           </motion.div>
@@ -384,7 +386,8 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
               <SectionLabel label="PnL Distribution per Trade (Interactive)" shape="square" color="dark" className="mt-1 mb-2" />
               <SmartSummary insights={insights.setupInsights} />
               <div className="h-[350px] mt-4">
-                <ResponsiveContainer width="100%" height="100%">
+                <WidgetErrorBoundary widgetName="PnL Distribution">
+                  <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={sampledEquityData.filter((d) => d.tradeNum > 0)}
                     margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
@@ -429,6 +432,7 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+                </WidgetErrorBoundary>
               </div>
             </motion.div>
           </motion.div>
@@ -440,7 +444,8 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
               <SectionLabel label="Performance by Day (Interactive)" shape="diamond" color="yellow" className="mt-1 mb-2" />
               <SmartSummary insights={insights.timeInsights} />
               <div className="h-[300px] mt-4">
-                <ResponsiveContainer width="100%" height="100%">
+                <WidgetErrorBoundary widgetName="Performance by Day">
+                  <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={timeChartData}
                     margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
@@ -508,6 +513,7 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
                </div>
                
                <div className="h-[350px] w-full">
+                <WidgetErrorBoundary widgetName="MFE vs MAE Scatter">
                   <ResponsiveContainer width="100%" height="100%">
                     <ScatterChart margin={{ top: 15, right: 18, bottom: 18, left: 18 }}>
                       {renderGrid()}
@@ -549,6 +555,7 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
                       />
                     </ScatterChart>
                   </ResponsiveContainer>
+                </WidgetErrorBoundary>
                </div>
              </motion.div>
           </motion.div>

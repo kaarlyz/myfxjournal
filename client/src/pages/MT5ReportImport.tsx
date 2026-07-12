@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { BarChart3, CheckCircle, FileSpreadsheet, UploadCloud, AlertTriangle } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
 import { formatNumber, formatPercent, formatUsd } from '../utils/formatters';

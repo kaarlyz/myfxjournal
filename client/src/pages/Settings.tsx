@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Settings as SettingsIcon, 
   Save, 
   Trash2, 
-  Database, 
   AlertTriangle, 
   CheckCircle, 
   RefreshCw 
@@ -19,8 +17,7 @@ export default function Settings() {
     fetchSettings, 
     updateSettings, 
     resetDatabase, 
-    seedDemo, 
-    loading 
+    seedDemo
   } = useJournalStore();
 
   // Form states

@@ -984,3 +984,17 @@ textarea:focus-visible {
   .metric-value-xl { font-size: 30px; }
   .metric-value-lg { font-size: 22px; }
 }
+
+/* ── Export & Print Mode ── */
+@media print {
+  .recharts-tooltip-wrapper,
+  .recharts-brush {
+    display: none !important;
+  }
+}
+
+.export-mode .recharts-tooltip-wrapper,
+.export-mode .recharts-brush,
+.export-mode .recharts-active-dot {
+  display: none !important;
+}

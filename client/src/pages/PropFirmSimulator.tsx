@@ -7,7 +7,6 @@ import MetricCard from '../components/MetricCard';
 import { Button } from '../components/ui/Button';
 import { SectionLabel, PageHeader } from '../components/ui/SectionLabel';
 import { Badge } from '../components/ui/Badge';
-import { Input } from '../components/ui/Input';
 
 // ── Default config (generic, not tied to any specific prop firm) ────────────
 const DEFAULT_CONFIG: PropFirmConfig = {

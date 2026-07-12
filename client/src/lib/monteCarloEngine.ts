@@ -1,4 +1,3 @@
-import { EnrichedTrade } from '../shared/types';
 
 export interface MonteCarloConfig {
   simulations: number;

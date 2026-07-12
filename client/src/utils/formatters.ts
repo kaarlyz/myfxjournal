@@ -1,4 +1,3 @@
-import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { formatNumber as safeFormatNumber } from './numberUtils';
 
 export function formatUsd(val: number | null | undefined): string {

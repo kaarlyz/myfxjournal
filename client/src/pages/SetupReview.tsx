@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2, XCircle, RefreshCcw, Clock, ExternalLink, AlertTriangle } from 'lucide-react';
-import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { PageHeader } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 

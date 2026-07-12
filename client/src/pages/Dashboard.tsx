@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  DollarSign, TrendingUp, TrendingDown, BarChart3,
+  DollarSign, TrendingUp, TrendingDown,
   Clock, Activity, ChevronLeft, Upload, RefreshCw, CheckCircle2,
-  AlertTriangle, X, Target, Hash, Camera, FileText, Shield, Wallet, Info
+  AlertTriangle, X, Target, Camera, FileText, Shield, Wallet, Info
 } from 'lucide-react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useJournalStore } from '../store/useJournalStore';
 import MetricCard from '../components/MetricCard';
 import DashboardCharts, { DashboardChartSelection } from '../components/DashboardCharts';

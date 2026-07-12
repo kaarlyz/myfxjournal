@@ -2,8 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Home, PlusCircle, UploadCloud, BarChart3, Settings as SettingsIcon,
-  BookOpen, TrendingUp, Zap, Layers, Wallet, Calculator, Link2,
-  FileSearch, Bot, Shield, Dices, X, Menu, Trophy, Flame, Target
+  BookOpen, Zap, Layers, Wallet, Calculator, Link2,
+  FileSearch, Bot, Shield, Dices, X, Menu, Trophy, Flame
 } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
 import { formatPnL } from '../utils/numberUtils';
