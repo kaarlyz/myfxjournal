@@ -71,7 +71,7 @@ Ikuti langkah mudah berikut untuk menjalankan aplikasi di lingkungan lokal Anda:
 ### Langkah-langkah
 1. **Buka folder root project**:
    ```bash
-   cd /home/vallencia/Documents/ayra
+   cd /home/..
    ```
 
 2. **Instalasi Dependensi**:
