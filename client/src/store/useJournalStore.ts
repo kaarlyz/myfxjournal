@@ -53,7 +53,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   activeSessionDetails: null,
   activeSessionRequestId: 0,
   settings: {
-    usdIdrRate: 16200,
+    usdIdrRate: 18000,
     defaultRiskMode: 'FIXED_USD',
     defaultRiskValue: 100,
     secretToken: 'replayfx_secret_token_123',

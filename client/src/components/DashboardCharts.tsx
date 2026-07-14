@@ -26,6 +26,7 @@ import WidgetErrorBoundary from './WidgetErrorBoundary';
 import { PremiumTooltip } from './ui/PremiumTooltip';
 import { SmartSummary } from './ui/SmartSummary';
 import { EmptyState } from './ui/EmptyState';
+import { SectionLabel } from './ui/SectionLabel';
 
 export interface DashboardChartSelection {
   kind: 'day' | 'setup' | 'trade' | 'side' | 'result';
@@ -498,6 +499,7 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+                </WidgetErrorBoundary>
               </div>
             </motion.div>
           </motion.div>
