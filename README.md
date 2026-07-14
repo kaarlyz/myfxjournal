@@ -26,7 +26,7 @@ ReplayFX Journal adalah aplikasi fullstack web untuk mencatat, mengolah, dan men
 ## 📂 Struktur Folder Project
 
 ```
-/ayra
+/myfxjournal
 ├── package.json                   # Root package.json (concurrent runner)
 ├── README.md                      # Dokumentasi petunjuk aplikasi
 ├── shared/
