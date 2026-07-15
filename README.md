@@ -15,15 +15,15 @@
 
 > **KAFX Journal** adalah trading journal yang dibangun khusus untuk trader aktif — mendukung backtest TradingView, live monitoring MT5, integrasi Telegram & WhatsApp, EA signal approval, Monte Carlo simulation, dan Prop Firm challenge tracking — semua dalam satu aplikasi lokal yang berjalan di mesinmu sendiri.
 
-[✨ Fitur](#-fitur-utama) · [🏗 Arsitektur](#-arsitektur) · [🚀 Quick Start](#-quick-start) · [📡 API Reference](#-api-reference) · [🌍 Multi-Bahasa](#-multi-bahasa)
+[Fitur](#-fitur-utama) · [🏗 Arsitektur](#-arsitektur) · [🚀 Quick Start](#-quick-start) · [📡 API Reference](#-api-reference) · [🌍 Multi-Bahasa](#-multi-bahasa)
 
 </div>
 
 ---
 
-## ✨ Fitur Utama
+## Fitur Utama
 
-### 📊 Backtest Analytics
+###  Backtest Analytics
 | Fitur | Deskripsi |
 |-------|-----------|
 | **Import CSV** | Import langsung dari TradingView Strategy Tester dengan mode Replace / Append / Smart Merge |
@@ -34,7 +34,7 @@
 | **Report Print** | Export laporan profesional siap cetak ke PDF |
 | **Setup Review** | Filter dan review trade berdasarkan setup tag |
 
-### 📈 Live Trading & MT5
+### Live Trading & MT5
 | Fitur | Deskripsi |
 |-------|-----------|
 | **Live Journal** | Pantau posisi terbuka & histori trade dari akun MT5 real/demo secara real-time |
@@ -42,7 +42,7 @@
 | **MT5 Sync** | Sinkronisasi otomatis balance, equity, margin, floating PnL per akun |
 | **Portfolio Overview** | Aggregasi balance, equity, dan floating dari semua akun tersambung |
 
-### 🤖 Integrations & Automation
+### Integrations & Automation
 | Fitur | Deskripsi |
 |-------|-----------|
 | **TradingView Webhook** | Terima sinyal dari TradingView Alert via webhook lokal (butuh tunnel untuk akses publik) |
@@ -51,7 +51,7 @@
 | **WhatsApp (Twilio)** | Notifikasi monitoring via WhatsApp menggunakan Twilio API |
 | **Webhook Monitor** | Pantau, debug, dan test semua sinyal masuk secara real-time via SSE |
 
-### 🧮 Tools & Simulator
+### Tools & Simulator
 | Fitur | Deskripsi |
 |-------|-----------|
 | **Risk Calculator** | Kalkulasi lot size, SL dalam pips, dan risk dalam USD/persen real-time |
@@ -61,7 +61,7 @@
 
 ---
 
-## 🏗 Arsitektur
+## Arsitektur
 
 ```
 myfxjournal/
@@ -403,14 +403,14 @@ cd server && npm run build   # Compile TypeScript server
 
 **Eka Restu Syahputra**
 
-Dibuat dengan ❤️ untuk trader yang serius menganalisa dan meningkatkan performa trading mereka.
+"bang ko projectnya jelek?"
 
 ---
 
 <div align="center">
 
 **KAFX Journal v2.1** · React + Express + SQLite + Prisma  
-*Data kamu. Mesin kamu. Privasi kamu.*
+*ngapain ngoding mending scrool fesnuk*
 
 </div>
 
