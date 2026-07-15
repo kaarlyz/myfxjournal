@@ -403,7 +403,6 @@ cd server && npm run build   # Compile TypeScript server
 
 **Eka Restu Syahputra**
 
-"bang ko projectnya jelek?"
 
 ---
 
