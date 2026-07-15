@@ -12,6 +12,7 @@ import JournalCalendar from '../components/JournalCalendar';
 import { HelpCard, EmptyStateGuide, PageGuide } from '../components/help/HelpSystem';
 import { BrandLogo } from '../components/ui/BrandLogo';
 import { useOnboarding } from '../hooks/useOnboarding';
+import { useTranslation } from 'react-i18next';
 
 /* ── Sub-components ── */
 
@@ -119,6 +120,7 @@ function QuickAction({
 /* ── Main Page ── */
 
 export default function Home() {
+  const { t } = useTranslation(['home', 'common', 'dashboard']);
   const navigate = useNavigate();
   const { sessions, fetchSessions, selectSession, deleteSession, updateSession, loading } = useJournalStore();
   const { greeting, name } = useOnboarding();
@@ -188,19 +190,19 @@ export default function Home() {
   };
 
   const renameSession = async (session: any) => {
-    const name = prompt('Nama sesi baru:', session.name);
+    const name = prompt(t('rename_prompt'), session.name);
     if (name && name.trim() && name.trim() !== session.name) {
       await updateSession(session.id, { name: name.trim() });
     }
   };
 
   const editNotes = async (session: any) => {
-    const notes = prompt('Catatan sesi:', session.notes || '');
+    const notes = prompt(t('notes_prompt'), session.notes || '');
     if (notes !== null) await updateSession(session.id, { notes });
   };
 
   const duplicateSession = async (_session: any) => {
-    alert('Duplicate Session belum diaktifkan untuk menjaga data trade tetap aman. Gunakan Import CSV untuk membuat sesi baru dari file sumber.');
+    alert(t('duplicate_not_available'));
   };
 
   const portfolio = accounts.reduce(
@@ -228,10 +230,10 @@ export default function Home() {
         <div className="absolute inset-y-0 right-0 hidden w-24 bg-[#1040C0]/8 sm:block" />
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.24em] text-[#717182]">Welcome back</p>
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.24em] text-[#717182]">{t('welcome_back')}</p>
             <h2 className="mt-2 text-3xl font-black leading-tight text-[#121212] font-display">{greeting}{name ? '' : ''}</h2>
             <p className="mt-3 text-sm leading-7 text-[#717182] sm:text-[15px]">
-              Here’s today’s trading overview and a quick path back into your workspace.
+              {t('trading_overview')}
             </p>
             <motion.div
               initial={{ opacity: 0, y: 8 }}
@@ -240,7 +242,7 @@ export default function Home() {
               className="mt-4 flex flex-wrap items-center gap-2"
             >
               <div className="rounded border border-[#121212]/10 bg-[#F0F0F0] px-3 py-2 text-[10px] font-extrabold uppercase tracking-[0.22em] text-[#717182]">
-                built by Eka Restu Syahputra
+                {t('built_by')}
               </div>
               <a
                 href="https://instagram.com/vckmbrly"
@@ -254,7 +256,7 @@ export default function Home() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="rounded border border-[#121212]/10 bg-[#F0F0F0] px-3 py-2 text-sm font-semibold text-[#121212]">
-              {sessions.length} session{sessions.length === 1 ? '' : 's'} ready
+              {t('sessions_ready', { count: sessions.length })}
             </div>
           </div>
         </div>
@@ -270,7 +272,7 @@ export default function Home() {
                 className="block text-[10px] uppercase tracking-[0.22em] font-extrabold"
                 style={{ fontFamily: 'Outfit, sans-serif', color: '#717182' }}
               >
-                TRADING JOURNAL
+                {t('trading_journal')}
               </span>
               <p
                 className="mt-2 max-w-md"
@@ -282,7 +284,7 @@ export default function Home() {
                   lineHeight: '1.6',
                 }}
               >
-                Portfolio overview untuk backtest, MT5 report, live journal, dan integrasi trading.
+                {t('portfolio_desc')}
               </p>
             </div>
           </div>
@@ -290,24 +292,24 @@ export default function Home() {
 
         <div className="flex flex-wrap items-center gap-2 md:justify-end">
           <PageGuide
-            title="Mulai dari mana?"
-            purpose="Overview ini membantu memilih workflow yang benar: backtest TradingView, report MT5, live account, atau catatan manual."
+            title={t('where_to_start')}
+            purpose={t('where_to_start_overview')}
             steps={[
-              'Kalau punya CSV TradingView, klik Import CSV.',
-              'Kalau punya report Strategy Tester MT5, klik Import MT5 Report.',
-              'Kalau ingin pantau akun real/demo, buka Trading Accounts lalu Integrations.',
-              'Kalau ingin catat cepat manual, buka Quick Logger.',
+              t('step_csv'),
+              t('step_mt5'),
+              t('step_live'),
+              t('step_manual'),
             ]}
             outputs={[
-              'Portfolio cards menunjukkan ringkasan akun live/demo.',
-              'Session cards membuka dashboard analisis backtest.',
-              'Calendar snapshot menunjukkan bulan trading dari data aktual.',
+              t('output_portfolio'),
+              t('output_session'),
+              t('output_calendar'),
             ]}
             warnings={[
-              'TradingView webhook lokal butuh tunnel seperti cloudflared/ngrok.',
-              'Remote trade execution dari Telegram/WhatsApp tetap dimatikan demi keamanan.',
+              t('warn_webhook'),
+              t('warn_remote'),
             ]}
-            nextAction="Pilih quick action sesuai sumber data yang kamu punya sekarang."
+            nextAction={t('choose_workflow')}
           />
           <Link
             to="/create-session"
@@ -315,7 +317,7 @@ export default function Home() {
             aria-label="Buat sesi jurnal baru"
           >
             <Plus className="w-4 h-4" aria-hidden="true" />
-            Buat Sesi
+            {t('create_session')}
           </Link>
           <Link
             to="/csv-import"
@@ -323,7 +325,7 @@ export default function Home() {
             aria-label="Import CSV TradingView"
           >
             <Upload className="w-4 h-4" aria-hidden="true" />
-            Import CSV
+            {t('import_csv')}
           </Link>
           <Link
             to="/webhook-monitor"
@@ -331,7 +333,7 @@ export default function Home() {
             aria-label="Monitor webhook"
           >
             <Activity className="w-4 h-4" aria-hidden="true" />
-            Webhook
+            {t('webhook')}
           </Link>
         </div>
       </div>
@@ -358,13 +360,13 @@ export default function Home() {
                   color: '#121212',
                 }}
               >
-                Portfolio Overview
+                {t('portfolio_overview')}
               </h2>
               <p
                 className="mt-1"
                 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '0.78rem', color: '#717182' }}
               >
-                Ringkasan akun MT5 live/demo yang tersambung.
+                {t('portfolio_subtitle')}
               </p>
             </div>
             <span
@@ -379,16 +381,16 @@ export default function Home() {
               }}
               aria-label={`${accounts.length} connected accounts`}
             >
-              {accounts.length} accounts
+              {t('accounts', { count: accounts.length })}
             </span>
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <PortfolioMetric label="Total Balance"  value={formatUsd(portfolio.balance)} />
-            <PortfolioMetric label="Total Equity"   value={formatUsd(portfolio.equity)} />
-            <PortfolioMetric label="Free Margin"    value={formatUsd(portfolio.freeMargin)} />
+            <PortfolioMetric label={t('total_balance')}  value={formatUsd(portfolio.balance)} />
+            <PortfolioMetric label={t('total_equity')}   value={formatUsd(portfolio.equity)} />
+            <PortfolioMetric label={t('free_margin')}    value={formatUsd(portfolio.freeMargin)} />
             <PortfolioMetric
-              label="Floating PnL"
+              label={t('floating_pnl')}
               value={formatUsd(floatingPnl)}
               danger={floatingPnl < 0}
               positive={floatingPnl > 0}
@@ -402,23 +404,23 @@ export default function Home() {
             <span
               style={{ fontFamily: 'Outfit, sans-serif', fontSize: '11px', color: '#717182' }}
             >
-              Last sync:{' '}
+              {t('last_sync')}:{' '}
               <span style={{ color: '#121212', fontWeight: 700 }}>
                 {portfolio.lastSync
                   ? new Date(portfolio.lastSync).toLocaleString()
-                  : 'Belum ada snapshot akun.'}
+                  : t('no_snapshot')}
               </span>
             </span>
           </div>
         </div>
 
         {/* Help card */}
-        <HelpCard title="Mulai dari mana?">
+        <HelpCard title={t('where_to_start')}>
           <div className="space-y-1.5" style={{ fontFamily: 'Outfit, sans-serif', fontSize: '0.82rem' }}>
-            <p><strong style={{ color: '#121212' }}>TradingView backtest:</strong> Import CSV.</p>
-            <p><strong style={{ color: '#121212' }}>EA MT5:</strong> Import MT5 Report + tester graph CSV.</p>
-            <p><strong style={{ color: '#121212' }}>Akun real/demo:</strong> Trading Accounts + Integrations.</p>
-            <p><strong style={{ color: '#121212' }}>Catatan cepat:</strong> Quick Logger.</p>
+            <p><strong style={{ color: '#121212' }}>{t('tradingview_backtest')}:</strong> {t('import_csv')}.</p>
+            <p><strong style={{ color: '#121212' }}>{t('ea_mt5')}:</strong> {t('import_mt5_report')}.</p>
+            <p><strong style={{ color: '#121212' }}>{t('real_demo_account')}:</strong> {t('trading_account')} + {t('integrations')}.</p>
+            <p><strong style={{ color: '#121212' }}>{t('quick_note')}:</strong> {t('quick_logger')}.</p>
           </div>
         </HelpCard>
       </div>
@@ -437,32 +439,32 @@ export default function Home() {
               color: '#717182',
             }}
           >
-            Quick Actions
+            {t('quick_actions')}
           </span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
-          <QuickAction to="/csv-import"      icon={Upload}      title="Import CSV"     body="TradingView Strategy Tester"  accentColor="#D02020" shape="square" />
-          <QuickAction to="/mt5-import"      icon={FileSearch}  title="Import MT5"     body="Strategy Tester XLSX"         accentColor="#1040C0" shape="circle" />
-          <QuickAction to="/live-journal"    icon={BookOpen}    title="Live Journal"   body="Pantau akun berjalan"         accentColor="#F0C020" shape="diamond" />
-          <QuickAction to="/accounts"        icon={Wallet}      title="Trading Account" body="Tambah/kelola akun"          accentColor="#121212" shape="square" />
-          <QuickAction to="/integrations"    icon={Link2}       title="Integrations"   body="MT5, TV, WA, Telegram"        accentColor="#D02020" shape="circle" />
-          <QuickAction to="/quick-logger"    icon={Zap}         title="Quick Logger"   body="Catat trade manual"           accentColor="#1040C0" shape="square" />
+          <QuickAction to="/csv-import"      icon={Upload}      title={t('import_csv')}     body={t('tv_strategy_tester')}  accentColor="#D02020" shape="square" />
+          <QuickAction to="/mt5-import"      icon={FileSearch}  title={t('import_mt5')}     body={t('mt5_strategy_tester')}         accentColor="#1040C0" shape="circle" />
+          <QuickAction to="/live-journal"    icon={BookOpen}    title={t('live_journal')}   body={t('monitor_running_account')}         accentColor="#F0C020" shape="diamond" />
+          <QuickAction to="/accounts"        icon={Wallet}      title={t('trading_account')} body={t('add_manage_account')}          accentColor="#121212" shape="square" />
+          <QuickAction to="/integrations"    icon={Link2}       title={t('integrations')}   body={t('mt5_tv_wa_tg')}        accentColor="#D02020" shape="circle" />
+          <QuickAction to="/quick-logger"    icon={Zap}         title={t('quick_logger')}   body={t('manual_note')}           accentColor="#1040C0" shape="square" />
         </div>
       </div>
 
       {/* ── Risk snapshot row ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <HelpCard title="Recent activity">
+        <HelpCard title={t('recent_activity')}>
           <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '0.82rem' }} className="space-y-1.5">
-            <p>Latest session: <span style={{ color: '#121212', fontWeight: 700 }}>{latestSession?.name || 'Belum ada sesi.'}</span></p>
-            <p>Source: <span style={{ color: '#121212', fontWeight: 700 }}>{latestSession?.sourceMode || '-'}</span></p>
-            <p>Last live sync: <span style={{ color: '#121212', fontWeight: 700 }}>{portfolio.lastSync ? new Date(portfolio.lastSync).toLocaleString() : '-'}</span></p>
+            <p>{t('latest_session')}: <span style={{ color: '#121212', fontWeight: 700 }}>{latestSession?.name || t('no_session_yet')}</span></p>
+            <p>{t('source')}: <span style={{ color: '#121212', fontWeight: 700 }}>{latestSession?.sourceMode || '-'}</span></p>
+            <p>{t('last_live_sync')}: <span style={{ color: '#121212', fontWeight: 700 }}>{portfolio.lastSync ? new Date(portfolio.lastSync).toLocaleString() : '-'}</span></p>
           </div>
         </HelpCard>
-        <HelpCard title="Risk snapshot" tone={floatingPnl < 0 ? 'warning' : 'info'}>
+        <HelpCard title={t('risk_snapshot')} tone={floatingPnl < 0 ? 'warning' : 'info'}>
           <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '0.82rem' }}>
             <p>
-              Floating PnL:{' '}
+              {t('floating_pnl')}:{' '}
               <span
                 className="font-number font-bold"
                 style={{ color: floatingPnl < 0 ? 'var(--loss)' : 'var(--profit)' }}
@@ -472,14 +474,14 @@ export default function Home() {
             </p>
             <p className="mt-1">
               {floatingPnl < 0
-                ? 'Akun sedang floating loss. Hindari menambah risiko tanpa alasan setup yang jelas.'
-                : 'Tidak ada floating loss agregat dari akun yang tersambung.'}
+                ? t('floating_loss_warn')
+                : t('no_floating_loss')}
             </p>
           </div>
         </HelpCard>
-        <HelpCard title="Keamanan command">
+        <HelpCard title={t('command_security')}>
           <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '0.82rem' }}>
-            Command Center dan WhatsApp/Telegram hanya untuk monitoring dan balasan aman. Perintah buy/sell/close_all tidak dieksekusi remote.
+            {t('command_security_desc')}
           </p>
         </HelpCard>
       </div>
@@ -512,10 +514,10 @@ export default function Home() {
                     color: '#121212',
                   }}
                 >
-                  Journal Snapshot
+                  {t('journal_snapshot')}
                 </h2>
                 <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '0.78rem', color: '#717182', marginTop: 4 }}>
-                  Latest session with direct access to analysis and live journal.
+                  {t('journal_snapshot_desc')}
                 </p>
               </div>
 
@@ -525,7 +527,7 @@ export default function Home() {
                     previewSession.name,
                     previewSession.symbol,
                     previewSession.timeframe,
-                    `${previewTrades.length} trades`,
+                    t(previewTrades.length === 1 ? 'trades' : 'trades_plural', { count: previewTrades.length }),
                   ].map(tag => (
                     <span
                       key={tag}
@@ -555,7 +557,7 @@ export default function Home() {
                   aria-label="Open dashboard for latest session"
                 >
                   <BarChart3 className="w-4 h-4" aria-hidden="true" />
-                  Open Dashboard
+                  {t('open_dashboard')}
                 </button>
               )}
               <Link
@@ -564,7 +566,7 @@ export default function Home() {
                 aria-label="Open Live Journal"
               >
                 <BookOpen className="w-4 h-4" aria-hidden="true" />
-                Live Journal
+                {t('live_journal')}
               </Link>
             </div>
           </div>
@@ -580,7 +582,7 @@ export default function Home() {
                   <div className="w-6 h-6 border-2 border-[#121212] border-t-transparent animate-spin" />
                 </div>
                 <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '12px', color: '#717182' }}>
-                  Loading latest session snapshot...
+                  {t('loading_snapshot')}
                 </p>
               </div>
             ) : previewSession ? (
@@ -600,7 +602,7 @@ export default function Home() {
             ) : (
               <div className="border-2 border-dashed border-[rgba(18,18,18,0.2)] px-4 py-8 text-center">
                 <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '12px', color: '#717182' }}>
-                  No session data available for snapshot.
+                  {t('no_session_data')}
                 </p>
               </div>
             )}
@@ -622,7 +624,7 @@ export default function Home() {
               color: '#717182',
             }}
           >
-            Daftar Sesi ({sessions.length})
+            {t('sessions_list', { count: sessions.length })}
           </h2>
         </div>
 
@@ -636,17 +638,17 @@ export default function Home() {
               <div className="w-8 h-8 border-2 border-[#121212] border-t-transparent animate-spin" />
             </div>
             <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '13px', color: '#717182' }}>
-              Sedang memuat data sesi...
+              {t('loading_sessions')}
             </p>
           </div>
         ) : sessions.length === 0 ? (
           <EmptyStateGuide
-            title="Belum Ada Sesi Jurnal"
-            body="Mulai dengan Import CSV untuk backtest TradingView, Import MT5 Report untuk EA MT5, atau Buat Sesi jika ingin menyiapkan jurnal manual."
+            title={t('no_journal_sessions')}
+            body={t('no_sessions_body')}
             action={
               <div className="flex flex-wrap justify-center gap-2">
-                <Link to="/csv-import" className="btn btn-primary">Import CSV</Link>
-                <Link to="/mt5-import" className="btn btn-secondary">Import MT5 Report</Link>
+                <Link to="/csv-import" className="btn btn-primary">{t('import_csv')}</Link>
+                <Link to="/mt5-import" className="btn btn-secondary">{t('import_mt5_report')}</Link>
               </div>
             }
           />
@@ -667,7 +669,7 @@ export default function Home() {
                 onDuplicate={() => duplicateSession(s)}
                 onEditNotes={() => editNotes(s)}
                 onDelete={async () => {
-                  if (confirm(`Hapus sesi "${s.name}"?`)) await deleteSession(s.id);
+                  if (confirm(t('delete_confirm', { name: s.name }))) await deleteSession(s.id);
                 }}
               />
             ))}
@@ -702,6 +704,7 @@ function SessionCard({
   onEditNotes,
   onDelete,
 }: SessionCardProps) {
+  const { t } = useTranslation(['home', 'common', 'dashboard']);
   const sourceColors: Record<string, string> = {
     CSV:     '#D02020',
     WEBHOOK: '#059669',
@@ -774,14 +777,14 @@ function SessionCard({
               aria-label="Session actions menu"
             >
               {[
-                { icon: BarChart3, label: 'Open Dashboard',    action: onOpenDashboard,              danger: false },
-                { icon: FileUp,    label: 'Update CSV',        action: () => onImportCsv('SMART_MERGE'), danger: false },
-                { icon: Upload,    label: 'Append CSV',        action: () => onImportCsv('APPEND'),  danger: false },
-                { icon: Activity,  label: 'Smart Merge CSV',   action: () => onImportCsv('SMART_MERGE'), danger: false },
-                { icon: Edit3,     label: 'Rename Session',    action: onRename,                     danger: false },
-                { icon: Copy,      label: 'Duplicate Session', action: onDuplicate,                  danger: false },
-                { icon: FileText,  label: 'Add/Edit Notes',    action: onEditNotes,                  danger: false },
-                { icon: Trash2,    label: 'Delete Session',    action: onDelete,                     danger: true  },
+                { icon: BarChart3, label: t('open_dashboard'),    action: onOpenDashboard,              danger: false },
+                { icon: FileUp,    label: t('common:update') + ' CSV', action: () => onImportCsv('SMART_MERGE'), danger: false },
+                { icon: Upload,    label: t('import_csv_append'), action: () => onImportCsv('APPEND'),  danger: false },
+                { icon: Activity,  label: t('import_csv_smart_merge'), action: () => onImportCsv('SMART_MERGE'), danger: false },
+                { icon: Edit3,     label: t('rename'),    action: onRename,                     danger: false },
+                { icon: Copy,      label: t('duplicate'), action: onDuplicate,                  danger: false },
+                { icon: FileText,  label: t('edit_notes'),    action: onEditNotes,                  danger: false },
+                { icon: Trash2,    label: t('delete_session'),    action: onDelete,                     danger: true  },
               ].map(({ icon: MenuIcon, label, action, danger }) => (
                 <button
                   key={label}
@@ -847,7 +850,7 @@ function SessionCard({
             className="block mb-1"
             style={{ fontFamily: 'Outfit, sans-serif', fontSize: '9px', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#717182' }}
           >
-            NET PNL
+            {t('common:pnl').toUpperCase()}
           </span>
           <span
             className="font-bold font-number"
@@ -863,7 +866,7 @@ function SessionCard({
             className="block mb-1"
             style={{ fontFamily: 'Outfit, sans-serif', fontSize: '9px', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#717182' }}
           >
-            WIN RATE
+            {t('common:win_rate').toUpperCase()}
           </span>
           <span
             className="font-bold font-number"
@@ -880,7 +883,7 @@ function SessionCard({
         <span
           style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 700, color: '#717182', letterSpacing: '0.08em', textTransform: 'uppercase' }}
         >
-          {s.tradeCount} Trades
+          {t(s.tradeCount === 1 ? 'trades' : 'trades_plural', { count: s.tradeCount })}
         </span>
         <span
           style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 600, color: '#717182' }}
@@ -892,7 +895,7 @@ function SessionCard({
             style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 700, color: 'var(--loss)', letterSpacing: '0.06em', textTransform: 'uppercase' }}
             aria-label={`${s.invalidTradeCount} invalid trades`}
           >
-            {s.invalidTradeCount} Invalid
+            {t('dashboard:invalid_trades', { count: s.invalidTradeCount })}
           </span>
         )}
       </div>
@@ -905,7 +908,7 @@ function SessionCard({
           aria-label={`Open dashboard for ${s.name}`}
         >
           <BarChart3 className="w-3.5 h-3.5" aria-hidden="true" />
-          Dashboard
+          {t('open_dashboard')}
         </button>
         <button
           onClick={() => onImportCsv('SMART_MERGE')}
@@ -913,7 +916,7 @@ function SessionCard({
           aria-label={`Update CSV for ${s.name}`}
         >
           <FileUp className="w-3.5 h-3.5" aria-hidden="true" />
-          Update CSV
+          {t('dashboard:update_csv')}
         </button>
       </div>
     </article>

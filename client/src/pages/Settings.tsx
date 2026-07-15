@@ -10,8 +10,11 @@ import { useJournalStore } from '../store/useJournalStore';
 import { Input, Select } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import LanguageSwitcher from '../components/LanguageSwitcher';
+import { useTranslation } from 'react-i18next';
 
 export default function Settings() {
+  const { t } = useTranslation(['settings', 'common', 'dashboard']);
   const { 
     settings, 
     fetchSettings, 
@@ -60,16 +63,16 @@ export default function Settings() {
     setIsSaving(false);
 
     if (success) {
-      setMessage({ type: 'success', text: 'Pengaturan default berhasil disimpan.' });
+      setMessage({ type: 'success', text: t('saved') });
       setTimeout(() => setMessage(null), 3000);
     } else {
-      setMessage({ type: 'error', text: 'Gagal memperbarui pengaturan.' });
+      setMessage({ type: 'error', text: t('common:error') });
     }
   };
 
   const handleHardReset = async () => {
     if (resetConfirmInput !== 'HAPUS') {
-      alert('Konfirmasi tulisan tidak cocok. Reset dibatalkan.');
+      alert(t('reset_confirm_mismatch', 'Konfirmasi tulisan tidak cocok. Reset dibatalkan.'));
       return;
     }
 
@@ -79,19 +82,19 @@ export default function Settings() {
     setResetConfirmInput('');
 
     if (success) {
-      alert('Database berhasil di-reset sepenuhnya ke pengaturan pabrik.');
+      alert(t('reset_success', 'Database berhasil di-reset sepenuhnya ke pengaturan pabrik.'));
     } else {
-      alert('Gagal mereset database.');
+      alert(t('reset_failed', 'Gagal mereset database.'));
     }
   };
 
   const handleSeedDemo = async () => {
-    if (confirm('Fungsi ini akan menghapus semua data saat ini dan mengisi database dengan sesi backtest simulasi. Lanjutkan?')) {
+    if (confirm(t('seed_confirm', 'Fungsi ini akan menghapus semua data saat ini dan mengisi database dengan sesi backtest simulasi. Lanjutkan?'))) {
       const success = await seedDemo();
       if (success) {
-        alert('Database berhasil diisi dengan data demo.');
+        alert(t('seed_success', 'Database berhasil diisi dengan data demo.'));
       } else {
-        alert('Gagal mengisi data demo.');
+        alert(t('seed_failed', 'Gagal mengisi data demo.'));
       }
     }
   };
@@ -99,9 +102,9 @@ export default function Settings() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <PageHeader 
-        label="Configuration"
-        title="Pengaturan Aplikasi"
-        subtitle="Atur parameter default untuk backtest journal Anda, termasuk kurs USD/IDR dan mode risk management."
+        label={t('configuration', 'Configuration')}
+        title={t('title')}
+        subtitle={t('subtitle')}
         labelColor="dark"
       />
 
@@ -121,34 +124,34 @@ export default function Settings() {
         <div className="lg:col-span-2 space-y-8">
           <form onSubmit={handleSave} className="bg-white border-4 border-[#121212] p-6 shadow-[8px_8px_0px_0px_#121212] relative">
             <div className="absolute top-0 left-0 right-0 h-3 bg-[#1040C0]" />
-            <SectionLabel label="General Defaults" shape="circle" color="blue" className="mb-6 mt-2" />
+            <SectionLabel label={t('general_defaults', 'General Defaults')} shape="circle" color="blue" className="mb-6 mt-2" />
 
             <div className="space-y-6 bg-[#F0F0F0] p-5 border-2 border-[#121212]">
               {/* USD IDR Exchange Rate */}
               <div>
                 <Input
-                  label="Kurs USD ke IDR Manual"
+                  label={t('usd_idr_rate_label', 'Kurs USD ke IDR Manual')}
                   type="number"
                   value={usdIdrRate}
                   onChange={(e) => setUsdIdrRate(e.target.value)}
-                  hint="Nilai ini akan digunakan saat menghitung PnL dalam mata uang Rupiah (IDR)."
+                  hint={t('usd_idr_rate_hint', 'Nilai ini akan digunakan saat menghitung PnL dalam mata uang Rupiah (IDR).')}
                 />
               </div>
 
               {/* Risk Mode and Value */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Select
-                  label="Model Resiko Bawaan (R)"
+                  label={t('default_risk_mode_label', 'Model Resiko Bawaan (R)')}
                   value={defaultRiskMode}
                   onChange={(e: any) => setDefaultRiskMode(e.target.value)}
                 >
-                  <option value="FIXED_USD">Fixed USD per Trade</option>
-                  <option value="FIXED_PCT">Fixed % dari Initial Balance</option>
-                  <option value="NO_R">No R Calculation</option>
+                  <option value="FIXED_USD">{t('fixed_usd_per_trade', 'Fixed USD per Trade')}</option>
+                  <option value="FIXED_PCT">{t('fixed_pct_per_trade', 'Fixed % dari Initial Balance')}</option>
+                  <option value="NO_R">{t('no_r_calculation', 'No R Calculation')}</option>
                 </Select>
 
                 <Input
-                  label={`Nilai Resiko Bawaan (${defaultRiskMode === 'FIXED_USD' ? 'USD' : '%'})`}
+                  label={`${t('default_risk_value_label', 'Nilai Resiko Bawaan')} (${defaultRiskMode === 'FIXED_USD' ? 'USD' : '%'})`}
                   type="number"
                   disabled={defaultRiskMode === 'NO_R'}
                   value={defaultRiskMode === 'NO_R' ? '' : defaultRiskValue}
@@ -166,7 +169,7 @@ export default function Settings() {
                 className="w-full md:w-auto py-3 px-8"
               >
                 <Save className="w-5 h-5 mr-2" />
-                {isSaving ? 'Menyimpan...' : 'Simpan Pengaturan'}
+                {isSaving ? t('common:saving', 'Menyimpan...') : t('common:save_settings', 'Simpan Pengaturan')}
               </Button>
             </div>
           </form>
@@ -174,12 +177,21 @@ export default function Settings() {
 
         {/* Right Column: Database Tools & Resets */}
         <div className="space-y-8">
+          {/* Language Selector */}
+          <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212] border-l-8 border-l-[#1040C0]">
+            <SectionLabel label={t('language', 'Language')} shape="circle" color="blue" className="mb-3" />
+            <p className="text-[12px] font-bold text-[#717182] mb-5">
+              Pilih bahasa tampilan aplikasi / Select language preference for KAFX Journal.
+            </p>
+            <LanguageSwitcher />
+          </div>
+
           {/* Seed Data Tool - development only */}
           {((import.meta as any).env?.DEV) && (
             <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212] border-l-8 border-l-[var(--profit)]">
-              <SectionLabel label="Seeder Data Demo" shape="square" color="dark" className="mb-3" />
+              <SectionLabel label={t('demo_seeder', 'Seeder Data Demo')} shape="square" color="dark" className="mb-3" />
               <p className="text-[12px] font-bold text-[#717182] mb-5">
-                Isi database SQLite Anda dengan sesi backtest dan trade simulasi (Wins, Losses, Webhooks) secara instan.
+                {t('demo_seeder_desc', 'Isi database SQLite Anda dengan sesi backtest dan trade simulasi secara instan.')}
               </p>
               <Button
                 variant="secondary"
@@ -187,7 +199,7 @@ export default function Settings() {
                 fullWidth
               >
                 <RefreshCw className="w-4 h-4 mr-2" />
-                Jalankan Seeder Demo
+                {t('run_demo_seeder', 'Jalankan Seeder Demo')}
               </Button>
             </div>
           )}
@@ -196,20 +208,20 @@ export default function Settings() {
           <div className="bg-[#F0F0F0] border-4 border-[#121212] p-5 shadow-[6px_6px_0px_0px_#121212] relative overflow-hidden">
             <div className="absolute top-0 left-0 bottom-0 w-2 bg-[var(--loss)]" />
             <div className="ml-3">
-              <SectionLabel label="Zona Bahaya (Hard Reset)" shape="diamond" color="red" className="mb-3" />
+              <SectionLabel label={t('danger_zone', 'Zona Bahaya (Hard Reset)')} shape="diamond" color="red" className="mb-3" />
               <p className="text-[12px] font-bold text-[#717182] mb-5">
-                Tindakan ini akan <span className="text-[var(--loss)] font-black uppercase">menghapus semua sesi</span> backtest, riwayat trade, webhook, dan logs dari database SQLite secara permanen.
+                {t('danger_zone_desc', 'Tindakan ini akan menghapus semua sesi backtest, riwayat trade, webhook, dan logs secara permanen.')}
               </p>
 
               <div className="space-y-3 p-4 bg-white border-2 border-[#121212] mb-5">
                 <label className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest block">
-                  Ketik <span className="text-[var(--loss)] bg-[var(--loss-dim)] px-1 border border-[var(--loss)]">"HAPUS"</span> untuk mengonfirmasi:
+                  {t('type_hapus_confirm', 'Ketik "HAPUS" untuk mengonfirmasi:')}
                 </label>
                 <Input
                   type="text"
                   value={resetConfirmInput}
                   onChange={(e) => setResetConfirmInput(e.target.value)}
-                  placeholder="Ketik HAPUS..."
+                  placeholder="HAPUS..."
                   className="font-black tracking-widest text-center uppercase"
                 />
               </div>
@@ -222,7 +234,7 @@ export default function Settings() {
                 className="py-3"
               >
                 <Trash2 className="w-5 h-5 mr-2" />
-                {isResetting ? 'Mereset...' : 'Wipe Database Permanen'}
+                {isResetting ? t('resetting', 'Mereset...') : t('wipe_db_btn', 'Wipe Database')}
               </Button>
             </div>
           </div>

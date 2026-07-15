@@ -7,25 +7,40 @@ const router = Router();
 // GET /api/events/stream
 router.get('/stream', (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  // Disable nginx/proxy buffering (critical for SSE through proxies)
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
   // Send initial connected event
   res.write(`data: ${JSON.stringify({ type: 'CONNECTED', message: 'SSE Connection established' })}\n\n`);
 
+  // Heartbeat every 25s — prevents proxy/firewall timeout (typically 30-60s idle timeout)
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(`: heartbeat\n\n`);
+    } catch (_) {
+      // Connection already gone — clearInterval handled in req.on('close')
+    }
+  }, 25_000);
+
   const onUpdate = (data: any) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    try {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    } catch (_) {}
   };
 
   mt5Events.on('trade-update', onUpdate);
   mt5Events.on('account-snapshot', onUpdate);
 
   req.on('close', () => {
+    clearInterval(heartbeat);
     mt5Events.off('trade-update', onUpdate);
     mt5Events.off('account-snapshot', onUpdate);
   });
 });
+
 
 // GET /api/events/commands
 router.get('/commands', async (req: Request, res: Response) => {

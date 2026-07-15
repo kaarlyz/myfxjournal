@@ -26,8 +26,10 @@ import { Badge } from '../components/ui/Badge';
 import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
 import { EmptyStateGuide } from '../components/help/HelpSystem';
 import { useLocalStorage } from '../hooks/useLocalStorage';
+import { useTranslation } from 'react-i18next';
 
 export default function Dashboard() {
+  const { t } = useTranslation(['dashboard', 'common', 'home']);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const {
@@ -118,7 +120,7 @@ export default function Dashboard() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
         <div className="w-10 h-10 border-4 border-[#121212] border-t-transparent rounded-full animate-spin" />
         <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '13px', color: '#717182', fontWeight: 600 }}>
-          Memuat analisa sesi...
+          {t('loading')}
         </p>
       </div>
     );
@@ -127,12 +129,12 @@ export default function Dashboard() {
   if (sessions.length === 0) {
     return (
       <EmptyStateGuide
-        title="Dashboard Analisa"
-        body="Anda belum memiliki sesi backtest. Buat sesi baru atau import CSV untuk melihat analisa kinerja trading."
+        title={t('title')}
+        body={t('no_session')}
         action={
           <div className="flex flex-wrap justify-center gap-2">
-            <Button variant="primary" onClick={() => navigate('/create-session')}>Create Session</Button>
-            <Button variant="secondary" onClick={() => navigate('/csv-import')}>Import CSV</Button>
+            <Button variant="primary" onClick={() => navigate('/create-session')}>{t('create_session')}</Button>
+            <Button variant="secondary" onClick={() => navigate('/csv-import')}>{t('import_csv')}</Button>
           </div>
         }
       />
@@ -143,9 +145,9 @@ export default function Dashboard() {
     return (
       <div className="space-y-6">
         <PageHeader
-          label="Sesi Jurnal"
-          title="Pilih Sesi Backtest"
-          subtitle="Pilih sesi di bawah ini untuk melihat dashboard analisa."
+          label={t('session_label')}
+          title={t('select_session_title')}
+          subtitle={t('select_session_subtitle')}
           labelColor="blue"
         />
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
@@ -166,7 +168,7 @@ export default function Dashboard() {
                     {s.symbol} · {s.timeframe} · {s.marketType}
                   </p>
                 </div>
-                <Badge variant="neutral">{s.tradeCount} trades</Badge>
+                <Badge variant="neutral">{t('home:trades_plural', { count: s.tradeCount })}</Badge>
               </div>
               <Button
                 variant="yellow"
@@ -174,7 +176,7 @@ export default function Dashboard() {
                 fullWidth
                 onClick={() => { selectSession(s.id); navigate(`/dashboard?sessionId=${s.id}`); }}
               >
-                Open Dashboard
+                {t('open_dashboard')}
               </Button>
             </div>
           ))}
@@ -187,15 +189,15 @@ export default function Dashboard() {
     return (
       <div className="space-y-6">
         <PageHeader
-          label="Sesi Jurnal"
-          title="Memuat dashboard analisa"
-          subtitle="Data sesi sedang disiapkan. Jika ini berlangsung lama, coba ulang atau pilih sesi lain."
+          label={t('session_label')}
+          title={t('loading_detail')}
+          subtitle={t('loading_detail_subtitle')}
           labelColor="blue"
         />
         <div className="bg-white border-2 border-[#121212] p-6 shadow-[4px_4px_0px_0px_#121212]">
-          <p className="text-sm font-semibold text-[#717182]">Proses memuat detail sesi belum selesai.</p>
+          <p className="text-sm font-semibold text-[#717182]">{t('loading_incomplete')}</p>
           <Button variant="secondary" className="mt-4" onClick={() => activeSessionId && fetchActiveSession(activeSessionId)}>
-            Coba lagi
+            {t('retry')}
           </Button>
         </div>
       </div>
@@ -225,7 +227,7 @@ export default function Dashboard() {
               className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[#717182] hover:text-[#121212] transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
-              Kembali
+              {t('common:back')}
             </button>
             <h1 className="text-3xl md:text-4xl font-extrabold text-[#121212] tracking-tight flex items-center gap-3 font-display">
               {session.name}
@@ -241,13 +243,13 @@ export default function Dashboard() {
               onClick={() => setDisplayMode('RAW')}
               className={`mode-toggle-btn flex items-center gap-1.5 ${displayMode === 'RAW' ? 'active-raw' : ''}`}
             >
-              <Wallet className="w-3.5 h-3.5" /> Raw Broker PnL
+              <Wallet className="w-3.5 h-3.5" /> {t('display_mode_raw')}
             </button>
             <button
               onClick={() => setDisplayMode('SIMULATED')}
               className={`mode-toggle-btn flex items-center gap-1.5 ${displayMode === 'SIMULATED' ? 'active-sim' : ''}`}
             >
-              <Shield className="w-3.5 h-3.5" /> Risk Simulation
+              <Shield className="w-3.5 h-3.5" /> {t('display_mode_simulated')}
             </button>
           </div>
         </div>
@@ -272,7 +274,7 @@ export default function Dashboard() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" onClick={() => setShowUpdatePanel(!showUpdatePanel)}>
-              <RefreshCw className="w-3.5 h-3.5" /> Update CSV
+              <RefreshCw className="w-3.5 h-3.5" /> {t('update_csv')}
             </Button>
             <Button variant="secondary" onClick={() => window.open(`/reports/session/${session.id}/print`, '_blank')}>
               <FileText className="w-3.5 h-3.5" /> PDF
@@ -284,7 +286,7 @@ export default function Dashboard() {
               catch (e) { alert('Export gagal.'); }
               finally { setIsExporting(false); }
             }} disabled={isExporting}>
-              <Camera className="w-3.5 h-3.5" /> {isExporting ? 'Wait...' : 'Export PNG'}
+              <Camera className="w-3.5 h-3.5" /> {isExporting ? t('exporting') : t('export_png')}
             </Button>
           </div>
         </div>
@@ -295,7 +297,7 @@ export default function Dashboard() {
         <Card variant="default" className="border-[var(--accent-blue)]">
           <CardBody className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-bold text-sm uppercase tracking-widest text-[#121212]">Update Data Sesi CSV</h3>
+              <h3 className="font-bold text-sm uppercase tracking-widest text-[#121212]">{t('update_csv')}</h3>
               <button onClick={() => setShowUpdatePanel(false)} className="text-[#717182] hover:text-[#121212]">
                 <X className="w-4 h-4" />
               </button>
@@ -311,7 +313,7 @@ export default function Dashboard() {
                   onChange={() => setUpdateMode('REPLACE')}
                   className="w-4 h-4 accent-[#1040C0]"
                 />
-                Smart Merge
+                {t('update_mode_smart')}
               </label>
               <label className="flex items-center gap-2 cursor-pointer font-bold">
                 <input
@@ -322,7 +324,7 @@ export default function Dashboard() {
                   onChange={() => setUpdateMode('APPEND')}
                   className="w-4 h-4 accent-[#1040C0]"
                 />
-                Append Only
+                {t('update_mode_append')}
               </label>
             </div>
             <p className="text-xs text-[#717182]">
@@ -351,7 +353,7 @@ export default function Dashboard() {
                 isLoading={isUpdating}
                 className="whitespace-nowrap"
               >
-                <Upload className="w-4 h-4" /> Update Sesi
+                <Upload className="w-4 h-4" /> {t('update_csv')}
               </Button>
             </div>
 
@@ -365,10 +367,10 @@ export default function Dashboard() {
                   )}
                   <div>
                     <p className={`text-sm font-bold ${updateResult.ok ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
-                      {updateResult.ok ? 'Update Berhasil' : 'Update Gagal'}
+                      {updateResult.ok ? t('common:success') : t('common:error')}
                     </p>
                     {updateResult.ok ? (
-                      <p className="text-xs mt-1">Data berhasil diproses. Valid: {updateResult.validCount} | Invalid/Gagal: {updateResult.invalidCount}</p>
+                      <p className="text-xs mt-1">{t('update_success', { count: updateResult.validCount })} | Invalid: {updateResult.invalidCount}</p>
                     ) : (
                       <p className="text-xs mt-1">{updateResult.error}</p>
                     )}
@@ -392,12 +394,12 @@ export default function Dashboard() {
               ${activeTab === tab ? 'bg-[#121212] text-white shadow-[3px_3px_0px_0px_#D02020]' : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'}
             `}
           >
-            {tab === 'OVERVIEW' && 'Overview'}
-            {tab === 'RISK' && 'Risk Recalculation'}
-            {tab === 'RR_LAB' && 'RR Lab'}
-            {tab === 'TIMING' && 'Timing Analytics'}
-            {tab === 'STREAKS' && 'Streaks'}
-            {tab === 'PAIR' && 'Pair Breakdown'}
+            {tab === 'OVERVIEW' && t('tab_overview')}
+            {tab === 'RISK' && t('tab_risk')}
+            {tab === 'RR_LAB' && t('tab_rr_lab')}
+            {tab === 'TIMING' && t('tab_timing')}
+            {tab === 'STREAKS' && t('tab_streaks')}
+            {tab === 'PAIR' && t('tab_pair')}
           </button>
         ))}
       </div>
@@ -418,7 +420,7 @@ export default function Dashboard() {
               <div className="absolute top-0 right-0 w-64 h-64 bg-[#1040C0] opacity-[0.04] rounded-full pointer-events-none" />
               <p className="text-[#717182] text-[10px] font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
                 {displayMode === 'RAW' ? <Wallet className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
-                {displayMode === 'RAW' ? 'Current Broker Equity' : 'Simulated Equity Model'}
+                {displayMode === 'RAW' ? t('current_broker_equity', 'Current Broker Equity') : t('simulated_equity_model', 'Simulated Equity Model')}
               </p>
 
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 relative z-10 flex-1">
@@ -434,22 +436,22 @@ export default function Dashboard() {
                   </div>
                   <div className="flex flex-wrap items-center gap-2 mt-4">
                     <Badge variant={displayMode === 'RAW' ? 'neutral' : 'blue'}>
-                      {displayMode === 'RAW' ? 'Raw Market Data' : metrics.usedAssumedRR ? `Assumed RR ${metrics.assumedRRValue} Active` : 'Fixed Risk Active'}
+                      {displayMode === 'RAW' ? t('raw_market_data', 'Raw Market Data') : metrics.usedAssumedRR ? `Assumed RR ${metrics.assumedRRValue} Active` : 'Fixed Risk Active'}
                     </Badge>
                     <span className="text-xs text-[#717182] font-bold uppercase tracking-wider">
-                      {metrics.totalTrades} Executed Trades
+                      {t('home:trades_plural', { count: metrics.totalTrades })}
                     </span>
                   </div>
                 </div>
 
                 <div className="text-right flex flex-col items-end md:items-end w-full md:w-auto p-4 bg-white border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212]">
-                  <p className="text-[#717182] text-[9px] font-bold uppercase tracking-widest mb-1">Net Profit</p>
+                  <p className="text-[#717182] text-[9px] font-bold uppercase tracking-widest mb-1">{t('net_profit', 'Net Profit')}</p>
                   <p className={`text-3xl font-bold font-number ${currentPnl >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
                     {currentPnl >= 0 ? '+' : ''}{formatUsd(currentPnl)}
                   </p>
                   <div className="mt-2 text-[10px] text-[#717182] font-bold uppercase tracking-wider flex items-center gap-1">
                     <Activity className="w-3 h-3" />
-                    Realized PnL
+                    {t('realized_pnl', 'Realized PnL')}
                   </div>
                 </div>
               </div>
@@ -460,39 +462,39 @@ export default function Dashboard() {
             <div className="bg-white border-2 border-[#121212] p-5 relative">
               <div className="absolute top-0 left-0 bottom-0 w-[4px] bg-[#1040C0]" />
               <h4 className="text-[10px] font-bold text-[#717182] uppercase tracking-widest mb-1 flex items-center gap-1.5 ml-2">
-                <Info className="w-3.5 h-3.5" /> Mode Status
+                <Info className="w-3.5 h-3.5" /> {t('mode_status', 'Mode Status')}
               </h4>
               <p className="text-sm font-extrabold text-[#121212] ml-2">
-                {displayMode === 'RAW' ? 'Raw Broker PnL Active' : 'Risk Simulation Active'}
+                {displayMode === 'RAW' ? t('raw_broker_pnl_active', 'Raw Broker PnL Active') : t('risk_simulation_active', 'Risk Simulation Active')}
               </p>
               <p className="text-xs text-[#717182] mt-1 ml-2 font-medium">
                 {displayMode === 'RAW'
-                  ? 'Menampilkan performa berdasarkan data riil dari broker/sumber asli.'
-                  : 'Menampilkan performa berdasarkan model risiko statis (Fixed Risk/Assumed RR).'}
+                  ? t('display_mode_raw_desc', 'Menampilkan performa berdasarkan data riil dari broker/sumber asli.')
+                  : t('display_mode_simulated_desc', 'Menampilkan performa berdasarkan model risiko statis (Fixed Risk/Assumed RR).')}
               </p>
             </div>
 
             <div className="bg-white border-2 border-[#121212] p-5 relative">
               <div className={`absolute top-0 left-0 bottom-0 w-[4px] ${metrics.usedAssumedRR ? 'bg-[var(--warning)]' : 'bg-[var(--profit)]'}`} />
               <h4 className="text-[10px] font-bold text-[#717182] uppercase tracking-widest mb-1 flex items-center gap-1.5 ml-2">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Calculation Confidence
+                <CheckCircle2 className="w-3.5 h-3.5" /> {t('calculation_confidence', 'Calculation Confidence')}
               </h4>
               <p className={`text-sm font-extrabold ml-2 ${metrics.usedAssumedRR ? 'text-[var(--warning)]' : 'text-[var(--profit)]'}`}>
-                {metrics.usedAssumedRR ? 'Low Confidence (Assumed RR)' : 'High Confidence'}
+                {metrics.usedAssumedRR ? t('low_confidence', 'Low Confidence (Assumed RR)') : t('high_confidence', 'High Confidence')}
               </p>
               <p className="text-xs text-[#717182] mt-1 ml-2 font-medium">
                 {metrics.usedAssumedRR
-                  ? `Data import tidak memiliki Stop Loss. Menggunakan rasio asumsi ${metrics.assumedRRValue} untuk simulasi risiko.`
-                  : 'Data lengkap dengan rasio Reward:Risk yang presisi.'}
+                  ? t('calculation_confidence_low_desc', 'Data import tidak memiliki Stop Loss. Menggunakan rasio asumsi untuk simulasi risiko.')
+                  : t('calculation_confidence_high_desc', 'Data lengkap dengan rasio Reward:Risk yang presisi.')}
               </p>
             </div>
           </div>
 
           {/* ── PRIMARY PERFORMANCE ROW ── */}
           <div className="col-span-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
-            <MetricCard title="Initial Balance" value={formatUsd(metrics.initialBalance)} icon={DollarSign} accent="dark" />
+            <MetricCard title={t('initial_balance', 'Initial Balance')} value={formatUsd(metrics.initialBalance)} icon={DollarSign} accent="dark" />
             <MetricCard
-              title="Max Drawdown"
+              title={t('metric_max_dd')}
               value={formatUsd(-currentDrawdown)}
               subtitle={formatPercent(-currentDrawdownPct)}
               valueColorClass="loss"
@@ -500,21 +502,21 @@ export default function Dashboard() {
               accent="loss"
             />
             <MetricCard
-              title="Profit Factor"
+              title={t('metric_profit_factor')}
               value={currentProfitFactor === Infinity ? '∞' : formatNumber(currentProfitFactor, 2)}
               valueColorClass={currentProfitFactor >= 1.5 ? 'profit' : currentProfitFactor >= 1.0 ? 'profit' : 'loss'}
               subtitle="Gross Profit / Gross Loss"
               accent={currentProfitFactor >= 1.0 ? 'profit' : 'loss'}
             />
             <MetricCard
-              title="Win Rate"
+              title={t('metric_win_rate')}
               value={formatPercent(metrics.winrate)}
               valueColorClass="profit"
               subtitle={`Loss Rate: ${formatPercent(metrics.lossrate)}`}
               accent="profit"
             />
             <MetricCard
-              title="Average R:R"
+              title={t('metric_avg_rr')}
               value={avgRR !== null ? formatR(avgRR) : 'N/A'}
               valueColorClass={avgRR !== null ? (avgRR >= 1 ? 'profit' : 'loss') : 'neutral'}
               icon={Target}
@@ -529,19 +531,19 @@ export default function Dashboard() {
 
           {/* ── SECONDARY METRICS GRID ── */}
           <div className="col-span-12 mt-6 space-y-4">
-            <SectionLabel label="Distribusi & Harapan Imbal Balik" shape="diamond" color="yellow" />
+            <SectionLabel label={t('distribution_expectation', 'Distribusi & Harapan Imbal Balik')} shape="diamond" color="yellow" />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-5">
-              <MetricCard title="Gross Profit" value={formatUsd(metrics.grossProfit)} valueColorClass="profit" />
-              <MetricCard title="Gross Loss" value={formatUsd(-metrics.grossLoss)} valueColorClass="loss" />
-              <MetricCard title="Avg Trade PnL" value={`${metrics.averageTrade >= 0 ? '+' : ''}${formatUsd(metrics.averageTrade)}`} valueColorClass={metrics.averageTrade >= 0 ? 'profit' : 'loss'} />
-              <MetricCard title="Best Trade" value={formatUsd(metrics.bestTrade)} valueColorClass="profit" />
-              <MetricCard title="Worst Trade" value={formatUsd(metrics.worstTrade)} valueColorClass="loss" />
+              <MetricCard title={t('gross_profit', 'Gross Profit')} value={formatUsd(metrics.grossProfit)} valueColorClass="profit" />
+              <MetricCard title={t('gross_loss', 'Gross Loss')} value={formatUsd(-metrics.grossLoss)} valueColorClass="loss" />
+              <MetricCard title={t('avg_trade_pnl', 'Avg Trade PnL')} value={`${metrics.averageTrade >= 0 ? '+' : ''}${formatUsd(metrics.averageTrade)}`} valueColorClass={metrics.averageTrade >= 0 ? 'profit' : 'loss'} />
+              <MetricCard title={t('metric_best_trade')} value={formatUsd(metrics.bestTrade)} valueColorClass="profit" />
+              <MetricCard title={t('metric_worst_trade')} value={formatUsd(metrics.worstTrade)} valueColorClass="loss" />
 
-              <MetricCard title="Win / Loss Streak" value={`W:${metrics.maxConsecutiveWins} / L:${metrics.maxConsecutiveLosses}`} subtitle="Maximum Streak" />
-              <MetricCard title="Expectancy" value={formatUsd(metrics.expectancyUsd)} valueColorClass={metrics.expectancyUsd >= 0 ? 'profit' : 'loss'} subtitle={metrics.expectancyR !== null ? `E(R): ${formatR(metrics.expectancyR)}` : 'R Term: N/A'} />
-              <MetricCard title="Avg Hold Time" value={formatDuration(metrics.averageTradeDurationMs)} icon={Clock} />
-              <MetricCard title="MFE (Favorable)" value={formatUsd(metrics.averageFavorableExcursionUsd)} valueColorClass="profit" subtitle="Avg Fav Excursion" />
-              <MetricCard title="MAE (Adverse)" value={formatUsd(metrics.averageAdverseExcursionUsd)} valueColorClass="loss" subtitle="Avg Adv Excursion" />
+              <MetricCard title={t('win_loss_streak', 'Win / Loss Streak')} value={`W:${metrics.maxConsecutiveWins} / L:${metrics.maxConsecutiveLosses}`} subtitle="Maximum Streak" />
+              <MetricCard title={t('metric_expectancy')} value={formatUsd(metrics.expectancyUsd)} valueColorClass={metrics.expectancyUsd >= 0 ? 'profit' : 'loss'} subtitle={metrics.expectancyR !== null ? `E(R): ${formatR(metrics.expectancyR)}` : 'R Term: N/A'} />
+              <MetricCard title={t('avg_hold_time', 'Avg Hold Time')} value={formatDuration(metrics.averageTradeDurationMs)} icon={Clock} />
+              <MetricCard title={t('mfe_favorable', 'MFE (Favorable)')} value={formatUsd(metrics.averageFavorableExcursionUsd)} valueColorClass="profit" subtitle="Avg Fav Excursion" />
+              <MetricCard title={t('mae_adverse', 'MAE (Adverse)')} value={formatUsd(metrics.averageAdverseExcursionUsd)} valueColorClass="loss" subtitle="Avg Adv Excursion" />
             </div>
           </div>
         </div>
@@ -549,15 +551,15 @@ export default function Dashboard() {
 
       {/* ── SHARED COMPONENTS (CALENDAR & LEDGER) ── */}
       <div id="calendar" className="w-full mt-8">
-        <JournalCalendar mode="BACKTEST" title="Journal Calendar" trades={trades} currency="USD" storageKey="replayfx:showBacktestCalendar" defaultCollapsed={true} contextType="BACKTEST_SESSION" contextId={session.id} />
+        <JournalCalendar mode="BACKTEST" title={t('calendar_title')} trades={trades} currency="USD" storageKey="replayfx:showBacktestCalendar" defaultCollapsed={true} contextType="BACKTEST_SESSION" contextId={session.id} />
       </div>
 
       <div className="w-full mt-8 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <SectionLabel label={analyticsSelection ? `Ledger Fokus · ${analyticsSelection.label}` : 'Ledger Transaksi Backtest'} shape="square" color="blue" />
+          <SectionLabel label={analyticsSelection ? `${t('ledger_focus', 'Ledger Fokus')} · ${analyticsSelection.label}` : t('ledger_backtest', 'Ledger Transaksi Backtest')} shape="square" color="blue" />
           {analyticsSelection && (
             <div className="rounded border border-[#121212] bg-white px-3 py-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[#121212] shadow-[2px_2px_0px_0px_#121212]">
-              {focusedLedgerTrades.length} trade{focusedLedgerTrades.length === 1 ? '' : 's'} · {analyticsSelection.value}
+              {t(focusedLedgerTrades.length === 1 ? 'home:trades' : 'home:trades_plural', { count: focusedLedgerTrades.length })} · {analyticsSelection.value}
             </div>
           )}
         </div>

@@ -14,6 +14,7 @@
     "prisma:studio": "npm run prisma:studio --prefix server"
   },
   "dependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "update": "^0.7.4"
   }
 }

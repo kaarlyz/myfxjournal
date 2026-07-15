@@ -81,47 +81,73 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
   sseStatus: 'offline',
 
   listenToSSE: () => {
-    set({ sseStatus: 'connecting' });
-    const eventSource = new EventSource(`${API_BASE_URL}/events/stream`);
-    
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'CONNECTED') {
-          set({ sseStatus: 'live' });
-        } else if (data.type === 'ACCOUNT_SNAPSHOT') {
-          if ((import.meta as any).env.DEV) console.log('[DEV] account_snapshot received', data);
-          const { accountId, currentBalance, currentEquity, freeMargin, lastSnapshotAt } = data;
-          
-          set((state) => ({
-            accounts: state.accounts.map(acc => 
-              acc.id === accountId ? { ...acc, currentBalance, currentEquity, freeMargin: freeMargin ?? acc.freeMargin, lastSnapshotAt } : acc
-            )
-          }));
-          
-          get().fetchAccounts();
-          if (get().activeAccountId === accountId) {
+    // --- Singleton guard: one SSE connection at a time ---
+    let _retryCount = 0;
+    const MAX_RETRIES = 20;          // stop after 20 failures (≈ ~25 min with backoff)
+    const BASE_DELAY_MS = 5_000;     // start at 5s
+    const MAX_DELAY_MS = 120_000;    // cap at 2 minutes
+    let _timerId: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      set({ sseStatus: 'connecting' });
+      const eventSource = new EventSource(`${API_BASE_URL}/events/stream`);
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'CONNECTED') {
+            // Successful connection — reset backoff counter
+            _retryCount = 0;
+            set({ sseStatus: 'live' });
+          } else if (data.type === 'ACCOUNT_SNAPSHOT') {
+            if ((import.meta as any).env.DEV) console.log('[DEV] account_snapshot received', data);
+            const { accountId, currentBalance, currentEquity, freeMargin, lastSnapshotAt } = data;
+            
+            set((state) => ({
+              accounts: state.accounts.map(acc => 
+                acc.id === accountId ? { ...acc, currentBalance, currentEquity, freeMargin: freeMargin ?? acc.freeMargin, lastSnapshotAt } : acc
+              )
+            }));
+            
+            get().fetchAccounts();
+            if (get().activeAccountId === accountId) {
+              get().fetchSummary();
+            }
+          } else if (data.type === 'TRADE_EVENT') {
+            if ((import.meta as any).env.DEV) console.log('[DEV] trade_event received', data);
+            get().fetchAccounts();
+            get().fetchTrades();
             get().fetchSummary();
           }
-        } else if (data.type === 'TRADE_EVENT') {
-          if ((import.meta as any).env.DEV) console.log('[DEV] trade_event received', data);
-          get().fetchAccounts();
-          get().fetchTrades();
-          get().fetchSummary();
+        } catch (err) {
+          console.error('SSE Error processing message', err);
         }
-      } catch (err) {
-        console.error('SSE Error processing message', err);
-      }
-    };
+      };
 
-    eventSource.onerror = () => {
-      set({ sseStatus: 'offline' });
-      eventSource.close();
-      // Retry after 5s
-      setTimeout(() => {
-        get().listenToSSE();
-      }, 5000);
-    };
+      eventSource.onerror = () => {
+        eventSource.close();
+        _retryCount++;
+
+        if (_retryCount > MAX_RETRIES) {
+          // Give up — backend is persistently unavailable
+          console.warn(`[SSE] Max retries (${MAX_RETRIES}) reached — staying offline. Reload to retry.`);
+          set({ sseStatus: 'offline' });
+          return;
+        }
+
+        // Exponential backoff: 5s, 10s, 20s, 40s … capped at 2 min
+        const delay = Math.min(BASE_DELAY_MS * Math.pow(2, _retryCount - 1), MAX_DELAY_MS);
+        if ((import.meta as any).env.DEV) {
+          console.log(`[SSE] Disconnected — retry ${_retryCount}/${MAX_RETRIES} in ${delay / 1000}s`);
+        }
+
+        set({ sseStatus: 'offline' });
+        if (_timerId) clearTimeout(_timerId);
+        _timerId = setTimeout(connect, delay);
+      };
+    }
+
+    connect();
   },
 
   fetchAccounts: async () => {

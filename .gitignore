@@ -75,3 +75,13 @@ logs/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Figma App Builder export (not part of KAFX Journal)
+copyit/
+
+# Orphan src/ folder (not part of KAFX Journal)
+src/
+
+# Backup files
+*.bak
+*.bak-*

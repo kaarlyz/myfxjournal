@@ -9,23 +9,26 @@ import { useJournalStore } from '../store/useJournalStore';
 import { formatPnL } from '../utils/numberUtils';
 import { BrandLogo } from './ui/BrandLogo';
 import { useOnboarding } from '../hooks/useOnboarding';
+import LanguageSwitcher from './LanguageSwitcher';
+
+import { useTranslation } from 'react-i18next';
 
 const menuItems = [
-  { path: '/',                name: 'Sesi Backtest',    icon: Home,          group: 'BACKTEST' },
-  { path: '/create-session',  name: 'Buat Sesi',        icon: PlusCircle,    group: 'BACKTEST' },
-  { path: '/csv-import',      name: 'Import CSV',       icon: UploadCloud,   group: 'BACKTEST' },
-  { path: '/mt5-import',      name: 'Import MT5',       icon: FileSearch,    group: 'BACKTEST' },
-  { path: '/mt5-report',      name: 'MT5 Analyzer',     icon: BarChart3,     group: 'BACKTEST' },
-  { path: '/quick-logger',    name: 'Quick Logger',     icon: Zap,           group: 'BACKTEST' },
-  { path: '/dashboard',       name: 'Analisa',          icon: BarChart3,     group: 'BACKTEST' },
-  { path: '/live-journal',    name: 'Live Journal',     icon: BookOpen,      group: 'LIVE'     },
-  { path: '/accounts',        name: 'Accounts',         icon: Wallet,        group: 'LIVE'     },
-  { path: '/risk-calculator', name: 'Risk Calculator',  icon: Calculator,    group: 'TOOLS'    },
-  { path: '/prop-sim',        name: 'Prop Simulator',   icon: Shield,        group: 'TOOLS'    },
-  { path: '/monte-carlo',     name: 'Monte Carlo',      icon: Dices,         group: 'TOOLS'    },
-  { path: '/ea-control',      name: 'EA Control',       icon: Bot,           group: 'TOOLS'    },
-  { path: '/integrations',    name: 'Integrations',     icon: Link2,         group: 'TOOLS'    },
-  { path: '/settings',        name: 'Pengaturan',       icon: SettingsIcon,  group: 'SYSTEM'   },
+  { path: '/',                name: 'Sesi Backtest',    icon: Home,          group: 'BACKTEST', key: 'sessions_home' },
+  { path: '/create-session',  name: 'Buat Sesi',        icon: PlusCircle,    group: 'BACKTEST', key: 'create_session' },
+  { path: '/csv-import',      name: 'Import CSV',       icon: UploadCloud,   group: 'BACKTEST', key: 'import_csv' },
+  { path: '/mt5-import',      name: 'Import MT5',       icon: FileSearch,    group: 'BACKTEST', key: 'import_mt5' },
+  { path: '/mt5-report',      name: 'MT5 Analyzer',     icon: BarChart3,     group: 'BACKTEST', key: 'mt5_analyzer' },
+  { path: '/quick-logger',    name: 'Quick Logger',     icon: Zap,           group: 'BACKTEST', key: 'quick_logger' },
+  { path: '/dashboard',       name: 'Analisa',          icon: BarChart3,     group: 'BACKTEST', key: 'analytics' },
+  { path: '/live-journal',    name: 'Live Journal',     icon: BookOpen,      group: 'LIVE',     key: 'live_journal' },
+  { path: '/accounts',        name: 'Accounts',         icon: Wallet,        group: 'LIVE',     key: 'accounts' },
+  { path: '/risk-calculator', name: 'Risk Calculator',  icon: Calculator,    group: 'TOOLS',    key: 'risk_calculator' },
+  { path: '/prop-sim',        name: 'Prop Simulator',   icon: Shield,        group: 'TOOLS',    key: 'prop_simulator' },
+  { path: '/monte-carlo',     name: 'Monte Carlo',      icon: Dices,         group: 'TOOLS',    key: 'monte_carlo' },
+  { path: '/ea-control',      name: 'EA Control',       icon: Bot,           group: 'TOOLS',    key: 'ea_control' },
+  { path: '/integrations',    name: 'Integrations',     icon: Link2,         group: 'TOOLS',    key: 'integrations' },
+  { path: '/settings',        name: 'Pengaturan',       icon: SettingsIcon,  group: 'SYSTEM',   key: 'settings' },
 ];
 
 const groups: Array<{ key: string; label: string; accentColor: string }> = [
@@ -36,6 +39,7 @@ const groups: Array<{ key: string; label: string; accentColor: string }> = [
 ];
 
 export default function Sidebar() {
+  const { t } = useTranslation(['sidebar', 'common']);
   const { sessions, activeSessionId, activeSessionDetails, selectSession } = useJournalStore();
   const { greeting } = useOnboarding();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -99,7 +103,7 @@ export default function Sidebar() {
       >
         <BrandLogo size={50} compact className="text-left" />
         <div className="mt-3 rounded border border-[#121212]/10 bg-[#F0F0F0] px-3 py-2">
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#717182]">Welcome</p>
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#717182]">{t('welcome')}</p>
           <p className="mt-1 text-sm font-semibold text-[#121212]">{greeting}</p>
         </div>
       </div>
@@ -126,7 +130,7 @@ export default function Sidebar() {
                   }}
                 />
                 <p className="nav-section-label" style={{ padding: 0, color: '#717182' }}>
-                  {label}
+                  {t('nav_label_' + key.toLowerCase(), label)}
                 </p>
               </div>
 
@@ -141,7 +145,7 @@ export default function Sidebar() {
                       aria-current={undefined}
                     >
                       <Icon className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
-                      <span>{item.name}</span>
+                      <span>{t(item.key, item.name)}</span>
                     </NavLink>
                   );
                 })}
@@ -169,7 +173,7 @@ export default function Sidebar() {
               color: '#717182',
             }}
           >
-            Session ({sessions.length})
+            {t('session_count', { count: sessions.length })}
           </span>
         </div>
 
@@ -182,7 +186,7 @@ export default function Sidebar() {
               value={activeSessionId || ''}
               onChange={(e) => selectSession(e.target.value || null)}
             >
-              <option value="">— Select session —</option>
+              <option value="">{t('select_session')}</option>
               {sessions.map(s => (
                 <option key={s.id} value={s.id}>{s.name} ({s.symbol})</option>
               ))}
@@ -193,7 +197,7 @@ export default function Sidebar() {
             className="px-3 py-2 italic"
             style={{ fontFamily: 'Outfit, sans-serif', fontSize: '11px', color: '#717182' }}
           >
-            Belum ada sesi
+            {t('no_session')}
           </p>
         )}
 
@@ -218,7 +222,7 @@ export default function Sidebar() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-white/60" style={{ fontFamily: 'Outfit' }}>
-                  {sessionStats.totalTrades} trades
+                  {t('common:trades', { count: sessionStats.totalTrades })}
                 </span>
                 <span className="text-[10px] font-extrabold text-white/80" style={{ fontFamily: 'Outfit' }}>
                   <Trophy className="w-3 h-3 inline mr-0.5 -mt-0.5" style={{ color: '#F0C020' }} />
@@ -231,7 +235,7 @@ export default function Sidebar() {
             <div className="grid grid-cols-2 gap-2">
               <div className="p-2 border-2 border-[#121212] bg-[#F0F0F0]">
                 <span className="block text-[8px] font-extrabold uppercase tracking-widest text-[#717182]" style={{ fontFamily: 'Outfit' }}>
-                  Today
+                  {t('today')}
                 </span>
                 <span
                   className="block font-black font-number text-[12px] mt-0.5"
@@ -240,13 +244,13 @@ export default function Sidebar() {
                   {sessionStats.todayCount > 0 ? formatPnL(sessionStats.todayPnl, 'USD') : '—'}
                 </span>
                 <span className="block text-[8px] font-bold text-[#717182] mt-0.5" style={{ fontFamily: 'Outfit' }}>
-                  {sessionStats.todayCount} trade{sessionStats.todayCount !== 1 ? 's' : ''}
+                  {t('common:trades', { count: sessionStats.todayCount })}
                 </span>
               </div>
 
               <div className="p-2 border-2 border-[#121212] bg-[#F0F0F0]">
                 <span className="block text-[8px] font-extrabold uppercase tracking-widest text-[#717182]" style={{ fontFamily: 'Outfit' }}>
-                  Streak
+                  {t('streak')}
                 </span>
                 <div className="flex items-center gap-1 mt-0.5">
                   <Flame className="w-3 h-3" style={{ color: sessionStats.streakType === 'win' ? '#059669' : '#DC2626' }} />
@@ -257,7 +261,7 @@ export default function Sidebar() {
                     {sessionStats.streak}
                   </span>
                   <span className="text-[8px] font-bold text-[#717182] uppercase" style={{ fontFamily: 'Outfit' }}>
-                    {sessionStats.streakType === 'win' ? 'wins' : 'losses'}
+                    {t(sessionStats.streakType === 'win' ? 'wins' : 'losses')}
                   </span>
                 </div>
               </div>
@@ -266,10 +270,10 @@ export default function Sidebar() {
             {/* Quick nav */}
             <div className="flex gap-1.5">
               <NavLink to="/dashboard" className="flex-1 text-center py-1.5 text-[8px] font-extrabold uppercase tracking-widest border-2 border-[#121212] bg-white hover:bg-[#F0F0F0] transition-colors text-[#121212]" style={{ fontFamily: 'Outfit' }}>
-                Analytics
+                {t('analytics_btn')}
               </NavLink>
               <NavLink to="/prop-sim" className="flex-1 text-center py-1.5 text-[8px] font-extrabold uppercase tracking-widest border-2 border-[#121212] bg-white hover:bg-[#F0F0F0] transition-colors text-[#121212]" style={{ fontFamily: 'Outfit' }}>
-                Prop Sim
+                {t('prop_sim_btn')}
               </NavLink>
             </div>
           </div>
@@ -278,11 +282,12 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div
-        className="px-5 py-3 flex-shrink-0"
+        className="px-5 py-3 flex-shrink-0 flex flex-col gap-2"
         style={{ borderTop: '2px solid #121212', background: '#F0F0F0' }}
       >
+        <LanguageSwitcher compact />
         <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 600, color: '#717182' }}>
-          v2.1 · KAFX Journal
+          {t('version')}
         </p>
       </div>
     </>
