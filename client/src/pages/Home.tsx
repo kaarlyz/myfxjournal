@@ -129,6 +129,14 @@ export default function Home() {
   const [previewTrades, setPreviewTrades] = useState<any[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [editingSession, setEditingSession] = useState<{
+    id: string;
+    field: 'name' | 'notes';
+    value: string;
+  } | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
@@ -189,16 +197,37 @@ export default function Home() {
     navigate(`/csv-import?sessionId=${id}&mode=${mode}`);
   };
 
-  const renameSession = async (session: any) => {
-    const name = prompt(t('rename_prompt'), session.name);
-    if (name && name.trim() && name.trim() !== session.name) {
-      await updateSession(session.id, { name: name.trim() });
-    }
+  const startEditing = (session: any, field: 'name' | 'notes') => {
+    setEditingSession({ id: session.id, field, value: field === 'name' ? session.name : session.notes || '' });
+    setEditError(null);
+    setSuccessMessage(null);
   };
 
-  const editNotes = async (session: any) => {
-    const notes = prompt(t('notes_prompt'), session.notes || '');
-    if (notes !== null) await updateSession(session.id, { notes });
+  const cancelEditing = () => {
+    setEditingSession(null);
+    setEditError(null);
+  };
+
+  const saveEditing = async () => {
+    if (!editingSession) return;
+    const trimmedValue = editingSession.value.trim();
+
+    if (editingSession.field === 'name' && trimmedValue.length < 2) {
+      setEditError('Please enter at least 2 characters.');
+      return;
+    }
+
+    setSavingEdit(true);
+    const success = await updateSession(editingSession.id, { [editingSession.field]: trimmedValue });
+    setSavingEdit(false);
+
+    if (success) {
+      setSuccessMessage('Saved successfully.');
+      setEditingSession(null);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } else {
+      setEditError('Unable to save changes.');
+    }
   };
 
   const duplicateSession = async (_session: any) => {
@@ -665,9 +694,17 @@ export default function Home() {
                 }}
                 onOpenDashboard={() => openDashboard(s.id)}
                 onImportCsv={mode => importCsv(s.id, mode)}
-                onRename={() => renameSession(s)}
+                onStartEdit={(field) => startEditing(s, field)}
+                editingSessionId={editingSession?.id}
+                editingField={editingSession?.field}
+                editingValue={editingSession?.value}
+                onChangeEditValue={(value) => setEditingSession((current) => current ? { ...current, value } : current)}
+                onSaveEdit={saveEditing}
+                onCancelEdit={cancelEditing}
+                editError={editError}
+                savingEdit={savingEdit}
+                successMessage={successMessage}
                 onDuplicate={() => duplicateSession(s)}
-                onEditNotes={() => editNotes(s)}
                 onDelete={async () => {
                   if (confirm(t('delete_confirm', { name: s.name }))) await deleteSession(s.id);
                 }}
@@ -687,9 +724,8 @@ interface SessionCardProps {
   onToggleMenu: (e: React.MouseEvent) => void;
   onOpenDashboard: () => void;
   onImportCsv: (mode: 'SMART_MERGE' | 'APPEND') => void;
-  onRename: () => void;
+  onStartEdit: (field: 'name' | 'notes') => void;
   onDuplicate: () => void;
-  onEditNotes: () => void;
   onDelete: () => void;
 }
 
@@ -699,11 +735,30 @@ function SessionCard({
   onToggleMenu,
   onOpenDashboard,
   onImportCsv,
-  onRename,
+  onStartEdit,
   onDuplicate,
-  onEditNotes,
   onDelete,
-}: SessionCardProps) {
+  editingSessionId,
+  editingField,
+  editingValue,
+  onChangeEditValue,
+  onSaveEdit,
+  onCancelEdit,
+  editError,
+  savingEdit,
+  successMessage,
+}: SessionCardProps & {
+  onStartEdit: (field: 'name' | 'notes') => void;
+  editingSessionId?: string | null;
+  editingField?: 'name' | 'notes';
+  editingValue?: string;
+  onChangeEditValue: (value: string) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+  editError: string | null;
+  savingEdit: boolean;
+  successMessage: string | null;
+}) {
   const { t } = useTranslation(['home', 'common', 'dashboard']);
   const sourceColors: Record<string, string> = {
     CSV:     '#D02020',
@@ -781,9 +836,9 @@ function SessionCard({
                 { icon: FileUp,    label: t('common:update') + ' CSV', action: () => onImportCsv('SMART_MERGE'), danger: false },
                 { icon: Upload,    label: t('import_csv_append'), action: () => onImportCsv('APPEND'),  danger: false },
                 { icon: Activity,  label: t('import_csv_smart_merge'), action: () => onImportCsv('SMART_MERGE'), danger: false },
-                { icon: Edit3,     label: t('rename'),    action: onRename,                     danger: false },
+                { icon: Edit3,     label: t('rename'),    action: () => onStartEdit('name'),            danger: false },
                 { icon: Copy,      label: t('duplicate'), action: onDuplicate,                  danger: false },
-                { icon: FileText,  label: t('edit_notes'),    action: onEditNotes,                  danger: false },
+                { icon: FileText,  label: t('edit_notes'),    action: () => onStartEdit('notes'),           danger: false },
                 { icon: Trash2,    label: t('delete_session'),    action: onDelete,                     danger: true  },
               ].map(({ icon: MenuIcon, label, action, danger }) => (
                 <button
@@ -877,6 +932,66 @@ function SessionCard({
           </span>
         </div>
       </div>
+
+      {editingSessionId === s.id && editingField === 'name' && (
+        <div className="mt-4 p-4 border-2 border-[#121212] bg-[#F8F8F8]">
+          <label className="block mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#717182]">{t('rename_session')}</label>
+          <input
+            value={editingValue ?? ''}
+            onChange={(event) => onChangeEditValue(event.target.value)}
+            className="w-full border-2 border-[#121212] bg-white px-3 py-2 text-sm font-semibold text-[#121212] outline-none focus:shadow-[4px_4px_0px_0px_#1040C0]"
+            aria-label={t('rename_session')}
+          />
+          {editError && <p className="mt-2 text-sm font-semibold text-[#D02020]">{editError}</p>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onSaveEdit}
+              disabled={savingEdit}
+              className="btn btn-primary"
+            >
+              {savingEdit ? t('saving') : t('save')}
+            </button>
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              className="btn btn-secondary"
+            >
+              {t('cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editingSessionId === s.id && editingField === 'notes' && (
+        <div className="mt-4 p-4 border-2 border-[#121212] bg-[#F8F8F8]">
+          <label className="block mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#717182]">{t('edit_notes')}</label>
+          <textarea
+            value={editingValue ?? ''}
+            onChange={(event) => onChangeEditValue(event.target.value)}
+            className="w-full min-h-[96px] border-2 border-[#121212] bg-white px-3 py-2 text-sm font-semibold text-[#121212] outline-none focus:shadow-[4px_4px_0px_0px_#1040C0]"
+            aria-label={t('edit_notes')}
+          />
+          {editError && <p className="mt-2 text-sm font-semibold text-[#D02020]">{editError}</p>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onSaveEdit}
+              disabled={savingEdit}
+              className="btn btn-primary"
+            >
+              {savingEdit ? t('saving') : t('save')}
+            </button>
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              className="btn btn-secondary"
+            >
+              {t('cancel')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex justify-between items-center mb-4">

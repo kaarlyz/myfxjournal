@@ -93,6 +93,18 @@ app.use((err: any, req: Request, res: Response, next: express.NextFunction) => {
   });
 });
 
+async function tryListen(port: number) {
+  return new Promise<void>((resolve, reject) => {
+    const server = app.listen(port, () => {
+      resolve();
+    });
+
+    server.on('error', (err: any) => {
+      reject(err);
+    });
+  });
+}
+
 // Initialize database check and listen
 async function startServer() {
   try {
@@ -114,9 +126,29 @@ async function startServer() {
       console.log('Pengaturan default berhasil diinisialisasi di SQLite.');
     }
 
-    app.listen(PORT, () => {
-      console.log(`Server ReplayFX Journal berjalan di: http://localhost:${PORT}`);
-    });
+    const basePort = Number(process.env.PORT || 5000);
+    const portsToTry = [basePort, basePort + 1, basePort + 2];
+    let boundPort: number | null = null;
+
+    for (const candidatePort of portsToTry) {
+      try {
+        await tryListen(candidatePort);
+        boundPort = candidatePort;
+        break;
+      } catch (err: any) {
+        if (err?.code === 'EADDRINUSE') {
+          console.warn(`Port ${candidatePort} is already in use, trying next available port...`);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!boundPort) {
+      throw new Error(`Unable to bind HTTP server to any of these ports: ${portsToTry.join(', ')}`);
+    }
+
+    console.log(`Server ReplayFX Journal berjalan di: http://localhost:${boundPort}`);
   } catch (error) {
     console.error('Gagal memulai server:', error);
     process.exit(1);

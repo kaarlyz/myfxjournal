@@ -7,6 +7,8 @@ interface NameStepProps {
   onNext: (name: string) => void;
 }
 
+const recommendedNames = ['Eka', 'John', 'Sarah', 'Aditya', 'Nina'];
+
 export default function NameStep({ onNext }: NameStepProps) {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -61,9 +63,21 @@ export default function NameStep({ onNext }: NameStepProps) {
           className="w-full border-2 border-[#121212] bg-[#FCFCFC] px-4 py-3 text-sm font-semibold text-[#121212] outline-none focus:shadow-[4px_4px_0px_0px_#1040C0]"
         />
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#717182]">
-          <span className="rounded border border-[#121212]/20 bg-[#F0F0F0] px-2.5 py-1">Eka</span>
-          <span className="rounded border border-[#121212]/20 bg-[#F0F0F0] px-2.5 py-1">John</span>
-          <span className="rounded border border-[#121212]/20 bg-[#F0F0F0] px-2.5 py-1">Sarah</span>
+          {recommendedNames.map((recommended) => (
+            <motion.button
+              key={recommended}
+              type="button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setName(recommended);
+                if (error) setError('');
+              }}
+              className="rounded border border-[#121212]/20 bg-[#F0F0F0] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#121212] transition-colors hover:bg-[#121212] hover:text-white"
+            >
+              {recommended}
+            </motion.button>
+          ))}
         </div>
         {error && <p className="text-sm font-semibold text-[#D02020]">{error}</p>}
       </form>

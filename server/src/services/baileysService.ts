@@ -653,6 +653,15 @@ export class BaileysService {
     }
   }
 
+  private async waitForSocketReady(timeoutMs: number = 15000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (this.sock?.ws?.readyState === 1) return true;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return false;
+  }
+
   private scheduleReconnect(sessionId: string) {
     if (this.reconnectAttempts >= 6) {
       this.status = 'error';
@@ -671,10 +680,11 @@ export class BaileysService {
   }
 
   public async connect(sessionId: string = 'primary_session', opts?: { force?: boolean }) {
-    if (!opts?.force && (this.sock || this.isConnecting || this.connectPromise || this.status === 'connected' || this.status === 'connecting' || this.status === 'starting')) {
+    if (!opts?.force && (this.isConnecting || this.connectPromise || this.status === 'connected' || this.status === 'connecting' || this.status === 'starting')) {
       return this.connectPromise || Promise.resolve();
     }
 
+    this.clearReconnectTimer();
     this.sessionId = sessionId;
     this.status = 'starting';
     this.isConnecting = true;
@@ -1033,14 +1043,34 @@ export class BaileysService {
       throw Object.assign(new Error(`Rate limited. Wait ${wait}s.`), { possibleCause: 'Too many requests', suggestion: `Wait ${wait}s` });
     }
     if (this.isConnected) throw Object.assign(new Error('Already connected.'), { possibleCause: 'Already connected', suggestion: 'No need for pairing code.' });
-    if (!this.sock || this.status === 'error' || this.status === 'not_started') {
-      await this.closeSocket();
-      this.status = 'not_started';
-      await this.connect(this.sessionId);
-      await new Promise(r => setTimeout(r, 4000));
-    }
+
     this.lastPairingRequestAt = Date.now();
     this.status = 'pairing_requested';
+
+    if (!this.sock || this.status === 'error' || this.status === 'not_started' || this.connectionState === 'closed') {
+      await this.closeSocket();
+      this.status = 'not_started';
+      await this.connect(this.sessionId, { force: true });
+      const ready = await this.waitForSocketReady(15000);
+      if (!ready) {
+        this.status = 'error';
+        this.lastPairingError = 'Socket failed to become ready for pairing request';
+        throw Object.assign(new Error(this.lastPairingError), { possibleCause: 'Connection not ready', suggestion: 'Try again or restart the WhatsApp session.' });
+      }
+    }
+
+    if (!this.sock) {
+      this.status = 'error';
+      this.lastPairingError = 'Socket unavailable';
+      throw Object.assign(new Error('Socket unavailable'), { possibleCause: 'Socket failed to initialize', suggestion: 'Restart session or check logs.' });
+    }
+
+    if (typeof this.sock.requestPairingCode !== 'function') {
+      this.status = 'error';
+      this.lastPairingError = 'requestPairingCode method not available on current Baileys socket';
+      throw Object.assign(new Error(this.lastPairingError), { possibleCause: 'Baileys version mismatch', suggestion: 'Confirm Baileys 7 RC API or upgrade/downgrade package.' });
+    }
+
     try {
       const code = await this.sock.requestPairingCode(phone);
       this.pairingCode = code;
