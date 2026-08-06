@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   Home, PlusCircle, UploadCloud, BarChart3, Settings as SettingsIcon,
   BookOpen, Zap, Layers, Wallet, Calculator, Link2,
-  FileSearch, Bot, Shield, Dices, X, Menu, Trophy, Flame
+  FileSearch, Bot, Shield, Dices, X, Menu, Trophy, Flame, Wifi, Database
 } from 'lucide-react';
 import { useJournalStore } from '../store/useJournalStore';
 import { formatPnL } from '../utils/numberUtils';
@@ -23,6 +23,8 @@ const menuItems = [
   { path: '/dashboard',       name: 'Analisa',          icon: BarChart3,     group: 'BACKTEST', key: 'analytics' },
   { path: '/live-journal',    name: 'Live Journal',     icon: BookOpen,      group: 'LIVE',     key: 'live_journal' },
   { path: '/accounts',        name: 'Accounts',         icon: Wallet,        group: 'LIVE',     key: 'accounts' },
+  { path: '/mt5-connections', name: 'MT5 Connections', icon: Wifi,          group: 'LIVE',     key: 'mt5_connections' },
+  { path: '/market-data',     name: 'Market Data',      icon: Database,      group: 'TOOLS',    key: 'market_data' },
   { path: '/risk-calculator', name: 'Risk Calculator',  icon: Calculator,    group: 'TOOLS',    key: 'risk_calculator' },
   { path: '/prop-sim',        name: 'Prop Simulator',   icon: Shield,        group: 'TOOLS',    key: 'prop_simulator' },
   { path: '/monte-carlo',     name: 'Monte Carlo',      icon: Dices,         group: 'TOOLS',    key: 'monte_carlo' },

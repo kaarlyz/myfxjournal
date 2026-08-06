@@ -1,62 +1,139 @@
-import React, { useMemo, useState } from 'react';
-import { Target, AlertCircle, BarChart3 } from 'lucide-react';
+import React, { useMemo, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Target, AlertCircle, BarChart3, Zap, CheckCircle2, Database, Info, CalendarX, Download } from 'lucide-react';
 import { formatNumber, formatPercent } from '../../utils/formatters';
 import { SectionLabel } from '../ui/SectionLabel';
 
 interface Props {
   metrics: any;
   trades: any[];
+  sessionId: string;
 }
 
-export default function RRLabTab({ metrics, trades }: Props) {
-  const [customRR, setCustomRR] = useState<number>(2.5);
+interface SimRow {
+  rrTarget: number;
+  wins: number;
+  losses: number;
+  total: number;
+  winRate: number;
+  expectancy: number;
+}
 
+interface CandleCoverage {
+  symbol: string;
+  timeframe: string;
+  firstCandle: string | null;
+  lastCandle: string | null;
+  totalCandles: number;
+  coversTradeRange?: boolean;
+}
+
+interface Diagnostics {
+  noCandles: number;
+  noSL: number;
+  tradeRange: { first: string | null; last: string | null };
+  candleCoverage: CandleCoverage[];
+}
+
+const RR_TARGETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4, 5];
+
+function fmtDate(d: string | null): string {
+  if (!d) return 'N/A';
+  return new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+export default function RRLabTab({ metrics, trades, sessionId }: Props) {
+  const navigate = useNavigate();
+  const [customRR, setCustomRR] = useState<number>(2.5);
+  const [backtestRR, setBacktestRR] = useState<number>(1);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeResult, setAnalyzeResult] = useState<{ analyzed: number; total: number } | null>(null);
+  const [rrSimData, setRrSimData] = useState<SimRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
+
+  // ── Estimate-based sim (uses MFE/MAE from CSV if available) ─────────────
   const hasMfeMae = useMemo(() => {
-    return trades.some(t => t.favorableExcursionUsd !== null && t.favorableExcursionUsd !== undefined && t.favorableExcursionUsd > 0);
+    return trades.some(t =>
+      t.favorableExcursionUsd !== null &&
+      t.favorableExcursionUsd !== undefined &&
+      t.favorableExcursionUsd > 0
+    );
   }, [trades]);
 
-  const simulateRR = (targetR: number) => {
+  const simulateEstimated = (targetR: number) => {
     if (!hasMfeMae) return null;
-    let wins = 0;
-    let losses = 0;
-    let be = 0;
-    
+    let wins = 0, losses = 0;
     trades.forEach(t => {
-      // Very basic simulation using MFE / MAE.
-      // If we don't know riskUsd, we can't reliably simulate R targets unless we use the MFE % or something.
-      // Assuming MAE/MFE are in USD, and we know riskUsd:
       if (!t.riskUsd || t.riskUsd <= 0) return;
-      
       const mfeR = (t.favorableExcursionUsd || 0) / t.riskUsd;
-      const maeR = (t.adverseExcursionUsd || 0) / t.riskUsd; // adverse is usually positive number in our DB representing how far it went against us
-      
-      // If it hit target before hitting -1R SL
-      // Note: without OHLC sequence we don't know which it hit first.
-      // Standard pessimistic assumption: if MAE <= -1R, it's a loss (hit SL first).
-      // Otherwise if MFE >= targetR, it's a win.
-      
-      if (maeR >= 1) {
-        losses++; // Hit 1R Stop Loss
-      } else if (mfeR >= targetR) {
-        wins++; // Hit Target
-      } else {
-        // Time exit or manual exit before hitting either
-        if (t.netPnlUsd > 0) wins++; // Or count as BE/partial? Let's just say loss for strict RR simulation
-        else losses++;
-      }
+      const maeR = (t.adverseExcursionUsd || 0) / t.riskUsd;
+      if (maeR >= 1) losses++;
+      else if (mfeR >= targetR) wins++;
+      else if (t.netPnlUsd > 0) wins++;
+      else losses++;
     });
-
-    const total = wins + losses + be;
+    const total = wins + losses;
     const winrate = total > 0 ? (wins / total) * 100 : 0;
     const ev = (winrate / 100 * targetR) - ((1 - winrate / 100) * 1);
-    
     return { targetR, winrate, ev, wins, losses };
   };
 
-  const sims = hasMfeMae ? [1, 1.5, 2, 3, customRR].map(r => simulateRR(r)) : [];
+  const estimatedSims = hasMfeMae
+    ? [...RR_TARGETS, customRR].map(r => simulateEstimated(r))
+    : [];
+
+  // ── MT5 Candle–backed simulation ────────────────────────────────────────
+  const runMarketAnalysis = useCallback(async () => {
+    if (!sessionId) return;
+    setAnalyzing(true);
+    setError(null);
+    setAnalyzeResult(null);
+    setRrSimData(null);
+    setDiagnostics(null);
+
+    try {
+      // Step 1: Run analysis to populate maxPotentialRR on each trade
+      const analyzeRes = await fetch(`/api/analytics/session/${sessionId}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backtestRR }),
+      });
+      const analyzeJson = await analyzeRes.json();
+
+      if (!analyzeJson.ok) {
+        setError(analyzeJson.error || 'Analisis gagal');
+        return;
+      }
+
+      setAnalyzeResult({ analyzed: analyzeJson.analyzed, total: analyzeJson.total });
+      if (analyzeJson.diagnostics) setDiagnostics(analyzeJson.diagnostics);
+
+      if (analyzeJson.analyzed === 0) {
+        // Don't fetch sim — show diagnostics instead
+        return;
+      }
+
+      // Step 2: Fetch simulation matrix
+      const simRes = await fetch(`/api/analytics/session/${sessionId}/rr-simulation`);
+      const simJson = await simRes.json();
+
+      if (simJson.ok && simJson.hasData) {
+        setRrSimData(simJson.data);
+      } else {
+        setError('Simulasi tidak menghasilkan data. Coba ulangi analisis.');
+      }
+    } catch (e: any) {
+      setError('Gagal terhubung ke server. Pastikan server berjalan.');
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [sessionId, backtestRR]);
 
   return (
     <div className="space-y-6">
+
+      {/* ── Realized & Planned R cards ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212]">
           <SectionLabel label="Realized R Distribution" shape="diamond" color="yellow" icon={<BarChart3 className="w-4 h-4" />} className="mb-4" />
@@ -94,16 +171,213 @@ export default function RRLabTab({ metrics, trades }: Props) {
         </div>
       </div>
 
+      {/* ── MT5 Candle–Backed RR Simulation (NEW) ── */}
+      <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212]">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-5">
+          <div>
+            <SectionLabel label="RR Potential Simulation" shape="square" color="dark" icon={<Database className="w-4 h-4" />} />
+            <p className="text-[11px] text-[#717182] font-medium mt-1.5 max-w-lg">
+              Menggunakan data candle MT5 riil. Sistem menghitung mundur posisi SL dari rasio RR yang Anda gunakan saat backtest, lalu melihat seberapa jauh harga bisa bergerak sebelum menyentuh SL tersebut.
+            </p>
+          </div>
+
+          {/* Controls */}
+          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 shrink-0">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-[#717182]">Backtest RR digunakan</label>
+              <div className="flex items-center gap-1">
+                <span className="text-[13px] font-bold text-[#121212]">1 :</span>
+                <input
+                  type="number"
+                  step="0.25"
+                  min="0.25"
+                  value={backtestRR}
+                  onChange={e => setBacktestRR(parseFloat(e.target.value) || 1)}
+                  className="input py-1 px-2 w-16 text-center font-bold"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={runMarketAnalysis}
+              disabled={analyzing || !sessionId}
+              className={`flex items-center gap-2 px-4 py-2 font-extrabold text-[13px] border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] transition-all
+                ${analyzing
+                  ? 'bg-[#E5E5E5] text-[#717182] cursor-not-allowed'
+                  : 'bg-[#121212] text-white hover:bg-[#333] active:translate-y-0.5 active:shadow-none'}`}
+            >
+              {analyzing
+                ? <><span className="animate-spin">⟳</span> Analyzing...</>
+                : <><Zap className="w-4 h-4" /> Run MT5 Analysis</>}
+            </button>
+          </div>
+        </div>
+
+        {/* Status messages */}
+        {error && (
+          <div className="flex items-start gap-2 p-3 bg-red-50 border-2 border-red-400 text-red-700 text-[12px] font-bold mb-4">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            {error}
+          </div>
+        )}
+
+        {analyzeResult && (
+          <div className={`flex items-center gap-2 p-3 border-2 text-[12px] font-bold mb-4 ${
+            analyzeResult.analyzed > 0
+              ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
+              : 'bg-amber-50 border-amber-400 text-amber-700'
+          }`}>
+            {analyzeResult.analyzed > 0
+              ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+              : <AlertCircle className="w-4 h-4 shrink-0" />}
+            Analisis selesai: <strong>{analyzeResult.analyzed}</strong> dari <strong>{analyzeResult.total}</strong> trade berhasil diproses.
+          </div>
+        )}
+
+        {/* Diagnostics panel — show when analysis ran but 0 or partial trades processed */}
+        {diagnostics && analyzeResult && analyzeResult.analyzed < analyzeResult.total && (() => {
+          const sym = diagnostics.candleCoverage[0]?.symbol || 'XAUUSD';
+          const anyCovers = diagnostics.candleCoverage.some(c => c.coversTradeRange);
+          // Build Market Data URL with pre-filled params
+          const mdParams = new URLSearchParams({
+            symbol: sym,
+            from: diagnostics.tradeRange.first ? diagnostics.tradeRange.first.split('T')[0] : '',
+            to: diagnostics.tradeRange.last
+              ? new Date(new Date(diagnostics.tradeRange.last).getTime() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+              : '',
+          });
+
+          return (
+            <div className="p-4 bg-amber-50 border-2 border-amber-400 mb-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-amber-800 font-extrabold text-[13px]">
+                  <CalendarX className="w-5 h-5" />
+                  {anyCovers
+                    ? `${analyzeResult.analyzed}/${analyzeResult.total} trade berhasil — cek timeframe di bawah`
+                    : 'Candle data tidak mencakup periode trading Anda'}
+                </div>
+                <button
+                  onClick={() => navigate(`/market-data?${mdParams}`)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#121212] text-white text-[11px] font-extrabold border-2 border-[#121212] hover:bg-[#333] transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download Data
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-[12px]">
+                <div className="bg-white border-2 border-amber-300 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1">📅 Rentang Trade</p>
+                  <p className="font-bold text-[#121212]">{fmtDate(diagnostics.tradeRange.first)}</p>
+                  <p className="text-[#717182] font-medium">s/d {fmtDate(diagnostics.tradeRange.last)}</p>
+                </div>
+                <div className="bg-white border-2 border-amber-300 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-2">📊 Status Candle per Timeframe</p>
+                  {diagnostics.candleCoverage.length > 0 ? (
+                    <div className="space-y-1">
+                      {diagnostics.candleCoverage.map(c => (
+                        <div key={c.timeframe} className="flex items-center gap-2">
+                          <span className={`text-[13px] ${c.coversTradeRange ? 'text-emerald-600' : 'text-red-500'}`}>
+                            {c.coversTradeRange ? '✅' : '❌'}
+                          </span>
+                          <span className="font-extrabold text-[#121212]">{c.timeframe}</span>
+                          <span className="text-[#717182] font-medium text-[10px]">
+                            {fmtDate(c.firstCandle)} – {fmtDate(c.lastCandle)}
+                          </span>
+                        </div>
+                      ))}
+                      {diagnostics.candleCoverage.every(c => !c.coversTradeRange) && (
+                        <p className="text-[10px] text-red-600 font-bold mt-1">
+                          Semua timeframe tidak cover periode trade.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="font-bold text-red-600">Tidak ada candle data untuk simbol ini</p>
+                  )}
+                </div>
+              </div>
+
+              {!anyCovers && (
+                <p className="text-[11px] font-bold text-amber-800 bg-amber-100 p-2 border border-amber-300">
+                  ⚠️ Klik <strong>Download Data</strong> di atas untuk langsung mengunduh candle <strong>{sym}</strong> sesuai periode trade.
+                </p>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Result table */}
+        {rrSimData && rrSimData.length > 0 ? (
+          <>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Target RR</th>
+                    <th>Simulated Win Rate</th>
+                    <th>Wins / Losses</th>
+                    <th>Expectancy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rrSimData.map((row) => (
+                    <tr key={row.rrTarget} className={row.expectancy > 0 ? 'bg-emerald-50/30' : ''}>
+                      <td className="font-extrabold text-[#121212] font-display text-[15px]">1 : {row.rrTarget}</td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-extrabold font-number text-[14px] ${row.winRate > 50 ? 'text-[var(--profit)]' : row.winRate > 33 ? 'text-amber-500' : 'text-[var(--loss)]'}`}>
+                            {formatPercent(row.winRate)}
+                          </span>
+                          <div className="flex-1 h-1.5 bg-[#E5E5E5] rounded-full overflow-hidden w-20">
+                            <div
+                              className={`h-full rounded-full ${row.winRate > 50 ? 'bg-emerald-500' : row.winRate > 33 ? 'bg-amber-400' : 'bg-red-400'}`}
+                              style={{ width: `${row.winRate}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="font-bold font-number">
+                        <span className="text-[var(--profit)]">{row.wins}</span>
+                        <span className="text-[#717182]"> / </span>
+                        <span className="text-[var(--loss)]">{row.losses}</span>
+                      </td>
+                      <td className={`font-extrabold font-number text-[15px] ${row.expectancy >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
+                        {row.expectancy >= 0 ? '+' : ''}{formatNumber(row.expectancy, 2)}R
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mt-3 flex items-center gap-1">
+              <Info className="w-3 h-3" />
+              Data diverifikasi langsung menggunakan MT5 Historical Candles. SL dihitung mundur dari RR {backtestRR}:1.
+            </p>
+          </>
+        ) : !rrSimData && !analyzing && !error && (
+          <div className="text-center py-8 border-2 border-dashed border-[#121212]/20">
+            <Database className="w-8 h-8 text-[#717182] mx-auto mb-2" />
+            <p className="text-[13px] font-bold text-[#717182]">Belum ada data simulasi.</p>
+            <p className="text-[11px] text-[#717182] mt-1">Klik "Run MT5 Analysis" di atas untuk mulai. Pastikan data candle MT5 sudah diunduh di halaman <strong>Market Data</strong>.</p>
+          </div>
+        )}
+      </div>
+
+      {/* ── Estimated sim (legacy, CSV MFE/MAE based) ── */}
       <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-          <SectionLabel label="Advanced Target Simulation" shape="square" color="dark" icon={<Target className="w-4 h-4" />} />
+          <div>
+            <SectionLabel label="Target Simulation (Estimasi CSV)" shape="square" color="yellow" icon={<Target className="w-4 h-4" />} />
+            <p className="text-[10px] text-[#717182] font-medium mt-1">Berdasarkan MFE/MAE dari data CSV — tanpa verifikasi candle riil.</p>
+          </div>
           {hasMfeMae && (
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#717182]">Custom R:</span>
-              <input 
-                type="number" 
-                step="0.5" 
-                value={customRR} 
+              <input
+                type="number"
+                step="0.5"
+                value={customRR}
                 onChange={e => setCustomRR(Number(e.target.value))}
                 className="input py-1 px-2 w-20 text-center font-bold"
               />
@@ -128,7 +402,7 @@ export default function RRLabTab({ metrics, trades }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {sims.map((sim, idx) => sim && (
+                {estimatedSims.map((sim, idx) => sim && (
                   <tr key={idx} className="hover:bg-[#F0F0F0] transition-colors">
                     <td className="font-extrabold text-[#121212] font-display text-[15px]">{sim.targetR}R</td>
                     <td className="text-[#121212] font-bold font-number">{formatPercent(sim.winrate)}</td>

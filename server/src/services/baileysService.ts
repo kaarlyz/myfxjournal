@@ -1045,9 +1045,8 @@ export class BaileysService {
     if (this.isConnected) throw Object.assign(new Error('Already connected.'), { possibleCause: 'Already connected', suggestion: 'No need for pairing code.' });
 
     this.lastPairingRequestAt = Date.now();
-    this.status = 'pairing_requested';
-
-    if (!this.sock || this.status === 'error' || this.status === 'not_started' || this.connectionState === 'closed') {
+    const currentStatus = this.status as string;
+    if (!this.sock || currentStatus === 'error' || currentStatus === 'not_started' || this.connectionState === 'closed') {
       await this.closeSocket();
       this.status = 'not_started';
       await this.connect(this.sessionId, { force: true });

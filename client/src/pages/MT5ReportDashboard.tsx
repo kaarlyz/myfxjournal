@@ -210,7 +210,7 @@ export default function MT5ReportDashboard() {
       )}
       
       {activeTab === 'RR_LAB' && (
-        <div className="animate-fade-in"><RRLabTab metrics={data.metrics} trades={data.trades || []} /></div>
+        <div className="animate-fade-in"><RRLabTab metrics={data.metrics} trades={data.trades || []} sessionId="" /></div>
       )}
       
       {activeTab === 'TIMING' && (

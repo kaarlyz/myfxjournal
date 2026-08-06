@@ -20,6 +20,7 @@ import tradingViewRouter from './routes/tradingview';
 import journalNotesRouter from './routes/journal-notes';
 import mt5ReportsRouter from './routes/mt5-reports';
 import eaControlRouter from './routes/ea-control';
+import mt5SyncRouter from './routes/mt5-sync';
 import { logIntegration } from './utils/logger';
 
 // Load environment variables
@@ -51,6 +52,7 @@ app.use('/api/webhook', webhookRouter);
 app.use('/api/accounts', accountsRouter);
 app.use('/api/live-trades', liveTradesRouter);
 app.use('/api/integrations/mt5', mt5IntegrationRouter);
+app.use('/api/mt5', mt5SyncRouter);
 app.use('/api/integrations/settings', integrationSettingsRouter);
 app.use('/api/integrations/telegram', telegramRouter);
 app.use('/api/integrations/whatsapp', whatsappRouter);
@@ -60,6 +62,10 @@ app.use('/api/journal-notes', journalNotesRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/mt5-reports', mt5ReportsRouter);
 app.use('/api/ea-control', eaControlRouter);
+
+// Import and use analytics router
+const analyticsRouter = require('./routes/analytics').default;
+app.use('/api/analytics', analyticsRouter);
 
 // Handle 404 for API routes
 app.use('/api', (req: Request, res: Response) => {

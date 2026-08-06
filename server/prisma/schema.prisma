@@ -72,6 +72,9 @@ model Trade {
   result                String?         // WIN | LOSS | BE
   rMultiple             Float?
   plannedRR             Float?
+  maxPotentialRR        Float?          // Calculated from historical market data
+  mfePrice              Float?          // Maximum Favorable Excursion price
+  maePrice              Float?          // Maximum Adverse Excursion price
   riskUsd               Float?
   notes                 String?
   screenshotUrl         String?
@@ -608,3 +611,121 @@ model IntegrationLog {
   details   String?  // JSON string
   createdAt DateTime @default(now())
 }
+
+model Mt5Terminal {
+  id              String       @id @default(uuid())
+  terminalId      String       @unique
+  accountNumber   String?
+  broker          String?
+  brokerServer    String?
+  platformVersion String?
+  apiKey          String?      @unique
+  status          String       @default("OFFLINE") // ONLINE | OFFLINE | BUSY | SYNCING
+  lastHeartbeatAt DateTime?
+  lastSyncAt      DateTime?
+  balance         Float?
+  equity          Float?
+  leverage        String?
+  currency        String       @default("USD")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  syncJobs        Mt5SyncJob[]
+
+  @@index([terminalId])
+  @@index([status])
+}
+
+model Mt5SyncJob {
+  id               String       @id @default(uuid())
+  terminalId       String?
+  terminal         Mt5Terminal? @relation(fields: [terminalId], references: [terminalId], onDelete: SetNull)
+  symbol           String
+  dataType         String       // TICK | CANDLE | HISTORY
+  timeframe        String?      // M1, M5, M15, M30, H1, H4, D1
+  dateFrom         DateTime
+  dateTo           DateTime
+  status           String       @default("PENDING") // PENDING | QUEUED | RUNNING | PAUSED | FINISHED | FAILED | CANCELLED
+  progressPct      Float        @default(0)
+  cursorTimestamp  DateTime?
+  chunkCount       Int          @default(0)
+  downloadedItems  Int          @default(0)
+  errorMessage     String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([terminalId])
+  @@index([status])
+  @@index([symbol, dataType])
+}
+
+model MarketDataCatalog {
+  id               String   @id @default(uuid())
+  provider         String   @default("MT5") // MT5 | CSV | DUKASCOPY | BINANCE
+  symbol           String
+  dataType         String   // TICK | CANDLE
+  timeframe        String?  // M1, M5, M15, M30, H1, H4, D1
+  dateFrom         DateTime
+  dateTo           DateTime
+  tickCount        Int      @default(0)
+  candleCount      Int      @default(0)
+  fileSizeBytes    BigInt   @default(0)
+  lastSyncedAt     DateTime @default(now())
+  missingRangesJson String? // Array of missing [from, to] gaps
+  downloadStatus   String   @default("COMPLETE") // COMPLETE | PARTIAL | IN_PROGRESS
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([provider, symbol, dataType, timeframe])
+  @@index([symbol, dataType])
+}
+
+model Mt5TickData {
+  id        String   @id @default(uuid())
+  terminalId String?
+  symbol    String
+  time      DateTime
+  bid       Float
+  ask       Float
+  last      Float?
+  volume    Float?
+  flags     Int?
+  createdAt DateTime @default(now())
+
+  @@unique([symbol, time])
+  @@index([symbol, time])
+}
+
+model Mt5CandleData {
+  id         String   @id @default(uuid())
+  terminalId String?
+  symbol     String
+  timeframe  String   // M1, M5, M15, M30, H1, H4, D1
+  time       DateTime
+  open       Float
+  high       Float
+  low        Float
+  close      Float
+  tickVolume Float?
+  realVolume Float?
+  spread     Int?
+  createdAt  DateTime @default(now())
+
+  @@unique([symbol, timeframe, time])
+  @@index([symbol, timeframe, time])
+}
+
+model Mt5SyncLog {
+  id         String   @id @default(uuid())
+  terminalId String?
+  jobId      String?
+  eventType  String   // AUTH | HEARTBEAT | TRADE_LIVE | HISTORY_SYNC | TICK_BATCH | CANDLE_BATCH | ERROR
+  status     String   // INFO | SUCCESS | WARNING | ERROR
+  message    String
+  details    String?  // JSON string
+  timestamp  DateTime @default(now())
+
+  @@index([terminalId])
+  @@index([jobId])
+  @@index([timestamp])
+}
+

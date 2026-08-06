@@ -18,6 +18,8 @@ import MT5ReportImport from './pages/MT5ReportImport';
 import MT5ReportDashboard from './pages/MT5ReportDashboard';
 import ReportPrint from './pages/ReportPrint';
 import EAControlCenter from './pages/EAControlCenter';
+import MT5Connections from './pages/MT5Connections';
+import MarketData from './pages/MarketData';
 import RiskCalculator from './components/RiskCalculator';
 import PropFirmSimulator from './pages/PropFirmSimulator';
 import MonteCarlo from './pages/MonteCarlo';
@@ -59,6 +61,8 @@ function AnimatedRoutes() {
             <Route path="/settings"                     element={<Settings />} />
             <Route path="/live-journal"                 element={<LiveJournal />} />
             <Route path="/accounts"                     element={<Accounts />} />
+            <Route path="/mt5-connections"              element={<MT5Connections />} />
+            <Route path="/market-data"                  element={<MarketData />} />
             <Route path="/integrations"                 element={<Integrations />} />
             <Route path="/ea-control"                   element={<EAControlCenter />} />
             <Route path="/setup-review"                 element={<SetupReview />} />

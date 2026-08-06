@@ -405,7 +405,7 @@ export default function Dashboard() {
       </div>
 
       {activeTab === 'RISK' && <RiskRecalculationTab sessionId={session.id} session={session} metrics={metrics} trades={trades} />}
-      {activeTab === 'RR_LAB' && <RRLabTab metrics={metrics} trades={trades} />}
+      {activeTab === 'RR_LAB' && <RRLabTab metrics={metrics} trades={trades} sessionId={session.id} />}
       {activeTab === 'TIMING' && <TimingAnalyticsTab metrics={metrics} trades={trades} />}
       {activeTab === 'STREAKS' && <StreaksTab metrics={metrics} trades={trades} />}
       {activeTab === 'PAIR' && <PairBreakdownTab metrics={metrics} />}
