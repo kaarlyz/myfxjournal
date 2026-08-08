@@ -22,6 +22,9 @@ model BacktestSession {
   riskValue       Float
   rules           String?        // JSON string of backtest rules
   notes           String?
+  // Price feed metadata — identifies the broker/source that produced trade prices
+  priceFeedBroker String?        // e.g. "OANDA", "VTMarkets", "ICMarkets"
+  priceFeedId     String?        // opaque feed identifier (set by terminal or user)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   trades          Trade[]
@@ -72,9 +75,13 @@ model Trade {
   result                String?         // WIN | LOSS | BE
   rMultiple             Float?
   plannedRR             Float?
-  maxPotentialRR        Float?          // Calculated from historical market data
-  mfePrice              Float?          // Maximum Favorable Excursion price
-  maePrice              Float?          // Maximum Adverse Excursion price
+  maxPotentialRR        Float?          // Latest VALID replay: max potential RR
+  mfePrice              Float?          // Latest VALID replay: Maximum Favorable Excursion price
+  maePrice              Float?          // Latest VALID replay: Maximum Adverse Excursion price
+  // Replay status (denormalized from latest TradeReplayAnalysis for UI performance)
+  replayStatus          String?         // VALID | INVALID_FEED | PRICE_SCALE_MISMATCH | ...
+  replayStatusReason    String?         // Human-readable explanation
+  latestReplayId        String?         // FK to latest TradeReplayAnalysis.id
   riskUsd               Float?
   notes                 String?
   screenshotUrl         String?
@@ -83,11 +90,57 @@ model Trade {
   importedAt            DateTime?       // when this trade was imported
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
+  replayAnalyses        TradeReplayAnalysis[]
 
   @@index([sessionId])
   @@index([tradeId])
   @@index([importBatchId])
   @@index([importFingerprint, sessionId])
+}
+
+// Immutable replay analysis record — one row per engine run per trade.
+// NEVER updated. New engine runs INSERT new rows. History preserved forever.
+model TradeReplayAnalysis {
+  id               String   @id @default(uuid())
+  tradeId          String
+  trade            Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  // Engine identity
+  engineVersion    String   // e.g. "2.0.0"
+  replayTimestamp  DateTime @default(now())
+
+  // Dataset identity used in this replay
+  datasetId        String?  // MarketDataCatalog.id used
+  provider         String?  // e.g. "MT5"
+  broker           String?  // e.g. "VTMarkets", "OANDA"
+  priceFeedId      String?  // opaque feed identifier
+
+  // Validation pipeline result
+  status           String   // VALID | INVALID_FEED | DATASET_NOT_COMPATIBLE | PRICE_SCALE_MISMATCH | MISSING_MARKET_DATA | SYMBOL_NOT_FOUND | TIME_ALIGNMENT_ERROR | INSUFFICIENT_HISTORY | NO_SL_INFERABLE | FAILED
+  statusReason     String?  // human-readable explanation
+
+  // Replay execution result (null when status != VALID)
+  timeframe        String?
+  candlesUsed      Int?
+  slUsed           Float?
+  mfePrice         Float?
+  maePrice         Float?
+  maxPotentialRR   Float?
+  capturedRR       Float?   // actual rMultiple of the trade
+  exitEfficiency   Float?   // capturedRR / maxPotentialRR * 100
+
+  // Bar alignment
+  alignedEntryTime DateTime?
+  alignedExitTime  DateTime?
+
+  // Price sanity metadata
+  candlePriceMin   Float?   // min low in trade window
+  candlePriceMax   Float?   // max high in trade window
+  priceGapPct      Float?   // |entryPrice - candleMid| / candleMid * 100
+
+  @@index([tradeId])
+  @@index([replayTimestamp])
+  @@index([status])
 }
 
 model ImportBatch {
@@ -661,6 +714,10 @@ model Mt5SyncJob {
 model MarketDataCatalog {
   id               String   @id @default(uuid())
   provider         String   @default("MT5") // MT5 | CSV | DUKASCOPY | BINANCE
+  broker           String?  // e.g. "VTMarkets", "ICMarkets", "OANDA" — identifies price feed source
+  priceFeedId      String?  // opaque feed identifier set by terminal (matches BacktestSession.priceFeedId)
+  symbolAlias      String?  // alternate symbol name (e.g. "XAUUSDm" for micro)
+  digitPrecision   Int?     // decimal places: 2 for forex, 0 for indices
   symbol           String
   dataType         String   // TICK | CANDLE
   timeframe        String?  // M1, M5, M15, M30, H1, H4, D1

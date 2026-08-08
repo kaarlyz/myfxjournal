@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Target, AlertCircle, BarChart3, Zap, CheckCircle2, Database, Info, CalendarX, Download } from 'lucide-react';
+import { Target, AlertCircle, BarChart3, Zap, CheckCircle2, Database, Info, CalendarX, Download, ShieldAlert, Check, X } from 'lucide-react';
 import { formatNumber, formatPercent } from '../../utils/formatters';
 import { SectionLabel } from '../ui/SectionLabel';
 
@@ -29,10 +29,17 @@ interface CandleCoverage {
 }
 
 interface Diagnostics {
-  noCandles: number;
-  noSL: number;
   tradeRange: { first: string | null; last: string | null };
   candleCoverage: CandleCoverage[];
+}
+
+interface ReplaySummaryResult {
+  processed: number;
+  valid: number;
+  invalid: number;
+  total: number;
+  statusCounts: Record<string, number>;
+  latestReplayVersion?: string;
 }
 
 const RR_TARGETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4, 5];
@@ -42,12 +49,25 @@ function fmtDate(d: string | null): string {
   return new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+const STATUS_LABELS: Record<string, { label: string; bg: string; text: string; icon: string }> = {
+  VALID: { label: 'VALID Replay', bg: 'bg-emerald-100 border-emerald-300', text: 'text-emerald-800', icon: '✅' },
+  PRICE_SCALE_MISMATCH: { label: 'Price Scale Mismatch (>20% gap)', bg: 'bg-amber-100 border-amber-300', text: 'text-amber-800', icon: '⚠️' },
+  INVALID_FEED: { label: 'Broker / Feed Provider Mismatch', bg: 'bg-amber-100 border-amber-300', text: 'text-amber-800', icon: '⚠️' },
+  DATASET_NOT_COMPATIBLE: { label: 'Incompatible Dataset Feed ID', bg: 'bg-amber-100 border-amber-300', text: 'text-amber-800', icon: '⚠️' },
+  MISSING_MARKET_DATA: { label: 'Missing Market Candles in Window', bg: 'bg-blue-100 border-blue-300', text: 'text-blue-800', icon: 'ℹ️' },
+  INSUFFICIENT_HISTORY: { label: 'Insufficient Candles (< 3 candles)', bg: 'bg-gray-100 border-gray-300', text: 'text-gray-800', icon: 'ℹ️' },
+  SYMBOL_NOT_FOUND: { label: 'Symbol Not Found in Market Catalog', bg: 'bg-red-100 border-red-300', text: 'text-red-800', icon: '❌' },
+  TIME_ALIGNMENT_ERROR: { label: 'Time Alignment Error', bg: 'bg-red-100 border-red-300', text: 'text-red-800', icon: '❌' },
+  NO_SL_INFERABLE: { label: 'SL Could Not Be Inferred', bg: 'bg-gray-100 border-gray-300', text: 'text-gray-800', icon: 'ℹ️' },
+  FAILED: { label: 'Replay Execution Failed', bg: 'bg-red-100 border-red-300', text: 'text-red-800', icon: '💥' },
+};
+
 export default function RRLabTab({ metrics, trades, sessionId }: Props) {
   const navigate = useNavigate();
   const [customRR, setCustomRR] = useState<number>(2.5);
   const [backtestRR, setBacktestRR] = useState<number>(1);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeResult, setAnalyzeResult] = useState<{ analyzed: number; total: number } | null>(null);
+  const [analyzeResult, setAnalyzeResult] = useState<ReplaySummaryResult | null>(null);
   const [rrSimData, setRrSimData] = useState<SimRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
@@ -93,7 +113,7 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
     setDiagnostics(null);
 
     try {
-      // Step 1: Run analysis to populate maxPotentialRR on each trade
+      // Step 1: Run replay rebuild
       const analyzeRes = await fetch(`/api/analytics/session/${sessionId}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -102,29 +122,32 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
       const analyzeJson = await analyzeRes.json();
 
       if (!analyzeJson.ok) {
-        setError(analyzeJson.error || 'Analisis gagal');
+        setError(analyzeJson.error || 'Replay execution failed.');
         return;
       }
 
-      setAnalyzeResult({ analyzed: analyzeJson.analyzed, total: analyzeJson.total });
+      const summary: ReplaySummaryResult = {
+        processed: analyzeJson.processed ?? analyzeJson.total ?? 0,
+        valid: analyzeJson.valid ?? analyzeJson.validCount ?? 0,
+        invalid: analyzeJson.invalid ?? analyzeJson.invalidCount ?? 0,
+        total: analyzeJson.total ?? 0,
+        statusCounts: analyzeJson.statusCounts || {},
+        latestReplayVersion: analyzeJson.latestReplayVersion,
+      };
+
+      setAnalyzeResult(summary);
       if (analyzeJson.diagnostics) setDiagnostics(analyzeJson.diagnostics);
 
-      if (analyzeJson.analyzed === 0) {
-        // Don't fetch sim — show diagnostics instead
-        return;
-      }
-
-      // Step 2: Fetch simulation matrix
-      const simRes = await fetch(`/api/analytics/session/${sessionId}/rr-simulation`);
-      const simJson = await simRes.json();
-
-      if (simJson.ok && simJson.hasData) {
-        setRrSimData(simJson.data);
-      } else {
-        setError('Simulasi tidak menghasilkan data. Coba ulangi analisis.');
+      // Step 2: If valid trades exist, fetch simulation matrix
+      if (summary.valid > 0) {
+        const simRes = await fetch(`/api/analytics/session/${sessionId}/rr-simulation`);
+        const simJson = await simRes.json();
+        if (simJson.ok && simJson.hasData) {
+          setRrSimData(simJson.data);
+        }
       }
     } catch (e: any) {
-      setError('Gagal terhubung ke server. Pastikan server berjalan.');
+      setError('Gagal terhubung ke server. Pastikan koneksi dan server berjalan.');
     } finally {
       setAnalyzing(false);
     }
@@ -171,13 +194,13 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
         </div>
       </div>
 
-      {/* ── MT5 Candle–Backed RR Simulation (NEW) ── */}
+      {/* ── MT5 Candle–Backed RR Simulation ── */}
       <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212]">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-5">
           <div>
             <SectionLabel label="RR Potential Simulation" shape="square" color="dark" icon={<Database className="w-4 h-4" />} />
             <p className="text-[11px] text-[#717182] font-medium mt-1.5 max-w-lg">
-              Menggunakan data candle MT5 riil. Sistem menghitung mundur posisi SL dari rasio RR yang Anda gunakan saat backtest, lalu melihat seberapa jauh harga bisa bergerak sebelum menyentuh SL tersebut.
+              Menggunakan data candle MT5 riil dengan validasi 10-step fail-fast. SL dihitung mundur dari rasio RR backtest Anda, lalu dilacak pergerakan candle riil.
             </p>
           </div>
 
@@ -213,101 +236,141 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
           </div>
         </div>
 
-        {/* Status messages */}
+        {/* Network / Execution Server Error (ONLY for 500 / network offline) */}
         {error && (
           <div className="flex items-start gap-2 p-3 bg-red-50 border-2 border-red-400 text-red-700 text-[12px] font-bold mb-4">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            {error}
+            <div>
+              <p className="font-extrabold">Eksekusi Replay Gagal</p>
+              <p className="font-normal text-[11px] mt-0.5">{error}</p>
+            </div>
           </div>
         )}
 
+        {/* Execution Summary Panel (Shown on HTTP success) */}
         {analyzeResult && (
-          <div className={`flex items-center gap-2 p-3 border-2 text-[12px] font-bold mb-4 ${
-            analyzeResult.analyzed > 0
-              ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
-              : 'bg-amber-50 border-amber-400 text-amber-700'
-          }`}>
-            {analyzeResult.analyzed > 0
-              ? <CheckCircle2 className="w-4 h-4 shrink-0" />
-              : <AlertCircle className="w-4 h-4 shrink-0" />}
-            Analisis selesai: <strong>{analyzeResult.analyzed}</strong> dari <strong>{analyzeResult.total}</strong> trade berhasil diproses.
-          </div>
-        )}
-
-        {/* Diagnostics panel — show when analysis ran but 0 or partial trades processed */}
-        {diagnostics && analyzeResult && analyzeResult.analyzed < analyzeResult.total && (() => {
-          const sym = diagnostics.candleCoverage[0]?.symbol || 'XAUUSD';
-          const anyCovers = diagnostics.candleCoverage.some(c => c.coversTradeRange);
-          // Build Market Data URL with pre-filled params
-          const mdParams = new URLSearchParams({
-            symbol: sym,
-            from: diagnostics.tradeRange.first ? diagnostics.tradeRange.first.split('T')[0] : '',
-            to: diagnostics.tradeRange.last
-              ? new Date(new Date(diagnostics.tradeRange.last).getTime() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-              : '',
-          });
-
-          return (
-            <div className="p-4 bg-amber-50 border-2 border-amber-400 mb-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-amber-800 font-extrabold text-[13px]">
-                  <CalendarX className="w-5 h-5" />
-                  {anyCovers
-                    ? `${analyzeResult.analyzed}/${analyzeResult.total} trade berhasil — cek timeframe di bawah`
-                    : 'Candle data tidak mencakup periode trading Anda'}
-                </div>
-                <button
-                  onClick={() => navigate(`/market-data?${mdParams}`)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#121212] text-white text-[11px] font-extrabold border-2 border-[#121212] hover:bg-[#333] transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Download Data
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 text-[12px]">
-                <div className="bg-white border-2 border-amber-300 p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1">📅 Rentang Trade</p>
-                  <p className="font-bold text-[#121212]">{fmtDate(diagnostics.tradeRange.first)}</p>
-                  <p className="text-[#717182] font-medium">s/d {fmtDate(diagnostics.tradeRange.last)}</p>
-                </div>
-                <div className="bg-white border-2 border-amber-300 p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-2">📊 Status Candle per Timeframe</p>
-                  {diagnostics.candleCoverage.length > 0 ? (
-                    <div className="space-y-1">
-                      {diagnostics.candleCoverage.map(c => (
-                        <div key={c.timeframe} className="flex items-center gap-2">
-                          <span className={`text-[13px] ${c.coversTradeRange ? 'text-emerald-600' : 'text-red-500'}`}>
-                            {c.coversTradeRange ? '✅' : '❌'}
-                          </span>
-                          <span className="font-extrabold text-[#121212]">{c.timeframe}</span>
-                          <span className="text-[#717182] font-medium text-[10px]">
-                            {fmtDate(c.firstCandle)} – {fmtDate(c.lastCandle)}
-                          </span>
-                        </div>
-                      ))}
-                      {diagnostics.candleCoverage.every(c => !c.coversTradeRange) && (
-                        <p className="text-[10px] text-red-600 font-bold mt-1">
-                          Semua timeframe tidak cover periode trade.
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="font-bold text-red-600">Tidak ada candle data untuk simbol ini</p>
+          <div className="mb-5 space-y-3">
+            {/* Banner Header */}
+            <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 border-2 text-[12px] font-bold ${
+              analyzeResult.valid > 0
+                ? 'bg-emerald-50 border-emerald-400 text-emerald-800'
+                : analyzeResult.processed > 0
+                ? 'bg-amber-50 border-amber-400 text-amber-800'
+                : 'bg-gray-50 border-gray-300 text-gray-700'
+            }`}>
+              <div className="flex items-center gap-2">
+                {analyzeResult.valid > 0 ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                )}
+                <span>
+                  Eksekusi Replay Selesai: <strong>{analyzeResult.processed}</strong> trade diproses
+                  {analyzeResult.processed > 0 && (
+                    <> — <strong className="text-emerald-700">{analyzeResult.valid} VALID</strong>, <strong className="text-amber-700">{analyzeResult.invalid} Rejection</strong></>
                   )}
-                </div>
+                </span>
               </div>
-
-              {!anyCovers && (
-                <p className="text-[11px] font-bold text-amber-800 bg-amber-100 p-2 border border-amber-300">
-                  ⚠️ Klik <strong>Download Data</strong> di atas untuk langsung mengunduh candle <strong>{sym}</strong> sesuai periode trade.
-                </p>
+              {analyzeResult.latestReplayVersion && (
+                <span className="text-[10px] px-2 py-0.5 bg-white/60 border border-current rounded font-mono">
+                  Engine v{analyzeResult.latestReplayVersion}
+                </span>
               )}
             </div>
-          );
-        })()}
 
-        {/* Result table */}
+            {/* ReplayStatus Breakdown Chips */}
+            {analyzeResult.statusCounts && Object.keys(analyzeResult.statusCounts).length > 0 && (
+              <div className="p-3 bg-white border-2 border-[#121212] space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#717182]">
+                  Status Results Breakdown ({analyzeResult.processed} Trades)
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(analyzeResult.statusCounts).map(([statusKey, count]) => {
+                    const info = STATUS_LABELS[statusKey] || { label: statusKey, bg: 'bg-gray-100 border-gray-300', text: 'text-gray-800', icon: '❓' };
+                    return (
+                      <div key={statusKey} className={`flex items-center gap-1.5 px-2.5 py-1 border rounded text-[11px] font-bold ${info.bg} ${info.text}`}>
+                        <span>{info.icon}</span>
+                        <span>{info.label}:</span>
+                        <span className="font-extrabold font-number text-[12px]">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Explanation when zero valid trades exist */}
+            {analyzeResult.valid === 0 && analyzeResult.processed > 0 && (
+              <div className="p-3.5 bg-amber-50/80 border-2 border-amber-300 text-amber-900 text-[11px] font-medium leading-relaxed space-y-1">
+                <p className="font-bold flex items-center gap-1 text-amber-800">
+                  <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                  Mengapa Simulasi RR Tidak Ditampilkan?
+                </p>
+                <p>
+                  Tabel simulasi RR hanya mengkalkulasi trade yang lolos 10-step validation engine (status <strong>VALID</strong>).
+                  Semua <strong>{analyzeResult.invalid} trade</strong> pada sesi ini di-reject karena perbedaan feed/skala harga broker (<code>PRICE_SCALE_MISMATCH</code>) atau data candle tidak mencukupi (<code>INSUFFICIENT_HISTORY</code>). Data palsu/cacat secara otomatis di-purge.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Date range mismatch diagnostics */}
+        {diagnostics && analyzeResult && analyzeResult.valid === 0 && (
+          <div className="p-4 bg-amber-50 border-2 border-amber-400 mb-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-800 font-extrabold text-[13px]">
+                <CalendarX className="w-5 h-5" />
+                Coverage Market Data Candle
+              </div>
+              {diagnostics.candleCoverage.length > 0 && (() => {
+                const sym = diagnostics.candleCoverage[0]?.symbol || 'XAUUSD';
+                const mdParams = new URLSearchParams({
+                  symbol: sym,
+                  from: diagnostics.tradeRange.first ? diagnostics.tradeRange.first.split('T')[0] : '',
+                  to: diagnostics.tradeRange.last
+                    ? new Date(new Date(diagnostics.tradeRange.last).getTime() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                    : '',
+                });
+                return (
+                  <button
+                    onClick={() => navigate(`/market-data?${mdParams}`)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#121212] text-white text-[11px] font-extrabold border-2 border-[#121212] hover:bg-[#333] transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download Matching Data
+                  </button>
+                );
+              })()}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12px]">
+              <div className="bg-white border-2 border-amber-300 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1">📅 Rentang Trade Sesi Ini</p>
+                <p className="font-bold text-[#121212]">{fmtDate(diagnostics.tradeRange.first)}</p>
+                <p className="text-[#717182] font-medium">s/d {fmtDate(diagnostics.tradeRange.last)}</p>
+              </div>
+              <div className="bg-white border-2 border-amber-300 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-2">📊 Status Coverage Candle</p>
+                {diagnostics.candleCoverage.length > 0 ? (
+                  <div className="space-y-1">
+                    {diagnostics.candleCoverage.map(c => (
+                      <div key={c.timeframe} className="flex items-center gap-2 text-[11px]">
+                        <span>{c.coversTradeRange ? '✅' : '❌'}</span>
+                        <span className="font-extrabold text-[#121212]">{c.timeframe}</span>
+                        <span className="text-[#717182]">({fmtDate(c.firstCandle)} – {fmtDate(c.lastCandle)})</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="font-bold text-red-600 text-[11px]">Tidak ada candle data terunduh untuk simbol ini</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Result Table (Rendered ONLY when valid trades produce rrSimData) */}
         {rrSimData && rrSimData.length > 0 ? (
           <>
             <div className="table-scroll">
@@ -355,7 +418,7 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
               Data diverifikasi langsung menggunakan MT5 Historical Candles. SL dihitung mundur dari RR {backtestRR}:1.
             </p>
           </>
-        ) : !rrSimData && !analyzing && !error && (
+        ) : !rrSimData && !analyzing && !error && !analyzeResult && (
           <div className="text-center py-8 border-2 border-dashed border-[#121212]/20">
             <Database className="w-8 h-8 text-[#717182] mx-auto mb-2" />
             <p className="text-[13px] font-bold text-[#717182]">Belum ada data simulasi.</p>
