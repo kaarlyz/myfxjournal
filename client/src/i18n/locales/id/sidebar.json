@@ -4,6 +4,7 @@
   "nav_label_tools": "Tools",
   "nav_label_system": "System",
   "sessions_home": "Sesi Backtest",
+  "bar_replay": "Bar Replay (M1)",
   "create_session": "Buat Sesi",
   "import_csv": "Import CSV",
   "import_mt5": "Import MT5",

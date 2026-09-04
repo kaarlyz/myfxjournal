@@ -21,6 +21,7 @@ import journalNotesRouter from './routes/journal-notes';
 import mt5ReportsRouter from './routes/mt5-reports';
 import eaControlRouter from './routes/ea-control';
 import mt5SyncRouter from './routes/mt5-sync';
+import backtestRouter from './routes/backtest';
 import { logIntegration } from './utils/logger';
 
 // Load environment variables
@@ -62,6 +63,7 @@ app.use('/api/journal-notes', journalNotesRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/mt5-reports', mt5ReportsRouter);
 app.use('/api/ea-control', eaControlRouter);
+app.use('/api/backtest', backtestRouter);
 
 // Import and use analytics router
 const analyticsRouter = require('./routes/analytics').default;

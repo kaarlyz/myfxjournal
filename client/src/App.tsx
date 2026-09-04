@@ -23,15 +23,18 @@ import MarketData from './pages/MarketData';
 import RiskCalculator from './components/RiskCalculator';
 import PropFirmSimulator from './pages/PropFirmSimulator';
 import MonteCarlo from './pages/MonteCarlo';
+import Backtest from './pages/Backtest';
 import { useJournalStore } from './store/useJournalStore';
 import { useLiveJournalStore } from './store/useLiveJournalStore';
 import { AlertTriangle, Clock, Wifi, WifiOff, RefreshCw } from 'lucide-react';
 import WidgetErrorBoundary from './components/WidgetErrorBoundary';
 import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import { useOnboarding } from './hooks/useOnboarding';
+import { MobileBottomNav } from './components/MobileBottomNav';
 
 function AnimatedRoutes() {
   const location = useLocation();
+  const isBacktest = location.pathname === '/backtest';
 
   return (
     <AnimatePresence mode="wait">
@@ -41,7 +44,11 @@ function AnimatedRoutes() {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -15 }}
         transition={{ duration: 0.25, ease: 'easeOut' }}
-        className="w-full max-w-none px-6 lg:px-8 2xl:px-12 py-6"
+        className={
+          isBacktest
+            ? "w-full max-w-none p-1 sm:p-2 flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden"
+            : "w-full max-w-none px-3.5 sm:px-6 lg:px-8 2xl:px-12 py-4 md:py-6 pb-24 md:pb-8"
+        }
       >
         <WidgetErrorBoundary>
           <Routes location={location} key={location.pathname}>
@@ -69,6 +76,7 @@ function AnimatedRoutes() {
             <Route path="/risk-calculator"              element={<RiskCalculator />} />
             <Route path="/prop-sim"                     element={<PropFirmSimulator />} />
             <Route path="/monte-carlo"                  element={<MonteCarlo />} />
+            <Route path="/backtest"                     element={<Backtest />} />
             <Route path="*"                             element={<Navigate to="/" replace />} />
           </Routes>
         </WidgetErrorBoundary>
@@ -84,6 +92,7 @@ export default function App() {
   const [time, setTime] = useState(new Date());
   const [showOnboarding, setShowOnboarding] = useState(!completed);
   const [transitioning, setTransitioning] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     if (isReady) {
@@ -141,14 +150,14 @@ export default function App() {
     <MotionConfig reducedMotion="user">
       <Router>
         <div className="app-shell">
-          <Sidebar />
+          <Sidebar mobileOpen={mobileNavOpen} setMobileOpen={setMobileNavOpen} />
 
           <main className="main-shell relative z-10">
             <div className="topbar" aria-label="Application toolbar">
-              <div className="flex items-center gap-2 text-xs font-bold" style={{ fontFamily: 'Outfit, sans-serif' }}>
+              <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold" style={{ fontFamily: 'Outfit, sans-serif' }}>
                 {sseStatus === 'live' && (
                   <div
-                    className="flex items-center gap-1.5 px-2 py-1 border border-[var(--profit)]"
+                    className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--profit)] text-[10px] sm:text-xs"
                     style={{ background: 'var(--profit-dim)', color: 'var(--profit)' }}
                     role="status"
                     aria-label="Realtime connection active"
@@ -159,7 +168,7 @@ export default function App() {
                 )}
                 {sseStatus === 'connecting' && (
                   <div
-                    className="flex items-center gap-1.5 px-2 py-1 border border-[var(--warning)]"
+                    className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--warning)] text-[10px] sm:text-xs"
                     style={{ background: 'var(--warning-dim)', color: 'var(--warning)' }}
                     role="status"
                     aria-label="Connecting to server"
@@ -170,7 +179,7 @@ export default function App() {
                 )}
                 {sseStatus === 'offline' && (
                   <div
-                    className="flex items-center gap-1.5 px-2 py-1 border border-[var(--loss)]"
+                    className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--loss)] text-[10px] sm:text-xs"
                     style={{ background: 'var(--loss-dim)', color: 'var(--loss)' }}
                     role="status"
                     aria-label="Connection offline"
@@ -184,7 +193,7 @@ export default function App() {
               <div className="flex-1" />
 
               <div
-                className="flex items-center gap-2 font-number text-xs"
+                className="flex items-center gap-1.5 sm:gap-2 font-number text-[11px] sm:text-xs"
                 style={{ color: 'var(--text-secondary)' }}
                 aria-label={`Current time: ${timeStr}`}
               >
@@ -192,14 +201,14 @@ export default function App() {
                 <span className="font-bold" style={{ color: 'var(--text-primary)', letterSpacing: '0.05em' }}>
                   {timeStr}
                 </span>
-                <span style={{ color: 'var(--text-muted)' }}>·</span>
-                <span style={{ color: 'var(--text-muted)' }}>{dateStr}</span>
+                <span className="hidden sm:inline" style={{ color: 'var(--text-muted)' }}>·</span>
+                <span className="hidden sm:inline" style={{ color: 'var(--text-muted)' }}>{dateStr}</span>
               </div>
             </div>
 
             {error && (
               <div
-                className="banner-danger flex items-center gap-2 px-6 py-3 text-sm"
+                className="banner-danger flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm"
                 role="alert"
                 aria-live="assertive"
               >
@@ -210,6 +219,9 @@ export default function App() {
 
             <AnimatedRoutes />
           </main>
+
+          {/* Mobile Bottom Navigation Bar */}
+          <MobileBottomNav onToggleMenu={() => setMobileNavOpen(prev => !prev)} isMenuOpen={mobileNavOpen} />
         </div>
       </Router>
     </MotionConfig>

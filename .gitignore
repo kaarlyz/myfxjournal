@@ -80,8 +80,12 @@ Thumbs.db
 copyit/
 
 # Orphan src/ folder (not part of KAFX Journal)
-src/
+/src/
 
 # Backup files
 *.bak
 *.bak-*
+
+# local ngrok binary
+ngrok
+*.tgz

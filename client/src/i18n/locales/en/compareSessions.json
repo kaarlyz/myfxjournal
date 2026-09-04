@@ -1,0 +1,15 @@
+{
+  "title": "Compare Sessions",
+  "select_sessions": "Select sessions to compare",
+  "no_sessions": "No sessions available to compare",
+  "metrics": "Metrics",
+  "add_session": "Add Session",
+  "remove_session": "Remove",
+  "total_trades": "Total Trades",
+  "win_rate": "Win Rate",
+  "total_pnl": "Total PnL",
+  "profit_factor": "Profit Factor",
+  "max_drawdown": "Max Drawdown",
+  "avg_rr": "Avg R:R",
+  "select_placeholder": "— Select a session —"
+}

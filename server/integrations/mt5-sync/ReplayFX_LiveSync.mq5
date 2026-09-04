@@ -555,7 +555,8 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 
       string payload = StringFormat(
          "{\"terminalId\":\"%s\",\"accountNumber\":\"%d\",\"positionId\":\"%llu\",\"dealId\":\"%llu\",\"symbol\":\"%s\",\"side\":\"%s\",\"lot\":%.2f,\"entryPrice\":%.5f,\"closePrice\":%.5f,\"status\":\"%s\",\"profit\":%.2f,\"openTime\":\"%s\"}",
-         AccountInfoInteger(ACCOUNT_LOGIN),
+         g_terminalId,
+         (long)AccountInfoInteger(ACCOUNT_LOGIN),
          positionId,
          dealTicket,
          symbol,
@@ -565,7 +566,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
          (entryType != DEAL_ENTRY_IN ? price : 0.0),
          status,
          profit,
-         TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS)
+         FormatIsoTime(TimeCurrent())
       );
 
       string resp;

@@ -214,6 +214,8 @@ function buildTradesPayload(
       exitTime: vt.exitTime ? new Date(vt.exitTime) : null,
       entryPrice: cleanNumber(vt.entryPrice),
       exitPrice: cleanNumber(vt.exitPrice),
+      slPrice: vt.slPrice ? cleanNumber(vt.slPrice) : null,
+      tpPrice: vt.tpPrice ? cleanNumber(vt.tpPrice) : null,
       qty: cleanNumber(vt.qty),
       positionValue: cleanNumber(vt.positionValue),
       // Store raw value (cents or USD) — scaling happens at metric calculation time

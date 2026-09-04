@@ -349,6 +349,8 @@ router.post('/import', mt5Upload, async (req: Request, res: Response) => {
           exitTime: t.exitTime,
           entryPrice: t.entryPrice,
           exitPrice: t.exitPrice,
+          slPrice: t.slPrice ?? null,
+          tpPrice: t.tpPrice ?? null,
           qty: t.volume,
           netPnlUsd: t.netProfit,
           netPnlIdr: t.netProfit * Number(req.body.usdIdrRate || 16200),

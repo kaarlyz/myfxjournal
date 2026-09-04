@@ -89,6 +89,8 @@ export interface Mt5ReconstructedTrade {
   side: string;
   entryPrice?: number | null;
   exitPrice?: number | null;
+  slPrice?: number | null;
+  tpPrice?: number | null;
   volume?: number | null;
   commission: number;
   swap: number;
@@ -155,8 +157,8 @@ export interface Mt5ParseDebug {
 }
 
 const REPORT_PAIR_COLUMNS: Array<[string, string]> = [['A', 'D'], ['E', 'H'], ['I', 'L']];
-const ORDER_COLUMNS = ['A', 'B', 'C', 'D', 'E', 'G', 'H', 'I', 'J', 'L', 'M'];
-const DEAL_COLUMNS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'];
+const ORDER_COLUMNS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P'];
+const DEAL_COLUMNS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P'];
 
 function readUInt16(buffer: Buffer, offset: number): number {
   return buffer.readUInt16LE(offset);
@@ -614,9 +616,23 @@ function parseDeals(rows: RowMap, sections: SectionRows): Mt5DealInput[] {
   }));
 }
 
-function reconstructTrades(deals: Mt5DealInput[]): Mt5ReconstructedTrade[] {
+function reconstructTrades(deals: Mt5DealInput[], orders: Mt5OrderInput[] = []): Mt5ReconstructedTrade[] {
   const trades: Mt5ReconstructedTrade[] = [];
   const openDeals: Mt5DealInput[] = [];
+  const orderMap = new Map<string, Mt5OrderInput>();
+  const orderByComment = new Map<string, Mt5OrderInput>();
+
+  for (const ord of orders) {
+    if (ord.orderId) {
+      const cleanId = String(ord.orderId).replace(/['"]/g, '').trim();
+      if (cleanId) orderMap.set(cleanId, ord);
+    }
+    if (ord.comment) {
+      const cleanComment = String(ord.comment).trim();
+      if (cleanComment) orderByComment.set(cleanComment, ord);
+    }
+  }
+
   const sorted = deals
     .filter((deal) => normalize(deal.type) !== 'balance')
     .sort((a, b) => (a.time?.getTime() || 0) - (b.time?.getTime() || 0));
@@ -629,12 +645,44 @@ function reconstructTrades(deals: Mt5DealInput[]): Mt5ReconstructedTrade[] {
     }
     if (direction !== 'out') continue;
 
-    const matchIndex = openDeals.findIndex((entry) => (
-      (!deal.symbol || !entry.symbol || deal.symbol === entry.symbol)
-      && (deal.volume === null || entry.volume === null || deal.volume === entry.volume)
-    ));
+    const dealType = normalize(deal.type); // 'buy' (closes short) or 'sell' (closes long)
+    const expectedEntryType = dealType === 'sell' ? 'buy' : (dealType === 'buy' ? 'sell' : null);
+
+    const matchIndex = openDeals.findIndex((entry) => {
+      const entryType = normalize(entry.type);
+      const typeMatches = expectedEntryType ? entryType === expectedEntryType : true;
+      const symbolMatches = !deal.symbol || !entry.symbol || deal.symbol === entry.symbol;
+      const volumeMatches = deal.volume === null || entry.volume === null || deal.volume === entry.volume;
+      const positionMatches = deal.positionId && entry.positionId ? deal.positionId === entry.positionId : true;
+      return typeMatches && symbolMatches && volumeMatches && positionMatches;
+    });
     const entry = matchIndex >= 0 ? openDeals.splice(matchIndex, 1)[0] : openDeals.shift();
     if (!entry) continue;
+
+    const entryOrderIdClean = entry.orderId ? String(entry.orderId).replace(/['"]/g, '').trim() : '';
+    let entryOrder = entryOrderIdClean ? orderMap.get(entryOrderIdClean) : undefined;
+
+    // Fallback: match by comment tag (e.g. NPat#3)
+    if (!entryOrder && entry.comment) {
+      const cleanComment = String(entry.comment).trim();
+      entryOrder = orderByComment.get(cleanComment);
+    }
+
+    let slPrice = (entryOrder?.sl && entryOrder.sl > 0) ? entryOrder.sl : null;
+    let tpPrice = (entryOrder?.tp && entryOrder.tp > 0) ? entryOrder.tp : null;
+
+    // Fallback: check deal and order comments for 'tp 123.45' or 'sl 123.45'
+    const commentsToScan = [deal.comment, entry.comment, entryOrder?.comment].filter(Boolean);
+    for (const c of commentsToScan) {
+      if (!tpPrice && c) {
+        const matchTp = c.match(/tp\s+([0-9.]+)/i);
+        if (matchTp) tpPrice = parseFloat(matchTp[1]);
+      }
+      if (!slPrice && c) {
+        const matchSl = c.match(/sl\s+([0-9.]+)/i);
+        if (matchSl) slPrice = parseFloat(matchSl[1]);
+      }
+    }
 
     const commission = (entry.commission || 0) + (deal.commission || 0);
     const swap = (entry.swap || 0) + (deal.swap || 0);
@@ -648,6 +696,8 @@ function reconstructTrades(deals: Mt5DealInput[]): Mt5ReconstructedTrade[] {
       side: normalize(entry.type) === 'sell' ? 'SHORT' : 'LONG',
       entryPrice: entry.price,
       exitPrice: deal.price,
+      slPrice,
+      tpPrice,
       volume: entry.volume || deal.volume,
       commission,
       swap,
@@ -659,6 +709,7 @@ function reconstructTrades(deals: Mt5DealInput[]): Mt5ReconstructedTrade[] {
 
   return trades;
 }
+
 
 function sectionRows(rows: RowMap): SectionRows {
   return {
@@ -745,7 +796,7 @@ export function parseMt5XlsxReport(buffer: Buffer): Mt5ParsedReport {
     results,
     orders,
     deals,
-    trades: reconstructTrades(deals),
+    trades: reconstructTrades(deals, orders),
     warnings,
   };
 }

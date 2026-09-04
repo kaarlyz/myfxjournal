@@ -725,6 +725,7 @@ model MarketDataCatalog {
   dateTo           DateTime
   tickCount        Int      @default(0)
   candleCount      Int      @default(0)
+  dataSourceType   String?  @default("REAL") // REAL | SYNTHETIC
   fileSizeBytes    BigInt   @default(0)
   lastSyncedAt     DateTime @default(now())
   missingRangesJson String? // Array of missing [from, to] gaps
@@ -755,6 +756,7 @@ model Mt5TickData {
 model Mt5CandleData {
   id         String   @id @default(uuid())
   terminalId String?
+  provider   String   @default("MT5") // MT5 | DUKASCOPY | CSV | BINANCE
   symbol     String
   timeframe  String   // M1, M5, M15, M30, H1, H4, D1
   time       DateTime
@@ -767,8 +769,8 @@ model Mt5CandleData {
   spread     Int?
   createdAt  DateTime @default(now())
 
-  @@unique([symbol, timeframe, time])
-  @@index([symbol, timeframe, time])
+  @@unique([provider, symbol, timeframe, time])
+  @@index([provider, symbol, timeframe, time])
 }
 
 model Mt5SyncLog {
@@ -784,5 +786,51 @@ model Mt5SyncLog {
   @@index([terminalId])
   @@index([jobId])
   @@index([timestamp])
+}
+
+model ManualBacktestSession {
+  id              String                @id @default(uuid())
+  name            String
+  symbol          String                @default("XAUUSD")
+  provider        String                @default("DUKASCOPY")
+  timeframe       String                @default("M1")
+  startTime       DateTime
+  replayTime      DateTime
+  initialBalance  Float                 @default(10000)
+  currentBalance  Float                 @default(10000)
+  riskPercent     Float                 @default(1.0)
+  drawingsJson    String?
+  status          String                @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  trades          ManualBacktestTrade[]
+
+  @@index([symbol, timeframe])
+  @@index([createdAt])
+}
+
+model ManualBacktestTrade {
+  id          String                @id @default(uuid())
+  sessionId   String
+  session     ManualBacktestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tradeNumber Int
+  side        String                // LONG | SHORT
+  entryPrice  Float
+  entryTime   DateTime
+  slPrice     Float
+  tpPrice     Float
+  exitPrice   Float?
+  exitTime    DateTime?
+  exitReason  String?               // TP | SL | MANUAL | INTRABAR_AMBIGUOUS
+  volume      Float
+  riskAmount  Float
+  pnl         Float?
+  rr          Float?
+  status      String                @default("OPEN") // OPEN | CLOSED | CANCELLED
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@index([sessionId])
+  @@index([status])
 }
 

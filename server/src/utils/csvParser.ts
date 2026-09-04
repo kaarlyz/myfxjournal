@@ -26,6 +26,12 @@ export interface ValidTradeData {
   exitTime: Date;
   entryPrice: number;
   exitPrice: number;
+  slPrice?: number;
+  tpPrice?: number;
+  /** How SL/TP was determined: 'explicit' = from CSV columns, 'signal_inferred' = from Signal field, 'unknown' = not available */
+  slTpSource: 'explicit' | 'signal_inferred' | 'unknown';
+  /** Whether the exit was TP or SL hit (inferred from signal or explicit columns) */
+  exitReason: 'TP' | 'SL' | 'MANUAL' | 'UNKNOWN';
   qty: number;
   positionValue: number;
   netPnlUsd: number;
@@ -257,6 +263,81 @@ export function parseTradingViewCsv(csvText: string): {
     const exitPriceVal = findWithCurrencySuffix(exitRow, 'Price');
     const exitSignal = findFlexible(exitRow, 'Signal').trim();
     
+    // Stop Loss and Take Profit (flexible names, case-insensitive, support currency suffix)
+    const slCandidates = [
+      'Stop Loss', 'Stop Loss Price', 'SL', 'S/L', 'S / L', 'StopLoss', 'SL Price',
+      'Stop Price', 'Stop', 'Stop_Loss', 'SL USD', 'Stop Loss USD', 'SL Price USD'
+    ];
+    const tpCandidates = [
+      'Take Profit', 'Take Profit Price', 'TP', 'T/P', 'T / P', 'TakeProfit', 'TP Price',
+      'Target Price', 'Target', 'Take_Profit', 'TP USD', 'Take Profit USD', 'TP Price USD'
+    ];
+
+    const slVal = findFlexible(entryRow, ...slCandidates) ||
+                  findWithCurrencySuffix(entryRow, 'Stop Loss') ||
+                  findWithCurrencySuffix(entryRow, 'SL') ||
+                  findFlexible(exitRow, ...slCandidates) ||
+                  findWithCurrencySuffix(exitRow, 'Stop Loss') ||
+                  findWithCurrencySuffix(exitRow, 'SL');
+
+    const tpVal = findFlexible(entryRow, ...tpCandidates) ||
+                  findWithCurrencySuffix(entryRow, 'Take Profit') ||
+                  findWithCurrencySuffix(entryRow, 'TP') ||
+                  findFlexible(exitRow, ...tpCandidates) ||
+                  findWithCurrencySuffix(exitRow, 'Take Profit') ||
+                  findWithCurrencySuffix(exitRow, 'TP');
+
+    const parsedSl = cleanNumber(slVal);
+    const parsedTp = cleanNumber(tpVal);
+    let slPrice: number | undefined = parsedSl > 0 ? parsedSl : undefined;
+    let tpPrice: number | undefined = parsedTp > 0 ? parsedTp : undefined;
+
+    // ─── Signal-Based Exit Reason Inference ────────────────────────────────
+    // Determine exit reason from Signal column (e.g. "Bracket Take Profit", "Stop Loss")
+    const exitSigLower = exitSignal.toLowerCase();
+    const isTPSignal =
+      exitSigLower.includes('take profit') ||
+      exitSigLower === 'tp' ||
+      exitSigLower === 't/p';
+    const isSLSignal =
+      exitSigLower.includes('stop loss') ||
+      exitSigLower.includes('stop-loss') ||
+      exitSigLower === 'sl' ||
+      exitSigLower === 's/l';
+
+    let exitReason: 'TP' | 'SL' | 'MANUAL' | 'UNKNOWN' = 'UNKNOWN';
+    let slTpSource: 'explicit' | 'signal_inferred' | 'unknown' = 'unknown';
+
+    if (slPrice !== undefined && tpPrice !== undefined) {
+      // Both columns available explicitly — most accurate
+      slTpSource = 'explicit';
+      exitReason = isTPSignal ? 'TP' : isSLSignal ? 'SL' : 'UNKNOWN';
+    } else if (slPrice !== undefined || tpPrice !== undefined) {
+      // Partial explicit data — mark as explicit for what we have
+      slTpSource = 'explicit';
+      exitReason = isTPSignal ? 'TP' : isSLSignal ? 'SL' : 'UNKNOWN';
+    } else if (isTPSignal || isSLSignal) {
+      // No explicit SL/TP columns, but Signal tells us which side was hit
+      // Use exit price as the actual hit price for the known side
+      slTpSource = 'signal_inferred';
+      if (isTPSignal) {
+        exitReason = 'TP';
+        // Exit price IS the TP price (the level the strategy exited at)
+        tpPrice = cleanNumber(exitPriceVal) > 0 ? cleanNumber(exitPriceVal) : undefined;
+        // slPrice stays undefined — will be back-calculated from RR during import if needed
+      } else {
+        exitReason = 'SL';
+        // Exit price IS the SL price
+        slPrice = cleanNumber(exitPriceVal) > 0 ? cleanNumber(exitPriceVal) : undefined;
+        // tpPrice stays undefined — will be back-calculated from RR during import if needed
+      }
+    } else if (exitSigLower && exitSigLower !== '') {
+      // Some other signal (manual, timeout, etc.)
+      exitReason = 'MANUAL';
+      slTpSource = 'unknown';
+    }
+
+
     // Performance metrics (read from exit row, fallback to entry)
     const qtyVal = findFlexible(exitRow, 'Size (qty)') || findFlexible(entryRow, 'Size (qty)');
     const valueVal = findFlexible(exitRow, 'Size (value)') || findFlexible(entryRow, 'Size (value)');
@@ -344,6 +425,10 @@ export function parseTradingViewCsv(csvText: string): {
       exitTime,
       entryPrice,
       exitPrice,
+      slPrice,
+      tpPrice,
+      slTpSource,
+      exitReason,
       qty,
       positionValue,
       netPnlUsd,

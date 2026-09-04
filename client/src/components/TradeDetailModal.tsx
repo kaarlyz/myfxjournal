@@ -56,22 +56,22 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
     : 0;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
       {/* Black backdrop overlay */}
       <div
-        className="absolute inset-0 bg-[#121212]/80 backdrop-blur-sm"
+        className="fixed inset-0 bg-[#121212]/80 backdrop-blur-sm"
         onClick={onClose}
       />
 
-      {/* Modal Card content */}
-      <div className="relative w-full max-w-3xl bg-white border-4 border-[#121212] flex flex-col max-h-[90vh] z-10 animate-fade-in" style={{ boxShadow: '12px 12px 0px 0px #121212' }}>
-        <div className="absolute top-0 left-0 right-0 h-[4px] bg-[#1040C0]" />
+      {/* Modal Card content (Bottom sheet on mobile, centered modal on tablet/desktop) */}
+      <div className="relative w-full max-w-3xl bg-white border-t-4 sm:border-4 border-[#121212] flex flex-col max-h-[92vh] sm:max-h-[90vh] z-10 animate-fade-in shadow-[0px_-4px_20px_rgba(0,0,0,0.2)] sm:shadow-[12px_12px_0px_0px_#121212] rounded-t-xl sm:rounded-none">
+        <div className="absolute top-0 left-0 right-0 h-[4px] bg-[#1040C0] rounded-t-xl sm:rounded-none" />
 
         {/* Header */}
-        <div className="p-6 border-b-4 border-[#121212] flex justify-between items-center bg-[#F0F0F0]">
-          <div>
-            <div className="flex items-center space-x-3 mb-1">
-              <h2 className="text-2xl font-extrabold text-[#121212] tracking-tight font-display">
+        <div className="p-4 sm:p-6 border-b-2 sm:border-b-4 border-[#121212] flex justify-between items-center bg-[#F0F0F0] rounded-t-xl sm:rounded-none">
+          <div className="min-w-0 flex-1 pr-2">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <h2 className="text-lg sm:text-2xl font-extrabold text-[#121212] tracking-tight font-display truncate">
                 Detail Trade {trade.status === 'OPEN' ? '(Active)' : `#${trade.tradeNumber || '-'}`}
               </h2>
               {trade.status === 'OPEN' ? (
@@ -82,22 +82,30 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
                 </Badge>
               )}
             </div>
-            <p className="text-xs text-[#717182] font-bold uppercase tracking-widest mt-2">
-              ID Sesi: <span className="text-[#121212]">{trade.sessionId}</span> • Sumber: <span className="text-[#121212]">{trade.source}</span>
+            <p className="text-[10px] sm:text-xs text-[#717182] font-bold uppercase tracking-widest truncate">
+              Symbol: <span className="text-[#121212]">{trade.symbol}</span> • TF: <span className="text-[#121212]">{trade.timeframe}</span> • Sumber: <span className="text-[#121212]">{trade.source}</span>
             </p>
           </div>
           <button
             onClick={onClose}
-            className="w-10 h-10 border-2 border-[#121212] bg-white flex items-center justify-center text-[#121212] hover:bg-[#E0E0E0] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+            className="w-9 h-9 sm:w-10 sm:h-10 border-2 border-[#121212] bg-white flex items-center justify-center text-[#121212] hover:bg-[#E0E0E0] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all shrink-0"
+            aria-label="Tutup Detail Trade"
           >
             <X className="w-5 h-5 font-bold" strokeWidth={3} />
           </button>
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="p-6 overflow-y-auto space-y-8 flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1">
+          {saveSuccess && (
+            <div className="p-3 bg-emerald-50 border-2 border-emerald-500 text-emerald-900 text-xs font-bold flex items-center gap-2 shadow-[2px_2px_0px_0px_#059669]">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>✓ Catatan dan screenshot trade berhasil disimpan!</span>
+            </div>
+          )}
+
           {/* Main Attributes Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
             <div className="bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212]">
               <span className="text-[10px] font-bold text-[#717182] uppercase tracking-wider block mb-1">Symbol / TF</span>
               <span className="text-lg font-extrabold text-[#121212] font-display">{trade.symbol} <span className="text-[#717182] font-semibold text-sm">/ {trade.timeframe}</span></span>
@@ -136,6 +144,41 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
                   <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Harga Keluar</span>
                   <span className="font-extrabold text-[#121212] font-number">{trade.exitPrice ? trade.exitPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }) : 'Belum Keluar'}</span>
                 </div>
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Stop Loss (SL)</span>
+                  <span className="font-extrabold text-[#121212] font-number">{trade.slPrice ? trade.slPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }) : <span className="text-[#717182] text-xs font-normal">Reconstructed</span>}</span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Take Profit (TP)</span>
+                  <span className="font-extrabold text-[#121212] font-number">{trade.tpPrice ? trade.tpPrice.toLocaleString('en-US', { minimumFractionDigits: 2 }) : <span className="text-[#717182] text-xs font-normal">Reconstructed</span>}</span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                  <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Tipe SL/TP</span>
+                  <span>
+                    {trade.slPrice && trade.tpPrice ? (
+                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded text-[11px] font-bold">
+                        Actual SL/TP
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-700 border border-gray-300 rounded text-[11px] font-semibold">
+                        Reconstructed
+                      </span>
+                    )}
+                  </span>
+                </div>
+                {trade.entryPrice && trade.slPrice && trade.tpPrice && (
+                  <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
+                    <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Actual RR</span>
+                    <span className="font-extrabold text-[#121212] font-number">
+                      1 : {(() => {
+                        const isLong = trade.side === 'LONG';
+                        const risk = isLong ? trade.entryPrice - trade.slPrice : trade.slPrice - trade.entryPrice;
+                        const reward = isLong ? trade.tpPrice - trade.entryPrice : trade.entryPrice - trade.tpPrice;
+                        return (risk > 0 && reward > 0) ? (reward / risk).toFixed(2) : '-';
+                      })()}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center pb-2 border-b-2 border-dashed border-[#121212]/20">
                   <span className="text-[#717182] font-bold uppercase tracking-wider text-[10px]">Tanggal Masuk</span>
                   <span className="font-bold text-[#121212]">{trade.entryTime ? formatDate(trade.entryTime) : '-'}</span>

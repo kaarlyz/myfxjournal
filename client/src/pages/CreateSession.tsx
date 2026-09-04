@@ -7,9 +7,12 @@ import { MarketCategorySelect } from '../components/forms/MarketCategorySelect';
 import { AccountTypeSelect } from '../components/forms/AccountTypeSelect';
 import { HelpCard, InfoTooltip, PageGuide } from '../components/help/HelpSystem';
 import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
+import { ActionFeedback } from '../components/ui/ActionFeedback';
 import { Button } from '../components/ui/Button';
+import { useNavigate } from 'react-router-dom';
 
 export default function CreateSession() {
+  const navigate = useNavigate();
   const { createSession, settings, fetchSettings, selectSession } = useJournalStore();
 
   // Form states
@@ -31,6 +34,7 @@ export default function CreateSession() {
 
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createdSessionInfo, setCreatedSessionInfo] = useState<{ id: string; name: string; symbol: string; timeframe: string } | null>(null);
 
   useEffect(() => {
     fetchSettings();
@@ -83,17 +87,15 @@ export default function CreateSession() {
     setIsSubmitting(false);
 
     if (newSessionId) {
-      // If CSV session, redirect to CSV import page
-      if (sourceMode === 'CSV') {
-        selectSession(newSessionId);
-        // Switch tab to CSV Import so they can directly upload the file
-        useJournalStore.getState().setTab('csv-import');
-      } else {
-        // If Manual/Webhook, redirect straight to dashboard
-        selectSession(newSessionId);
-      }
+      selectSession(newSessionId);
+      setCreatedSessionInfo({
+        id: newSessionId,
+        name: name.trim(),
+        symbol: resolvedSymbol,
+        timeframe: timeframe.trim().toUpperCase(),
+      });
     } else {
-      setError('Gagal membuat sesi backtest. Coba lagi.');
+      setError('Gagal membuat sesi backtest. Periksa kembali koneksi atau parameter form.');
     }
   };
 
@@ -134,6 +136,30 @@ export default function CreateSession() {
       <HelpCard title="Kapan memakai halaman ini?">
         Pakai halaman ini kalau kamu ingin membuat sesi kosong lebih dulu. Kalau sudah punya file CSV TradingView atau laporan MT5, kamu juga bisa langsung masuk ke halaman import.
       </HelpCard>
+
+      {createdSessionInfo && (
+        <ActionFeedback
+          type="SUCCESS"
+          title="Sesi Backtest Berhasil Dibuat"
+          subtitle="Sesi Siap Digunakan"
+          description={`Sesi "${createdSessionInfo.name}" (${createdSessionInfo.symbol} ${createdSessionInfo.timeframe}) telah berhasil dibuat dan aktif.`}
+          metrics={[
+            { label: 'Sesi', value: createdSessionInfo.name, color: 'blue' },
+            { label: 'Symbol / TF', value: `${createdSessionInfo.symbol} ${createdSessionInfo.timeframe}`, color: 'neutral' },
+            { label: 'Modal Awal', value: initialBalance, color: 'profit' },
+            { label: 'Mode Data', value: sourceMode, color: 'neutral' },
+          ]}
+          primaryAction={{
+            label: 'Buka Dashboard Sesi',
+            onClick: () => navigate(`/dashboard?sessionId=${createdSessionInfo.id}`),
+            variant: 'primary',
+          }}
+          secondaryAction={{
+            label: 'Upload CSV Data',
+            onClick: () => navigate('/csv-import'),
+          }}
+        />
+      )}
 
       {error && (
         <div className="bg-[var(--loss-dim)] border-2 border-[var(--loss)] text-[var(--loss)] p-4 shadow-[4px_4px_0px_0px_var(--loss)] flex items-center gap-3">

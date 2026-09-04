@@ -23,6 +23,7 @@ import PairBreakdownTab from '../components/AnalyticsTabs/PairBreakdownTab';
 import { Button } from '../components/ui/Button';
 import { Card, CardBody } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
+import { ActionFeedback } from '../components/ui/ActionFeedback';
 import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
 import { EmptyStateGuide } from '../components/help/HelpSystem';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -218,50 +219,52 @@ export default function Dashboard() {
   return (
     <div ref={exportRef} className="space-y-6 animate-fade-in w-full pb-10">
       {/* ── TOP HEADER ── */}
-      <div className="flex flex-col gap-4 pb-5 border-b-2 border-[#121212]/10">
-        {/* ROW 1 */}
-        <div className="flex flex-wrap justify-between items-start gap-4">
-          <div className="space-y-3">
+      <div className="flex flex-col gap-4 pb-4 border-b-2 border-[#121212]/10">
+        {/* ROW 1: Back + Title + Mode Toggle */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1.5">
             <button
               onClick={() => navigate('/sessions')}
-              className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[#717182] hover:text-[#121212] transition-colors"
+              className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[#717182] hover:text-[#121212] transition-colors py-1"
             >
               <ChevronLeft className="w-4 h-4" />
               {t('common:back')}
             </button>
-            <h1 className="text-3xl md:text-4xl font-extrabold text-[#121212] tracking-tight flex items-center gap-3 font-display">
-              {session.name}
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-[#121212] tracking-tight font-display">
+                {session.name}
+              </h1>
               <Badge variant={session.sourceMode === 'CSV' ? 'yellow' : session.sourceMode === 'WEBHOOK' ? 'profit' : 'blue'}>
                 {session.sourceMode}
               </Badge>
               <Badge variant="neutral">{session.balanceCurrency === 'CENT' ? 'CENT' : session.balanceCurrency === 'IDR' ? 'IDR' : 'USD'}</Badge>
-            </h1>
+            </div>
           </div>
 
-          <div className="mode-toggle">
+          <div className="mode-toggle self-stretch sm:self-auto flex items-stretch">
             <button
               onClick={() => setDisplayMode('RAW')}
-              className={`mode-toggle-btn flex items-center gap-1.5 ${displayMode === 'RAW' ? 'active-raw' : ''}`}
+              className={`mode-toggle-btn flex-1 sm:flex-initial flex items-center justify-center gap-1.5 min-h-[40px] text-xs font-bold ${displayMode === 'RAW' ? 'active-raw' : ''}`}
             >
               <Wallet className="w-3.5 h-3.5" /> {t('display_mode_raw')}
             </button>
             <button
               onClick={() => setDisplayMode('SIMULATED')}
-              className={`mode-toggle-btn flex items-center gap-1.5 ${displayMode === 'SIMULATED' ? 'active-sim' : ''}`}
+              className={`mode-toggle-btn flex-1 sm:flex-initial flex items-center justify-center gap-1.5 min-h-[40px] text-xs font-bold ${displayMode === 'SIMULATED' ? 'active-sim' : ''}`}
             >
               <Shield className="w-3.5 h-3.5" /> {t('display_mode_simulated')}
             </button>
           </div>
         </div>
 
-        {/* ROW 2 */}
-        <div className="flex flex-wrap justify-between items-start gap-4 mt-2">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium bg-white px-4 py-2 border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212]">
+        {/* ROW 2: Session Metadata & Quick Actions */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs font-medium bg-white px-3.5 py-2 border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212]">
             <span className="text-[#717182]">Symbol: <strong className="text-[#121212] font-bold">{session.symbol}</strong></span>
             <span className="text-[#121212]/20">|</span>
             <span className="text-[#717182]">TF: <strong className="text-[#121212] font-bold">{session.timeframe}</strong></span>
             <span className="text-[#121212]/20">|</span>
-            <span className="text-[#717182]">Kurs: <strong className="text-[#121212] font-bold">1 USD = {formatIdr(session.usdIdrRate)}</strong></span>
+            <span className="text-[#717182]">Kurs: <strong className="text-[#121212] font-bold">{formatIdr(session.usdIdrRate)}</strong></span>
             <span className="text-[#121212]/20">|</span>
             <span className="text-[#717182]">Market: <strong className="text-[#121212] font-bold">{session.marketType}</strong></span>
             {session.notes && (
@@ -272,11 +275,11 @@ export default function Dashboard() {
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={() => setShowUpdatePanel(!showUpdatePanel)}>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+            <Button variant="secondary" onClick={() => setShowUpdatePanel(!showUpdatePanel)} className="text-xs font-bold whitespace-nowrap min-h-[38px]">
               <RefreshCw className="w-3.5 h-3.5" /> {t('update_csv')}
             </Button>
-            <Button variant="secondary" onClick={() => window.open(`/reports/session/${session.id}/print`, '_blank')}>
+            <Button variant="secondary" onClick={() => window.open(`/reports/session/${session.id}/print`, '_blank')} className="text-xs font-bold whitespace-nowrap min-h-[38px]">
               <FileText className="w-3.5 h-3.5" /> PDF
             </Button>
             <Button variant="secondary" onClick={async () => {
@@ -285,7 +288,7 @@ export default function Dashboard() {
               try { await exportElementAsPng(exportRef.current, buildExportFilename('analysis', session.name)); }
               catch (e) { alert('Export gagal.'); }
               finally { setIsExporting(false); }
-            }} disabled={isExporting}>
+            }} disabled={isExporting} className="text-xs font-bold whitespace-nowrap min-h-[38px]">
               <Camera className="w-3.5 h-3.5" /> {isExporting ? t('exporting') : t('export_png')}
             </Button>
           </div>
@@ -298,12 +301,12 @@ export default function Dashboard() {
           <CardBody className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-sm uppercase tracking-widest text-[#121212]">{t('update_csv')}</h3>
-              <button onClick={() => setShowUpdatePanel(false)} className="text-[#717182] hover:text-[#121212]">
+              <button onClick={() => setShowUpdatePanel(false)} className="text-[#717182] hover:text-[#121212] p-1">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex items-center gap-4 text-sm bg-white p-3 border-2 border-[#121212]">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-xs sm:text-sm bg-white p-3 border-2 border-[#121212]">
               <label className="flex items-center gap-2 cursor-pointer font-bold">
                 <input
                   type="radio"
@@ -339,7 +342,7 @@ export default function Dashboard() {
                 accept=".csv"
                 onChange={handleCsvFileSelect}
                 ref={fileInputRef}
-                className="block w-full text-sm text-gray-500
+                className="block w-full text-xs sm:text-sm text-gray-500
                   file:mr-4 file:py-2 file:px-4
                   file:border-2 file:border-[#121212]
                   file:text-xs file:font-bold file:uppercase file:tracking-wider
@@ -351,45 +354,49 @@ export default function Dashboard() {
                 onClick={handleCsvUpdate}
                 disabled={!csvUpdateFile || isUpdating}
                 isLoading={isUpdating}
-                className="whitespace-nowrap"
+                className="w-full sm:w-auto whitespace-nowrap text-xs font-black"
               >
                 <Upload className="w-4 h-4" /> {t('update_csv')}
               </Button>
             </div>
 
+            {/* Structured Action Feedback for CSV Update */}
             {updateResult && (
-              <div className={`p-4 border-2 ${updateResult.ok ? 'border-[var(--profit)] bg-[var(--profit-dim)]' : 'border-[var(--loss)] bg-[var(--loss-dim)]'}`}>
-                <div className="flex items-start gap-2">
-                  {updateResult.ok ? (
-                    <CheckCircle2 className="w-5 h-5 text-[var(--profit)] shrink-0" />
-                  ) : (
-                    <AlertTriangle className="w-5 h-5 text-[var(--loss)] shrink-0" />
-                  )}
-                  <div>
-                    <p className={`text-sm font-bold ${updateResult.ok ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
-                      {updateResult.ok ? t('common:success') : t('common:error')}
-                    </p>
-                    {updateResult.ok ? (
-                      <p className="text-xs mt-1">{t('update_success', { count: updateResult.validCount })} | Invalid: {updateResult.invalidCount}</p>
-                    ) : (
-                      <p className="text-xs mt-1">{updateResult.error}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <ActionFeedback
+                type={updateResult.ok ? 'SUCCESS' : 'ERROR'}
+                title={updateResult.ok ? 'Update Sesi CSV Berhasil' : 'Gagal Memperbarui CSV'}
+                description={
+                  updateResult.ok
+                    ? `${updateResult.validCount || 0} trade berhasil diproses dan disinkronkan ke sesi ini.`
+                    : updateResult.error || 'Terjadi kesalahan saat memproses file CSV.'
+                }
+                metrics={updateResult.ok ? [
+                  { label: 'Trade Valid', value: updateResult.validCount || 0, color: 'profit' },
+                  { label: 'Invalid / Skipped', value: updateResult.invalidCount || 0, color: 'neutral' },
+                  { label: 'Mode', value: updateMode, color: 'blue' },
+                ] : undefined}
+                primaryAction={updateResult.ok ? {
+                  label: 'Segarkan Dashboard',
+                  onClick: () => {
+                    if (activeSessionId) fetchActiveSession(activeSessionId);
+                    setShowUpdatePanel(false);
+                  },
+                  variant: 'primary',
+                } : undefined}
+              />
             )}
           </CardBody>
         </Card>
       )}
 
-      {/* ── TABS NAVIGATION ── */}
-      <div className="flex flex-wrap gap-2 pb-4">
+      {/* ── TABS NAVIGATION (Mobile Scrollable) ── */}
+      <div className="flex gap-2 pb-2 overflow-x-auto no-scrollbar scroll-smooth">
         {(['OVERVIEW', 'RISK', 'RR_LAB', 'TIMING', 'STREAKS', 'PAIR'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`
-              px-4 py-2 text-[11px] font-bold uppercase tracking-wider transition-all
+              px-3.5 sm:px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap shrink-0 min-h-[40px]
               border-2 border-[#121212] 
               ${activeTab === tab ? 'bg-[#121212] text-white shadow-[3px_3px_0px_0px_#D02020]' : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'}
             `}

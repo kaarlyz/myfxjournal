@@ -3,8 +3,9 @@ import { NavLink } from 'react-router-dom';
 import {
   Home, PlusCircle, UploadCloud, BarChart3, Settings as SettingsIcon,
   BookOpen, Zap, Layers, Wallet, Calculator, Link2,
-  FileSearch, Bot, Shield, Dices, X, Menu, Trophy, Flame, Wifi, Database
+  FileSearch, Bot, Shield, Dices, Trophy, Flame, Wifi, Database, PlayCircle
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useJournalStore } from '../store/useJournalStore';
 import { formatPnL } from '../utils/numberUtils';
 import { BrandLogo } from './ui/BrandLogo';
@@ -15,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 
 const menuItems = [
   { path: '/',                name: 'Sesi Backtest',    icon: Home,          group: 'BACKTEST', key: 'sessions_home' },
+  { path: '/backtest',        name: 'Bar Replay',       icon: PlayCircle,    group: 'BACKTEST', key: 'bar_replay' },
   { path: '/create-session',  name: 'Buat Sesi',        icon: PlusCircle,    group: 'BACKTEST', key: 'create_session' },
   { path: '/csv-import',      name: 'Import CSV',       icon: UploadCloud,   group: 'BACKTEST', key: 'import_csv' },
   { path: '/mt5-import',      name: 'Import MT5',       icon: FileSearch,    group: 'BACKTEST', key: 'import_mt5' },
@@ -40,11 +42,19 @@ const groups: Array<{ key: string; label: string; accentColor: string }> = [
   { key: 'SYSTEM',   label: 'System',  accentColor: '#121212' },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  mobileOpen?: boolean;
+  setMobileOpen?: (open: boolean) => void;
+}
+
+export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen: externalSetMobileOpen }: SidebarProps = {}) {
   const { t } = useTranslation(['sidebar', 'common']);
   const { sessions, activeSessionId, activeSessionDetails, selectSession } = useJournalStore();
   const { greeting } = useOnboarding();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [internalMobileOpen, setInternalMobileOpen] = useState(false);
+
+  const mobileOpen = externalMobileOpen !== undefined ? externalMobileOpen : internalMobileOpen;
+  const setMobileOpen = externalSetMobileOpen || setInternalMobileOpen;
 
   // ── Compute active session stats ──
   const sessionStats = useMemo(() => {
@@ -143,6 +153,7 @@ export default function Sidebar() {
                     <NavLink
                       key={item.path}
                       to={item.path}
+                      onClick={() => setMobileOpen(false)}
                       className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
                       aria-current={undefined}
                     >
@@ -271,10 +282,20 @@ export default function Sidebar() {
 
             {/* Quick nav */}
             <div className="flex gap-1.5">
-              <NavLink to="/dashboard" className="flex-1 text-center py-1.5 text-[8px] font-extrabold uppercase tracking-widest border-2 border-[#121212] bg-white hover:bg-[#F0F0F0] transition-colors text-[#121212]" style={{ fontFamily: 'Outfit' }}>
+              <NavLink
+                to="/dashboard"
+                onClick={() => setMobileOpen(false)}
+                className="flex-1 text-center py-1.5 text-[8px] font-extrabold uppercase tracking-widest border-2 border-[#121212] bg-white hover:bg-[#F0F0F0] transition-colors text-[#121212]"
+                style={{ fontFamily: 'Outfit' }}
+              >
                 {t('analytics_btn')}
               </NavLink>
-              <NavLink to="/prop-sim" className="flex-1 text-center py-1.5 text-[8px] font-extrabold uppercase tracking-widest border-2 border-[#121212] bg-white hover:bg-[#F0F0F0] transition-colors text-[#121212]" style={{ fontFamily: 'Outfit' }}>
+              <NavLink
+                to="/prop-sim"
+                onClick={() => setMobileOpen(false)}
+                className="flex-1 text-center py-1.5 text-[8px] font-extrabold uppercase tracking-widest border-2 border-[#121212] bg-white hover:bg-[#F0F0F0] transition-colors text-[#121212]"
+                style={{ fontFamily: 'Outfit' }}
+              >
                 {t('prop_sim_btn')}
               </NavLink>
             </div>
@@ -302,41 +323,38 @@ export default function Sidebar() {
         {sidebarContent}
       </aside>
 
-      {/* Mobile Hamburger Button */}
-      <button
-        className="fixed top-3 left-3 z-50 flex h-11 w-11 items-center justify-center border-2 border-[#121212] bg-[#121212] text-white shadow-[3px_3px_0px_0px_#1040C0] transition-all hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_0px_#1040C0] active:translate-y-0.5 active:shadow-none md:hidden"
-        onClick={() => setMobileOpen(!mobileOpen)}
-        aria-label="Toggle navigation menu"
-        aria-expanded={mobileOpen}
-      >
-        <Menu className="h-5 w-5" strokeWidth={2.3} />
-      </button>
-
-      {/* Mobile Sidebar Overlay */}
-      {mobileOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-[#121212]/45 backdrop-blur-[2px]"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden="true"
-          />
-          <aside
-            className="fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-white overflow-y-auto"
-            style={{ borderRight: '4px solid #121212' }}
-            aria-label="Mobile navigation sidebar"
-          >
-            {/* Close button */}
-            <button
-              className="absolute top-4 right-4 z-10 flex h-9 w-9 items-center justify-center border-2 border-[#121212] bg-[#121212] text-white shadow-[3px_3px_0px_0px_#1040C0] transition-all hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_0px_#1040C0] active:translate-y-0.5 active:shadow-none"
+      {/* Mobile Sidebar — animated slide-in, triggered only by bottom nav Menu button */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              key="sidebar-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="fixed inset-0 z-40 bg-[#121212]/50 backdrop-blur-[2px] md:hidden"
               onClick={() => setMobileOpen(false)}
-              aria-label="Close navigation menu"
+              aria-hidden="true"
+            />
+
+            {/* Drawer */}
+            <motion.aside
+              key="sidebar-drawer"
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ duration: 0.28, ease: [0.32, 0, 0.16, 1] }}
+              className="fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-white overflow-y-auto md:hidden"
+              style={{ borderRight: '4px solid #121212' }}
+              aria-label="Mobile navigation sidebar"
             >
-              <X className="h-4 w-4" strokeWidth={2.5} />
-            </button>
-            {sidebarContent}
-          </aside>
-        </>
-      )}
+              {sidebarContent}
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
     </>
   );
 }

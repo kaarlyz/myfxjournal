@@ -1,0 +1,15 @@
+{
+  "title": "Bandingkan Sesi",
+  "select_sessions": "Pilih sesi untuk dibandingkan",
+  "no_sessions": "Tidak ada sesi yang tersedia",
+  "metrics": "Metrik",
+  "add_session": "Tambah Sesi",
+  "remove_session": "Hapus",
+  "total_trades": "Total Trade",
+  "win_rate": "Win Rate",
+  "total_pnl": "Total PnL",
+  "profit_factor": "Profit Factor",
+  "max_drawdown": "Max Drawdown",
+  "avg_rr": "Rata-rata R:R",
+  "select_placeholder": "— Pilih sesi —"
+}
