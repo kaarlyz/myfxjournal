@@ -73,7 +73,7 @@ export const ReplayTimeline: React.FC<ReplayTimelineProps> = ({
     }
   };
 
-  // Sample milestone years for timeline ticks
+  // Milestone years for timeline ticks
   const milestones = [
     { label: '2021', time: new Date('2021-09-01T00:00:00Z').getTime() },
     { label: '2022', time: new Date('2022-01-01T00:00:00Z').getTime() },
@@ -84,17 +84,17 @@ export const ReplayTimeline: React.FC<ReplayTimelineProps> = ({
   ];
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 shadow-md select-none">
+    <div className="bg-[#161922] border-2 border-[#121212] shadow-[3px_3px_0px_0px_#000000] px-4 py-2 select-none text-white">
       <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-1.5">
         <span className="flex items-center gap-1">
-          <Clock className="w-3 h-3 text-slate-500" />
-          <span>Awal Dataset: <strong className="text-slate-200">{format(dateFrom, 'yyyy-MM-dd')}</strong></span>
+          <Clock className="w-3 h-3 text-[#1040C0]" />
+          <span>Awal: <strong className="text-white">{format(dateFrom, 'yyyy-MM-dd')}</strong></span>
         </span>
-        <span className="text-amber-400 font-bold flex items-center gap-1">
-          <MapPin className="w-3.5 h-3.5" />
-          <span>Cursor Replay: {format(currentReplayTime, 'yyyy-MM-dd HH:mm')}</span>
+        <span className="text-[#F0C020] font-bold flex items-center gap-1 bg-[#12141C] px-2 py-0.5 border border-[#242836]">
+          <MapPin className="w-3 h-3" />
+          <span>Replay: {format(currentReplayTime, 'yyyy-MM-dd HH:mm')}</span>
         </span>
-        <span>Akhir: <strong className="text-slate-200">{format(dateTo, 'yyyy-MM-dd')}</strong></span>
+        <span>Akhir: <strong className="text-white">{format(dateTo, 'yyyy-MM-dd')}</strong></span>
       </div>
 
       {/* Interactive Track */}
@@ -106,10 +106,10 @@ export const ReplayTimeline: React.FC<ReplayTimelineProps> = ({
         className="relative h-6 flex items-center cursor-pointer touch-none group"
       >
         {/* Background track line */}
-        <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700/60 relative">
+        <div className="w-full h-2 bg-[#12141C] border-2 border-[#121212] overflow-hidden relative">
           {/* Progress fill up to replay cursor */}
           <div
-            className="h-full bg-gradient-to-r from-blue-600 to-amber-500 rounded-full transition-all duration-75"
+            className="h-full bg-[#1040C0] transition-all duration-75"
             style={{ width: `${currentPercent}%` }}
           />
         </div>
@@ -124,15 +124,15 @@ export const ReplayTimeline: React.FC<ReplayTimelineProps> = ({
               className="absolute top-0 bottom-0 pointer-events-none flex flex-col items-center justify-end"
               style={{ left: `${mPct}%` }}
             >
-              <div className="w-[1px] h-3 bg-slate-600 mb-0.5" />
-              <span className="text-[9px] text-slate-500 font-mono -translate-x-1/2">{m.label}</span>
+              <div className="w-[1px] h-2.5 bg-slate-600 mb-0.5" />
+              <span className="text-[9px] text-slate-400 font-mono -translate-x-1/2">{m.label}</span>
             </div>
           );
         })}
 
         {/* Draggable Replay Cursor Handle */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 bg-amber-400 border-2 border-slate-950 rounded-full shadow-lg transition-transform group-hover:scale-125 z-10"
+          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 bg-[#F0C020] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#000000] transition-transform group-hover:scale-125 z-10"
           style={{ left: `${currentPercent}%` }}
         />
       </div>

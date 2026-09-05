@@ -1,13 +1,14 @@
 import { dukascopyImporter } from '../integrations/dukascopy/dukascopyImporter';
 
 async function main() {
-  const filePath = '/home/vallencia/Downloads/QuantDataManager/export/2026.8.22XAUUSD_dukascopy-M1-No Session.csv';
-  console.log('Starting Dukascopy XAUUSD M1 import from:', filePath);
+  const filePath = process.argv[2] || '/home/vallencia/Downloads/QuantDataManager/export/2026.8.22XAUUSD_dukascopy-M1-No Session.csv';
+  const symbol = process.argv[3] || 'XAUUSD';
+  console.log(`Starting Dukascopy ${symbol} M1 import from:`, filePath);
 
   let lastReport = Date.now();
   const result = await dukascopyImporter.importCsv({
     filePath,
-    symbol: 'XAUUSD',
+    symbol,
     timeframe: 'M1',
     batchSize: 10000,
     onProgress: (processed, inserted) => {

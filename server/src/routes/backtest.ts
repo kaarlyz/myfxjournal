@@ -16,9 +16,48 @@ import {
   TradeSide,
   ChartTimeframe,
   calculateCandleMetrics,
+  getSymbolContractSize,
 } from '../services/backtestEngine';
 
 const router = Router();
+
+// ── 0. Available Symbols Catalog ──
+// GET /api/backtest/symbols
+router.get('/symbols', async (_req: Request, res: Response) => {
+  try {
+    const catalogs = await prisma.marketDataCatalog.findMany({
+      select: { symbol: true, provider: true, candleCount: true },
+    });
+    if (catalogs && catalogs.length > 0) {
+      const map = new Map<string, { symbol: string; provider: string; candleCount: number }>();
+      for (const c of catalogs) {
+        const key = `${c.symbol}_${c.provider}`;
+        if (!map.has(key)) {
+          map.set(key, { symbol: c.symbol, provider: c.provider, candleCount: c.candleCount });
+        } else {
+          map.get(key)!.candleCount = Math.max(map.get(key)!.candleCount, c.candleCount);
+        }
+      }
+      return res.json({ ok: true, data: Array.from(map.values()) });
+    }
+
+    const symbolsGroup = await prisma.mt5CandleData.groupBy({
+      by: ['symbol', 'provider'],
+      _count: { _all: true },
+    });
+    const catalog = symbolsGroup.map((item) => ({
+      symbol: item.symbol,
+      provider: item.provider,
+      candleCount: item._count._all,
+    }));
+    if (catalog.length === 0) {
+      catalog.push({ symbol: 'XAUUSD', provider: 'DUKASCOPY', candleCount: 0 });
+    }
+    return res.json({ ok: true, data: catalog });
+  } catch (error: any) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. WINDOWED HISTORICAL CANDLES STREAM
@@ -159,6 +198,18 @@ router.get('/next-candle', async (req: Request, res: Response) => {
         return res.json({ ok: true, data: null, message: 'End of available market dataset reached.' });
       }
 
+      const sessionIdParam = req.query.sessionId as string;
+      if (sessionIdParam && typeof sessionIdParam === 'string' && sessionIdParam !== 'undefined') {
+        try {
+          await prisma.manualBacktestSession.update({
+            where: { id: sessionIdParam },
+            data: { replayTime: nextCandle.time },
+          });
+        } catch (e) {
+          console.error('Error updating session replayTime on next-candle:', e);
+        }
+      }
+
       return res.json({
         ok: true,
         data: {
@@ -172,16 +223,40 @@ router.get('/next-candle', async (req: Request, res: Response) => {
       });
     }
 
-    // Multi-timeframe step forward: fetch raw M1 candles covering next bar
+    // Multi-timeframe step forward:
+    // Determine the next timeframe bucket starting strictly after afterTime's bucket
+    const tfMs = tfMinutes * 60 * 1000;
+    const currentBucketTime = Math.floor(afterTime.getTime() / tfMs) * tfMs;
+    const nextBucketStartTime = currentBucketTime + tfMs;
+    const nextBucketStartDate = new Date(nextBucketStartTime);
+
+    // Find the first available M1 candle at or after nextBucketStartDate (handles weekends / market closures)
+    const firstM1 = await prisma.mt5CandleData.findFirst({
+      where: {
+        provider,
+        symbol,
+        timeframe: 'M1',
+        time: { gte: nextBucketStartDate },
+      },
+      orderBy: { time: 'asc' },
+    });
+
+    if (!firstM1) {
+      return res.json({ ok: true, data: null, message: 'End of available market dataset reached.' });
+    }
+
+    const actualBucketTime = Math.floor(new Date(firstM1.time).getTime() / tfMs) * tfMs;
+    const actualBucketStart = new Date(actualBucketTime);
+    const actualBucketEnd = new Date(actualBucketTime + tfMs);
+
     const rawBars = await prisma.mt5CandleData.findMany({
       where: {
         provider,
         symbol,
         timeframe: 'M1',
-        time: { gt: afterTime },
+        time: { gte: actualBucketStart, lt: actualBucketEnd },
       },
       orderBy: { time: 'asc' },
-      take: tfMinutes,
     });
 
     if (rawBars.length === 0) {
@@ -200,6 +275,19 @@ router.get('/next-candle', async (req: Request, res: Response) => {
 
     const resampled = resampleM1Candles(m1Bars, targetTF);
     const nextBar = resampled[0];
+
+    const lastRawTime = rawBars[rawBars.length - 1].time;
+    const sessionIdParam = req.query.sessionId as string;
+    if (sessionIdParam && typeof sessionIdParam === 'string' && sessionIdParam !== 'undefined') {
+      try {
+        await prisma.manualBacktestSession.update({
+          where: { id: sessionIdParam },
+          data: { replayTime: lastRawTime },
+        });
+      } catch (e) {
+        console.error('Error updating session replayTime on next-candle (MTF):', e);
+      }
+    }
 
     return res.json({
       ok: true,
@@ -354,7 +442,7 @@ router.post('/sessions', async (req: Request, res: Response) => {
         provider,
         timeframe,
         startTime: start,
-        currentTime: start,
+        replayTime: start,
         initialBalance: parseFloat(initialBalance) || 10000,
         currentBalance: parseFloat(initialBalance) || 10000,
         riskPercent: parseFloat(riskPercent) || 1.0,
@@ -392,13 +480,15 @@ router.get('/sessions/:id', async (req: Request, res: Response) => {
 
 router.put('/sessions/:id', async (req: Request, res: Response) => {
   try {
-    const { currentTime, currentBalance, status, drawingsJson } = req.body;
+    const { replayTime, currentTime, currentBalance, status, drawingsJson, timeframe, name } = req.body;
 
     const updateData: any = {};
-    if (currentTime) updateData.currentTime = new Date(currentTime);
+    if (replayTime || currentTime) updateData.replayTime = new Date(replayTime || currentTime);
     if (currentBalance != null) updateData.currentBalance = parseFloat(currentBalance);
     if (status) updateData.status = status;
     if (drawingsJson !== undefined) updateData.drawingsJson = drawingsJson;
+    if (timeframe) updateData.timeframe = timeframe;
+    if (name) updateData.name = name;
 
     const updated = await prisma.manualBacktestSession.update({
       where: { id: req.params.id },
@@ -415,7 +505,67 @@ router.put('/sessions/:id', async (req: Request, res: Response) => {
 router.post('/sessions/:id/trades', async (req: Request, res: Response) => {
   try {
     const sessionId = req.params.id;
+    if (!sessionId || typeof sessionId !== 'string' || sessionId.trim() === '' || sessionId === 'undefined') {
+      return res.status(400).json({ ok: false, error: 'Valid Session ID is required' });
+    }
+
+    const session = await prisma.manualBacktestSession.findUnique({
+      where: { id: sessionId },
+    });
+    if (!session) {
+      return res.status(404).json({ ok: false, error: 'Session not found' });
+    }
+
+    // Guard against stacked positions: ONLY 1 open position allowed per session
+    const existingOpenTrade = await prisma.manualBacktestTrade.findFirst({
+      where: { sessionId, status: 'OPEN' },
+    });
+    if (existingOpenTrade) {
+      return res.status(409).json({
+        ok: false,
+        error: `Tidak dapat membuka posisi baru: Posisi #${existingOpenTrade.tradeNumber} masih terbuka. Tutup posisi aktif terlebih dahulu.`,
+      });
+    }
+
     const { side, entryPrice, slPrice, tpPrice, volume, riskAmount, entryTime } = req.body;
+    if (!side || (side !== 'LONG' && side !== 'SHORT')) {
+      return res.status(400).json({ ok: false, error: 'Valid side (LONG or SHORT) is required' });
+    }
+
+    const numEntry = parseFloat(entryPrice);
+    const numSL = parseFloat(slPrice);
+    const numTP = parseFloat(tpPrice);
+    const numVol = parseFloat(volume);
+    const numRisk = parseFloat(riskAmount) || 0;
+
+    if (isNaN(numEntry) || isNaN(numSL) || isNaN(numTP) || isNaN(numVol) || numVol <= 0) {
+      return res.status(400).json({ ok: false, error: 'Invalid trade prices or volume' });
+    }
+
+    // Authoritative session replayTime
+    const sessionReplayTime = session.replayTime ? new Date(session.replayTime) : null;
+    const requestedTime = entryTime ? new Date(entryTime) : null;
+
+    console.log(
+      `[TradeEntry Lifecycle] sessionId=${sessionId} | DB session.replayTime=${sessionReplayTime?.toISOString()} | requested entryTime=${requestedTime?.toISOString()}`
+    );
+
+    // If client supplied an entryTime, it must NOT be in the future relative to session.replayTime
+    let tradeTime = sessionReplayTime || new Date();
+    if (requestedTime) {
+      if (sessionReplayTime && requestedTime.getTime() > sessionReplayTime.getTime()) {
+        console.error(
+          `[LookAhead Bias Error] entryTime (${requestedTime.toISOString()}) > session.replayTime (${sessionReplayTime.toISOString()})`
+        );
+        return res.status(400).json({
+          ok: false,
+          error: 'Look-ahead bias error: entryTime cannot be in the future relative to replayTime',
+        });
+      }
+      tradeTime = requestedTime;
+    } else if (sessionReplayTime) {
+      tradeTime = sessionReplayTime;
+    }
 
     const tradeCount = await prisma.manualBacktestTrade.count({
       where: { sessionId },
@@ -426,12 +576,12 @@ router.post('/sessions/:id/trades', async (req: Request, res: Response) => {
         sessionId,
         tradeNumber: tradeCount + 1,
         side: side as TradeSide,
-        entryTime: entryTime ? new Date(entryTime) : new Date(),
-        entryPrice: parseFloat(entryPrice),
-        slPrice: parseFloat(slPrice),
-        tpPrice: parseFloat(tpPrice),
-        volume: parseFloat(volume),
-        riskAmount: parseFloat(riskAmount),
+        entryTime: tradeTime,
+        entryPrice: numEntry,
+        slPrice: numSL,
+        tpPrice: numTP,
+        volume: numVol,
+        riskAmount: numRisk,
         status: 'OPEN',
       },
     });
@@ -445,20 +595,48 @@ router.post('/sessions/:id/trades', async (req: Request, res: Response) => {
 
 router.post('/sessions/:id/trades/:tradeId/close', async (req: Request, res: Response) => {
   try {
-    const { sessionId, tradeId } = req.params;
-    const { exitTime, exitPrice, exitReason } = req.body;
+    const sessionId = req.params.id || req.params.sessionId;
+    const tradeId = req.params.tradeId;
+
+    if (!sessionId || typeof sessionId !== 'string' || sessionId.trim() === '' || sessionId === 'undefined' ||
+        !tradeId || typeof tradeId !== 'string' || tradeId.trim() === '' || tradeId === 'undefined') {
+      return res.status(400).json({ ok: false, error: 'Valid Session ID and Trade ID are required' });
+    }
+
+    const session = await prisma.manualBacktestSession.findUnique({
+      where: { id: sessionId },
+    });
+    if (!session) {
+      return res.status(404).json({ ok: false, error: 'Session not found' });
+    }
 
     const trade = await prisma.manualBacktestTrade.findUnique({
       where: { id: tradeId },
     });
-
     if (!trade) {
       return res.status(404).json({ ok: false, error: 'Trade not found' });
     }
 
+    if (trade.sessionId !== sessionId) {
+      return res.status(400).json({ ok: false, error: 'Trade does not belong to the specified session' });
+    }
+
+    if (trade.status === 'CLOSED') {
+      return res.status(409).json({ ok: false, error: 'Trade is already closed' });
+    }
+
+    const { exitTime, exitPrice, exitReason } = req.body;
     const numExitPrice = parseFloat(exitPrice);
-    const pnl = calculatePnL(trade.side as TradeSide, trade.entryPrice, numExitPrice, trade.volume);
-    const rrResult = calculateRR(trade.side as TradeSide, trade.entryPrice, trade.slPrice, numExitPrice);
+    if (isNaN(numExitPrice) || numExitPrice <= 0) {
+      return res.status(400).json({ ok: false, error: 'Valid exitPrice is required' });
+    }
+
+    const pnl = calculatePnL(trade.side as TradeSide, trade.entryPrice, numExitPrice, trade.volume, getSymbolContractSize(session.symbol));
+    const priceRisk = Math.abs(trade.entryPrice - trade.slPrice);
+    const priceCaptured = trade.side === 'LONG'
+      ? numExitPrice - trade.entryPrice
+      : trade.entryPrice - numExitPrice;
+    const realizedRR = priceRisk > 0 ? Math.round((priceCaptured / priceRisk) * 100) / 100 : 0;
 
     const closedTrade = await prisma.manualBacktestTrade.update({
       where: { id: tradeId },
@@ -467,16 +645,12 @@ router.post('/sessions/:id/trades/:tradeId/close', async (req: Request, res: Res
         exitPrice: numExitPrice,
         exitReason: exitReason || 'MANUAL_CLOSE',
         pnl,
-        rr: rrResult.rr,
+        rr: realizedRR,
         status: 'CLOSED',
       },
     });
 
-    const session = await prisma.manualBacktestSession.findUnique({
-      where: { id: sessionId },
-    });
-
-    const newBalance = (session?.currentBalance || 10000) + pnl;
+    const newBalance = (session.currentBalance || 10000) + pnl;
 
     const updatedSession = await prisma.manualBacktestSession.update({
       where: { id: sessionId },
@@ -494,6 +668,217 @@ router.post('/sessions/:id/trades/:tradeId/close', async (req: Request, res: Res
     });
   } catch (error: any) {
     console.error('Error closing manual backtest trade:', error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.post('/sessions/:id/trades/close-all', async (req: Request, res: Response) => {
+  try {
+    const sessionId = req.params.id;
+    if (!sessionId) {
+      return res.status(400).json({ ok: false, error: 'Session ID is required' });
+    }
+
+    const session = await prisma.manualBacktestSession.findUnique({
+      where: { id: sessionId },
+    });
+    if (!session) {
+      return res.status(404).json({ ok: false, error: 'Session not found' });
+    }
+
+    const openTrades = await prisma.manualBacktestTrade.findMany({
+      where: { sessionId, status: 'OPEN' },
+    });
+
+    if (openTrades.length === 0) {
+      return res.json({ ok: true, data: { trades: [], session } });
+    }
+
+    const { exitTime, exitPrice, exitReason } = req.body;
+    const numExitPrice = parseFloat(exitPrice);
+    if (isNaN(numExitPrice) || numExitPrice <= 0) {
+      return res.status(400).json({ ok: false, error: 'Valid exitPrice is required' });
+    }
+
+    let totalPnl = 0;
+    const closedTrades = [];
+
+    for (const trade of openTrades) {
+      const pnl = calculatePnL(trade.side as TradeSide, trade.entryPrice, numExitPrice, trade.volume, getSymbolContractSize(session.symbol));
+      const priceRisk = Math.abs(trade.entryPrice - trade.slPrice);
+      const priceCaptured = trade.side === 'LONG'
+        ? numExitPrice - trade.entryPrice
+        : trade.entryPrice - numExitPrice;
+      const realizedRR = priceRisk > 0 ? Math.round((priceCaptured / priceRisk) * 100) / 100 : 0;
+      totalPnl += pnl;
+
+      const closed = await prisma.manualBacktestTrade.update({
+        where: { id: trade.id },
+        data: {
+          exitTime: exitTime ? new Date(exitTime) : new Date(),
+          exitPrice: numExitPrice,
+          exitReason: exitReason || 'CLOSE_ALL',
+          pnl,
+          rr: realizedRR,
+          status: 'CLOSED',
+        },
+      });
+      closedTrades.push(closed);
+    }
+
+    const newBalance = Math.round(((session.currentBalance || 10000) + totalPnl) * 100) / 100;
+    const updatedSession = await prisma.manualBacktestSession.update({
+      where: { id: sessionId },
+      data: { currentBalance: newBalance },
+    });
+
+    return res.json({
+      ok: true,
+      data: {
+        trades: closedTrades,
+        session: updatedSession,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error closing all trades:', error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// ── 6. Sync Chart Reply Replay Session & Trades to Main Journal & Dashboard ──
+router.post('/sessions/:id/sync-to-journal', async (req: Request, res: Response) => {
+  try {
+    const sessionId = req.params.id;
+    const manualSession = await prisma.manualBacktestSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        trades: {
+          orderBy: { tradeNumber: 'asc' },
+        },
+      },
+    });
+
+    if (!manualSession) {
+      return res.status(404).json({ ok: false, error: 'Manual backtest session not found' });
+    }
+
+    const sessionTag = `[MANUAL_REPLAY_ID:${manualSession.id}]`;
+    let journalSession = await prisma.backtestSession.findFirst({
+      where: {
+        notes: {
+          contains: sessionTag,
+        },
+      },
+    });
+
+    const sessionName = manualSession.name || `Chart Reply ${manualSession.symbol} (${manualSession.timeframe})`;
+
+    if (!journalSession) {
+      journalSession = await prisma.backtestSession.create({
+        data: {
+          name: sessionName,
+          sourceMode: 'MANUAL',
+          symbol: manualSession.symbol || 'XAUUSD',
+          marketType: 'Gold',
+          timeframe: manualSession.timeframe || 'M1',
+          initialBalance: manualSession.initialBalance || 10000,
+          balanceCurrency: 'USD',
+          centMultiplier: 100,
+          usdIdrRate: 16000,
+          riskMode: 'FIXED_PCT',
+          riskValue: manualSession.riskPercent || 1.0,
+          notes: `${sessionTag} Chart Reply manual session created at ${manualSession.createdAt.toISOString()}`,
+        },
+      });
+    } else {
+      journalSession = await prisma.backtestSession.update({
+        where: { id: journalSession.id },
+        data: {
+          name: sessionName,
+          timeframe: manualSession.timeframe || 'M1',
+          riskValue: manualSession.riskPercent || 1.0,
+        },
+      });
+    }
+
+    // Sync all closed trades
+    const closedTrades = manualSession.trades.filter((t) => t.status === 'CLOSED');
+    let syncedCount = 0;
+
+    for (const mt of closedTrades) {
+      const tradeFingerprint = `replay_trade_${mt.id}`;
+      const rMultiple = mt.rr !== null && mt.rr !== undefined ? mt.rr : 0;
+      const plannedRR = mt.slPrice && mt.tpPrice && mt.entryPrice && Math.abs(mt.entryPrice - mt.slPrice) > 0
+        ? Math.abs(mt.tpPrice - mt.entryPrice) / Math.abs(mt.entryPrice - mt.slPrice)
+        : null;
+      const netPnlUsd = mt.pnl ?? 0;
+      const netPnlPct = manualSession.initialBalance > 0 ? (netPnlUsd / manualSession.initialBalance) * 100 : 0;
+      const result = netPnlUsd > 0.001 ? 'WIN' : netPnlUsd < -0.001 ? 'LOSS' : 'BE';
+
+      let durationMinutes = 0;
+      if (mt.entryTime && mt.exitTime) {
+        durationMinutes = Math.max(0, Math.round((new Date(mt.exitTime).getTime() - new Date(mt.entryTime).getTime()) / 60000));
+      }
+
+      const existingTrade = await prisma.trade.findFirst({
+        where: {
+          sessionId: journalSession.id,
+          importFingerprint: tradeFingerprint,
+        },
+      });
+
+      const tradeData = {
+        sessionId: journalSession.id,
+        source: 'MANUAL',
+        tradeNumber: mt.tradeNumber,
+        tradeId: `REPLAY-${mt.tradeNumber}-${mt.id.slice(0, 8)}`,
+        symbol: manualSession.symbol || 'XAUUSD',
+        timeframe: manualSession.timeframe || 'M1',
+        side: mt.side,
+        entryTime: mt.entryTime,
+        exitTime: mt.exitTime || mt.entryTime,
+        entryPrice: mt.entryPrice,
+        exitPrice: mt.exitPrice || mt.entryPrice,
+        slPrice: mt.slPrice,
+        tpPrice: mt.tpPrice,
+        qty: mt.volume,
+        positionValue: mt.volume * 100 * mt.entryPrice,
+        netPnlUsd,
+        netPnlPct,
+        netPnlIdr: netPnlUsd * 16000,
+        durationMinutes,
+        rMultiple,
+        plannedRR,
+        riskUsd: mt.riskAmount,
+        status: 'CLOSED',
+        result,
+        notes: `Chart Reply Trade #${mt.tradeNumber}. Exit Reason: ${mt.exitReason || 'MANUAL'}`,
+        importFingerprint: tradeFingerprint,
+      };
+
+      if (existingTrade) {
+        await prisma.trade.update({
+          where: { id: existingTrade.id },
+          data: tradeData,
+        });
+      } else {
+        await prisma.trade.create({
+          data: tradeData,
+        });
+      }
+      syncedCount++;
+    }
+
+    return res.json({
+      ok: true,
+      data: {
+        journalSessionId: journalSession.id,
+        manualSessionId: manualSession.id,
+        syncedTradesCount: syncedCount,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error syncing manual backtest to journal:', error);
     return res.status(500).json({ ok: false, error: error.message });
   }
 });

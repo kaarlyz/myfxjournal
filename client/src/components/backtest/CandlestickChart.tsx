@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { format } from 'date-fns';
+import { Settings, Trash2, Plus, X, RotateCcw, Check, Zap } from 'lucide-react';
 import {
   calculateFibonacciLevels,
   calculatePositionToolGeometry,
@@ -39,6 +40,23 @@ export type DrawingTool =
   | 'long_position'
   | 'short_position';
 
+export interface FibLevelConfig {
+  value: number;
+  visible: boolean;
+  color?: string;
+}
+
+export const DEFAULT_FIBONACCI_LEVELS: FibLevelConfig[] = [
+  { value: 0.0, visible: true, color: '#787B86' },
+  { value: 0.236, visible: true, color: '#F23645' },
+  { value: 0.382, visible: true, color: '#FF9800' },
+  { value: 0.5, visible: true, color: '#4CAF50' },
+  { value: 0.618, visible: true, color: '#089981' },
+  { value: 0.705, visible: true, color: '#2962FF' },
+  { value: 0.786, visible: true, color: '#AB47BC' },
+  { value: 1.0, visible: true, color: '#787B86' },
+];
+
 export interface DrawingItem {
   id: string;
   type: DrawingTool;
@@ -52,6 +70,7 @@ export interface DrawingItem {
   tpPrice?: number;
   lockRR?: boolean;
   color?: string;
+  fibLevels?: FibLevelConfig[];
 }
 
 export interface ChartIndicators {
@@ -60,11 +79,26 @@ export interface ChartIndicators {
   sma200: boolean;
 }
 
+export interface PlannedOrderPreview {
+  side: 'BUY' | 'SELL';
+  entryPrice: number;
+  slPrice: number;
+  tpPrice: number;
+  lotSize: number;
+  riskAmount: number;
+  targetProfit: number;
+  rrRatio: number;
+}
+
 interface CandlestickChartProps {
   candles: ChartCandle[];
   timeframe?: ChartTimeframe;
   appMode?: AppMode;
   activeTrade?: ActiveTradeMarker | null;
+  activeTrades?: ActiveTradeMarker[];
+  plannedOrder?: PlannedOrderPreview | null;
+  onPlannedOrderChange?: (newPlanned: { entryPrice: number; slPrice: number; tpPrice: number }) => void;
+  symbol?: string;
   indicators?: ChartIndicators;
   onIndicatorsChange?: (indicators: ChartIndicators) => void;
   activeTool?: DrawingTool;
@@ -81,6 +115,7 @@ interface CandlestickChartProps {
   onDisableFollowReplay?: () => void;
   lockRR?: boolean;
   isFullscreen?: boolean;
+  onExecutePlannedTrade?: (position: DrawingItem) => void;
 }
 
 interface DraggingHandleState {
@@ -124,6 +159,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   timeframe = 'M1',
   appMode = 'analysis',
   activeTrade,
+  activeTrades,
+  plannedOrder,
+  onPlannedOrderChange,
+  symbol = 'XAUUSD',
   indicators = { sma20: true, sma50: true, sma200: false },
   onIndicatorsChange,
   activeTool = 'cursor',
@@ -140,10 +179,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   onDisableFollowReplay,
   lockRR = false,
   isFullscreen = false,
+  onExecutePlannedTrade,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const vpRef = useRef<VP | null>(null);
+  const plannedDragHandleRef = useRef<{
+    type: 'ENTRY' | 'SL' | 'TP';
+    startMousePrice: number;
+    startEntry: number;
+    startSL: number;
+    startTP: number;
+  } | null>(null);
 
   // Container dimensions tracked by ResizeObserver
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>({ width: 900, height: 500 });
@@ -164,8 +212,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   pzRef.current = priceZoom;
   poRef.current = pricePanOffset;
 
+  // Multi-Touch & Pinch Zoom Tracking
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStartDistRef = useRef<number>(0);
+  const pinchStartCWRef = useRef<number>(8);
+  const pinchMidRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
   // Interaction Drag States
-  const dragModeRef = useRef<'NONE' | 'PAN_CHART' | 'SCALE_PRICE' | 'SCALE_TIME' | 'DRAWING_HANDLE'>('NONE');
+  const dragModeRef = useRef<'NONE' | 'PAN_CHART' | 'SCALE_PRICE' | 'SCALE_TIME' | 'DRAWING_HANDLE' | 'PINCH_ZOOM' | 'PLANNED_ORDER_HANDLE'>('NONE');
   const panStartRef = useRef<{ startX: number; startY: number; startSO: number; startPO: number } | null>(null);
   const priceScaleStartRef = useRef<{ startY: number; startPZ: number } | null>(null);
   const timeScaleStartRef = useRef<{ startX: number; startCW: number } | null>(null);
@@ -191,18 +245,63 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // Context Menu & Double Click
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chartTime: number; chartPrice: number } | null>(null);
   const [dblConfirm, setDblConfirm] = useState<{ time: Date; price: number } | null>(null);
+  const [fibSettingsOpen, setFibSettingsOpen] = useState<boolean>(false);
 
-  // Follow replay: when true, keep viewport snapped to latest replay candle
+  const candlesRef = useRef<ChartCandle[]>(candles);
+  candlesRef.current = candles;
+
+  const tradesList: ActiveTradeMarker[] = (activeTrades && activeTrades.length > 0)
+    ? activeTrades
+    : (activeTrade ? [activeTrade] : []);
+  const activeTradesRef = useRef(tradesList);
+  activeTradesRef.current = tradesList;
+  const activeTradeRef = useRef(activeTrade);
+  activeTradeRef.current = activeTrade;
+
+  const prevCandlesRef = useRef<ChartCandle[]>(candles);
+
+  // Preserve user's viewport on data prepend / append
   useEffect(() => {
-    if (followReplay) {
+    const prev = prevCandlesRef.current;
+    prevCandlesRef.current = candles;
+
+    if (prev.length === 0 || candles.length === 0) return;
+
+    const prevLastTime = new Date(prev[prev.length - 1].time).getTime();
+    const curLastTime = new Date(candles[candles.length - 1].time).getTime();
+
+    // Check if newer candles were appended at the end
+    if (curLastTime > prevLastTime) {
+      let appendedCount = 0;
+      for (let i = candles.length - 1; i >= 0; i--) {
+        if (new Date(candles[i].time).getTime() === prevLastTime) {
+          appendedCount = candles.length - 1 - i;
+          break;
+        }
+      }
+
+      if (appendedCount > 0) {
+        if (appMode === 'replay' && followReplay) {
+          setScrollOffset(0);
+        } else {
+          // Keep the user's viewport fixed to the same historical candle!
+          setScrollOffset((curSO) => curSO + appendedCount);
+        }
+      }
+    }
+  }, [candles, appMode, followReplay]);
+
+  // When toggling followReplay explicitly in replay mode
+  useEffect(() => {
+    if (appMode === 'replay' && followReplay) {
       setScrollOffset(0);
     }
-  }, [candles.length, followReplay]);
+  }, [followReplay, appMode]);
 
-  // ResizeObserver on the container element to guarantee exact viewport dimensions
+  // ResizeObserver on the canvas wrapper element to guarantee exact viewport dimensions (excluding HUD)
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    const target = canvasWrapperRef.current || containerRef.current;
+    if (!target) return;
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -213,7 +312,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
     });
 
-    observer.observe(container);
+    observer.observe(target);
     return () => observer.disconnect();
   }, []);
 
@@ -251,10 +350,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const slot = cw + spacing;
     const rightMargin = Math.max(35, slot * 8);
 
-    // Visible index bounds calculated from screen width and right margin
+    // Visible index bounds derived consistently from rightmostIdx
     const lastGlobalIdx = candles.length - 1;
-    const endIdx = Math.min(lastGlobalIdx, Math.max(0, Math.ceil(lastGlobalIdx - so + rightMargin / slot)));
-    const startIdx = Math.max(0, Math.floor(lastGlobalIdx - so - (chartW - rightMargin) / slot) - 4);
+    const rightmostIdx = lastGlobalIdx - so;
+
+    const visibleBars = (chartW - rightMargin) / slot;
+    const endIdx = Math.min(lastGlobalIdx, Math.max(0, Math.ceil(rightmostIdx + rightMargin / slot + 2)));
+    const startIdx = Math.max(0, Math.floor(rightmostIdx - visibleBars - 4));
     const vis = candles.slice(startIdx, Math.min(candles.length, endIdx + 1));
 
     // Dynamic Price Range Calculation
@@ -265,9 +367,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
     if (!isFinite(minP)) { minP = 3000; maxP = 3100; }
 
-    if (activeTrade) {
-      minP = Math.min(minP, activeTrade.slPrice, activeTrade.entryPrice);
-      maxP = Math.max(maxP, activeTrade.tpPrice, activeTrade.entryPrice);
+    if (tradesList.length > 0) {
+      for (const t of tradesList) {
+        minP = Math.min(minP, t.slPrice, t.entryPrice);
+        maxP = Math.max(maxP, t.tpPrice, t.entryPrice);
+      }
     }
 
     const midPrice = (maxP + minP) / 2;
@@ -277,10 +381,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const paddedMax = midPrice + scaledRange / 2 + po;
     const totalRange = paddedMax - paddedMin;
 
-    // Stable Right-Aligned Projection Formula
+    // Unified Invertible Right-Aligned Projection Formula
     const getX = (gIdx: number) => {
-      const distFromEnd = lastGlobalIdx - gIdx + so;
-      return chartW - rightMargin - distFromEnd * slot + slot / 2;
+      const distFromRight = rightmostIdx - gIdx;
+      return chartW - rightMargin - distFromRight * slot + slot / 2;
     };
 
     const getY = (price: number) => {
@@ -292,8 +396,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     };
 
     const xToGIdx = (x: number): number => {
-      const distFromEnd = (chartW - rightMargin - x + slot / 2) / slot;
-      return lastGlobalIdx + so - distFromEnd;
+      const distFromRight = (chartW - rightMargin - x + slot / 2) / slot;
+      return rightmostIdx - distFromRight;
     };
 
     const timeToGIdx = (ms: number): number => {
@@ -349,7 +453,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       priceZoom: pz, pricePanOffset: po,
       getX, getY, timeToGIdx, timeToX, xToGIdx, xToTime, yToPrice,
     };
-  }, [candles, activeTrade]);
+  }, [candles, activeTrade, activeTrades]);
 
   // ── Main Render Loop ──
   useEffect(() => {
@@ -388,16 +492,45 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       return;
     }
 
-    // 2. Price Grid Lines & Right Price Scale Text
-    ctx.strokeStyle = '#151D2C'; ctx.lineWidth = 1;
-    for (let i = 0; i <= 7; i++) {
-      const price = paddedMin + (i / 7) * totalRange;
-      const y = getY(price);
-      if (y < 0 || y > mainH) continue;
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(chartW, y); ctx.stroke();
+    // 2. Adaptive TradingView-style Price Grid Lines & Complete Right Price Scale
+    const targetTickCount = Math.max(10, Math.min(24, Math.floor(mainH / 32)));
+    const rawStep = totalRange / targetTickCount;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep > 0 ? rawStep : 1)));
+    const norm = rawStep / mag;
+    let niceNorm = 1;
+    if (norm > 5) niceNorm = 10;
+    else if (norm > 2.5) niceNorm = 5;
+    else if (norm > 1.5) niceNorm = 2;
+    else niceNorm = 1;
+    const priceStep = Math.max(0.05, niceNorm * mag);
+    const firstTick = Math.ceil(paddedMin / priceStep) * priceStep;
+    const decimals = priceStep < 0.1 ? 3 : priceStep < 1 ? 2 : (priceStep % 1 !== 0 ? 1 : 2);
 
-      ctx.fillStyle = '#64748B'; ctx.font = '10px monospace'; ctx.textAlign = 'left';
-      ctx.fillText(price.toFixed(2), chartW + 6, y + 3.5);
+    for (let p = firstTick; p <= paddedMax + priceStep * 0.01; p += priceStep) {
+      const y = getY(p);
+      if (y < 0 || y > mainH) continue;
+
+      // Subtle horizontal grid line across the chart
+      ctx.strokeStyle = '#141A26';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(chartW, y);
+      ctx.stroke();
+
+      // Tick notch mark on the right scale border
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(chartW, y);
+      ctx.lineTo(chartW + 4, y);
+      ctx.stroke();
+
+      // Complete, crisp price scale label
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(p.toFixed(decimals), chartW + 7, y + 3.5);
     }
 
     // Scale separator borders
@@ -543,93 +676,279 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           ctx.fillStyle = '#94A3B8'; ctx.font = '9px monospace';
           ctx.fillText(`${dBars} bars • ${pPips} pips`, (x1 + x2) / 2, (y1 + y2) / 2 + 10);
         } else {
-          // Fibonacci Retracement + Extension
-          const fibLevels = calculateFibonacciLevels(d.startPrice, d.endPrice);
+          // TradingView-Style Fibonacci Retracement
+          const levels: FibLevelConfig[] = d.fibLevels && d.fibLevels.length > 0 ? d.fibLevels : DEFAULT_FIBONACCI_LEVELS;
+          const diff = d.endPrice - d.startPrice;
           const lx = Math.min(x1, x2);
-          const rx2 = Math.max(chartW, x1, x2);
-          const colors = ['#F59E0B','#3B82F6','#10B981','#A78BFA','#EC4899','#8B5CF6','#14B8A6','#F97316'];
-          fibLevels.forEach((fl, fi) => {
-            const fy = getY(fl.price);
-            ctx.strokeStyle = colors[fi % colors.length];
-            ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-            ctx.beginPath(); ctx.moveTo(lx, fy); ctx.lineTo(rx2, fy); ctx.stroke();
+          const rx = Math.max(x1, x2);
+          const rightExtent = Math.min(chartW - 4, Math.max(rx + 40, rx + (rx - lx) * 0.25));
+
+          // 1. Subtle diagonal trendline between anchor points
+          ctx.save();
+          ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+          ctx.restore();
+
+          // 2. Shaded bands between key adjacent visible levels
+          const visLevels = levels.filter((l) => l.visible).sort((a, b) => a.value - b.value);
+          for (let bi = 0; bi < visLevels.length - 1; bi++) {
+            const lA = visLevels[bi];
+            const lB = visLevels[bi + 1];
+            const pA = d.startPrice + diff * lA.value;
+            const pB = d.startPrice + diff * lB.value;
+            const yA = getY(pA);
+            const yB = getY(pB);
+            const topY = Math.min(yA, yB);
+            const bandH = Math.abs(yA - yB);
+
+            // Golden pocket highlight (around 0.5 to 0.618 or 0.705)
+            if (Math.abs(lA.value - 0.5) < 0.02 && Math.abs(lB.value - 0.618) < 0.02) {
+              ctx.fillStyle = 'rgba(8, 153, 129, 0.16)';
+            } else if (lA.value >= 0.382 && lB.value <= 0.786) {
+              ctx.fillStyle = 'rgba(59, 130, 246, 0.06)';
+            } else {
+              ctx.fillStyle = 'rgba(148, 163, 184, 0.025)';
+            }
+            ctx.fillRect(lx, topY, rightExtent - lx, bandH);
+          }
+
+          // 3. Level lines & Ratio/Price labels
+          visLevels.forEach((fl) => {
+            const price = d.startPrice! + diff * fl.value;
+            const fy = getY(price);
+            const color = fl.color || '#F59E0B';
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = isSel ? 1.5 : 1;
+            ctx.setLineDash([4, 3]);
+            ctx.beginPath();
+            ctx.moveTo(lx, fy);
+            ctx.lineTo(rightExtent, fy);
+            ctx.stroke();
             ctx.setLineDash([]);
-            ctx.fillStyle = colors[fi % colors.length];
-            ctx.font = 'bold 9px monospace'; ctx.textAlign = 'left';
-            ctx.fillText(`${fl.label}  ${fl.price.toFixed(2)}`, lx + 6, fy - 3);
+
+            // Label: Ratio + Price
+            ctx.fillStyle = color;
+            ctx.font = 'bold 9px monospace';
+            ctx.textAlign = 'left';
+            const labelText = `${fl.value.toFixed(3)}  ${price.toFixed(2)}`;
+            ctx.fillText(labelText, lx + 6, fy - 3);
           });
+
+          // 4. Anchor Handles when selected
           if (isSel) {
-            [{ x: x1, y: y1 }, { x: x2, y: y2 }].forEach(({ x, y }) => {
-              ctx.fillStyle = '#F59E0B';
-              ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
-              ctx.strokeStyle = '#FFF'; ctx.lineWidth = 1.5; ctx.stroke();
+            [{ x: x1, y: y1, label: 'P1' }, { x: x2, y: y2, label: 'P2' }].forEach(({ x, y, label }) => {
+              ctx.fillStyle = '#2563EB';
+              ctx.beginPath();
+              ctx.arc(x, y, 6, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = '#FFFFFF';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+
+              ctx.fillStyle = '#93C5FD';
+              ctx.font = 'bold 9px monospace';
+              ctx.textAlign = 'center';
+              ctx.fillText(label, x, y - 9);
             });
           }
         }
       } else if ((d.type === 'long_position' || d.type === 'short_position') &&
         d.startTime != null && d.startPrice != null && d.slPrice != null && d.tpPrice != null) {
         const isLong = d.type === 'long_position';
-        const eY = getY(d.startPrice), slY = getY(d.slPrice), tpY = getY(d.tpPrice);
+        const eY = getY(d.startPrice);
+        const slY = getY(d.slPrice);
+        const tpY = getY(d.tpPrice);
         const px = timeToX(d.startTime);
         const endX = d.endTime ? timeToX(d.endTime) : px + 180;
         const boxW = Math.max(120, endX - px);
 
-        // Profit zone
-        const profTop = Math.min(eY, tpY);
-        ctx.fillStyle = 'rgba(16,185,129,.2)'; ctx.fillRect(px, profTop, boxW, Math.abs(tpY - eY));
-        ctx.strokeStyle = '#10B981'; ctx.lineWidth = 1; ctx.strokeRect(px, profTop, boxW, Math.abs(tpY - eY));
-
-        // Risk zone
-        const riskTop = Math.min(eY, slY);
-        ctx.fillStyle = 'rgba(239,68,68,.2)'; ctx.fillRect(px, riskTop, boxW, Math.abs(slY - eY));
-        ctx.strokeStyle = '#EF4444'; ctx.strokeRect(px, riskTop, boxW, Math.abs(slY - eY));
-
-        // Entry line
-        ctx.strokeStyle = '#38BDF8'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(px, eY); ctx.lineTo(px + boxW, eY); ctx.stroke();
-
-        // Info Tag Box
         const rPts = Math.abs(d.startPrice - d.slPrice);
         const rwPts = Math.abs(d.tpPrice - d.startPrice);
-        const rr = rPts > 0 ? (rwPts / rPts).toFixed(2) : '0';
-        ctx.fillStyle = '#0F172A'; ctx.fillRect(px + 4, eY - 18, 180, 30);
-        ctx.strokeStyle = '#334155'; ctx.lineWidth = 1; ctx.strokeRect(px + 4, eY - 18, 180, 30);
-        ctx.fillStyle = isLong ? '#34D399' : '#F87171';
-        ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
-        ctx.fillText(`${isLong ? 'LONG' : 'SHORT'}  1:${rr} RR`, px + 10, eY - 4);
-        ctx.fillStyle = '#94A3B8'; ctx.font = '9px monospace';
-        ctx.fillText(`Risk: ${rPts.toFixed(2)}  Rwd: ${rwPts.toFixed(2)}`, px + 10, eY + 8);
+        const rr = rPts > 0 ? (rwPts / rPts).toFixed(2) : '0.00';
 
-        // Draggable handles (TP, Entry, SL, Width)
+        // 1. Shaded Profit Zone
+        const profTop = Math.min(eY, tpY);
+        const profH = Math.max(1, Math.abs(tpY - eY));
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.18)';
+        ctx.fillRect(px, profTop, boxW, profH);
+        ctx.strokeStyle = '#10B981';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(px, profTop, boxW, profH);
+
+        // 2. Shaded Risk Zone
+        const riskTop = Math.min(eY, slY);
+        const riskH = Math.max(1, Math.abs(slY - eY));
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.18)';
+        ctx.fillRect(px, riskTop, boxW, riskH);
+        ctx.strokeStyle = '#EF4444';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(px, riskTop, boxW, riskH);
+
+        // 3. Entry Line (Prominent)
+        ctx.strokeStyle = '#38BDF8';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(px, eY);
+        ctx.lineTo(px + boxW, eY);
+        ctx.stroke();
+
+        // 4. Centered Prominent Risk:Reward Badge
+        const centerX = px + boxW / 2;
+        const totalTop = Math.min(tpY, slY, eY);
+        const totalBottom = Math.max(tpY, slY, eY);
+        const centerY = (totalTop + totalBottom) / 2;
+
+        const badgeW = 92;
+        const badgeH = 26;
+        ctx.save();
+        ctx.fillStyle = '#0F172A';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+        ctx.shadowBlur = 8;
+        const rx = centerX - badgeW / 2, ry = centerY - badgeH / 2;
+        ctx.beginPath();
+        ctx.rect(rx, ry, badgeW, badgeH);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = isSel ? '#38BDF8' : '#334155';
+        ctx.lineWidth = isSel ? 1.8 : 1;
+        ctx.stroke();
+
+        ctx.fillStyle = '#94A3B8';
+        ctx.font = '8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('RISK / REWARD', centerX, ry + 9);
+
+        ctx.fillStyle = '#F8FAFC';
+        ctx.font = 'bold 12px monospace';
+        ctx.fillText(`1 : ${rr}`, centerX, ry + 21);
+        ctx.restore();
+
+        // 5. Profit Area Metrics Tag (inside profit zone)
+        const profMidY = (eY + tpY) / 2;
+        if (profH > 24) {
+          ctx.save();
+          ctx.font = 'bold 10px monospace';
+          ctx.fillStyle = '#34D399';
+          ctx.textAlign = 'left';
+          ctx.fillText(`Target: +${rwPts.toFixed(2)} pts (+${((rwPts / d.startPrice) * 100).toFixed(2)}%)`, px + 8, profMidY);
+          ctx.restore();
+        }
+
+        // 6. Risk Area Metrics Tag (inside risk zone)
+        const riskMidY = (eY + slY) / 2;
+        if (riskH > 24) {
+          ctx.save();
+          ctx.font = 'bold 10px monospace';
+          ctx.fillStyle = '#F87171';
+          ctx.textAlign = 'left';
+          ctx.fillText(`Stop: -${rPts.toFixed(2)} pts (-${((rPts / d.startPrice) * 100).toFixed(2)}%)`, px + 8, riskMidY);
+          ctx.restore();
+        }
+
+        // 7. Right-Edge Price Pills
+        const drawPricePill = (yPos: number, text: string, bgColor: string, textColor: string) => {
+          ctx.save();
+          ctx.font = 'bold 9px monospace';
+          const txtW = ctx.measureText(text).width;
+          const pW = txtW + 12;
+          const pH = 18;
+          const pillX = px + boxW - pW - 4;
+          const pillY = yPos - pH / 2;
+          ctx.fillStyle = bgColor;
+          ctx.beginPath();
+          ctx.rect(pillX, pillY, pW, pH);
+          ctx.fill();
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+          ctx.fillStyle = textColor;
+          ctx.textAlign = 'center';
+          ctx.fillText(text, pillX + pW / 2, pillY + 12);
+          ctx.restore();
+        };
+
+        drawPricePill(tpY, `TP ${d.tpPrice.toFixed(2)}`, '#065F46', '#34D399');
+        drawPricePill(eY, `ENTRY ${d.startPrice.toFixed(2)}`, '#0369A1', '#7DD3FC');
+        drawPricePill(slY, `SL ${d.slPrice.toFixed(2)}`, '#881337', '#FDA4AF');
+
+        // 8. Draggable Handles when Selected
         if (isSel) {
           const handles = [
             { y: tpY, color: '#10B981', label: 'TP' },
             { y: eY, color: '#38BDF8', label: 'ENTRY' },
             { y: slY, color: '#EF4444', label: 'SL' },
           ];
-          const hx = px + boxW / 2;
+          const hx = px + 28;
           handles.forEach(({ y: hy, color, label }) => {
             ctx.fillStyle = color;
-            ctx.beginPath(); ctx.arc(hx, hy, 7, 0, Math.PI * 2); ctx.fill();
-            ctx.strokeStyle = '#FFF'; ctx.lineWidth = 1.5; ctx.stroke();
-            ctx.fillStyle = '#FFF'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
-            ctx.fillText(label, hx, hy + 3);
+            ctx.beginPath();
+            ctx.arc(hx, hy, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 7px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(label, hx, hy + 2.5);
           });
 
           // Width handle at right edge
-          ctx.fillStyle = '#60A5FA';
-          ctx.beginPath(); ctx.arc(px + boxW, eY, 6, 0, Math.PI * 2); ctx.fill();
-          ctx.strokeStyle = '#FFF'; ctx.lineWidth = 1.5; ctx.stroke();
+          ctx.fillStyle = '#2563EB';
+          ctx.beginPath();
+          ctx.arc(px + boxW, eY, 7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 2;
+          ctx.stroke();
         }
       }
     }
 
-    // 8. Active Trade Overlay with Risk/Reward Zones
-    if (activeTrade) {
-      const eY = getY(activeTrade.entryPrice);
-      const slY = getY(activeTrade.slPrice);
-      const tpY = getY(activeTrade.tpPrice);
-      const isLong = activeTrade.side === 'LONG';
+    // 8. Active Trades Overlay with Risk/Reward Zones
+    if (tradesList.length > 0) {
+      tradesList.forEach((trade, tIdx) => {
+        const eY = getY(trade.entryPrice);
+        const slY = getY(trade.slPrice);
+        const tpY = getY(trade.tpPrice);
+        const prefix = tradesList.length > 1 ? `#${tIdx + 1} ` : '';
+
+        // Shaded Profit Zone
+        ctx.fillStyle = 'rgba(16,185,129,0.10)';
+        ctx.fillRect(0, Math.min(eY, tpY), chartW, Math.abs(tpY - eY));
+
+        // Shaded Risk Zone
+        ctx.fillStyle = 'rgba(239,68,68,0.10)';
+        ctx.fillRect(0, Math.min(eY, slY), chartW, Math.abs(slY - eY));
+
+        ctx.setLineDash([4, 4]);
+        const lines = [
+          { p: trade.entryPrice, c: '#06B6D4', l: `${prefix}ENTRY (${trade.volume}L)` },
+          { p: trade.slPrice,    c: '#EF4444', l: `${prefix}SL ${trade.slPrice.toFixed(2)}` },
+          { p: trade.tpPrice,    c: '#10B981', l: `${prefix}TP ${trade.tpPrice.toFixed(2)}` },
+        ];
+        lines.forEach(({ p, c, l }) => {
+          const y = getY(p);
+          ctx.strokeStyle = c; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(chartW, y); ctx.stroke();
+          ctx.fillStyle = c; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'right';
+          ctx.fillText(l, chartW - 6, y - 3);
+        });
+        ctx.setLineDash([]);
+      });
+    }
+
+    // 8b. Planned Order Live Preview ("Ancang-Ancang" before entry)
+    if (tradesList.length === 0 && plannedOrder && plannedOrder.entryPrice > 0 && plannedOrder.slPrice > 0 && plannedOrder.tpPrice > 0) {
+      const eY = getY(plannedOrder.entryPrice);
+      const slY = getY(plannedOrder.slPrice);
+      const tpY = getY(plannedOrder.tpPrice);
 
       // Shaded Profit Zone
       ctx.fillStyle = 'rgba(16,185,129,0.12)';
@@ -639,29 +958,139 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.fillStyle = 'rgba(239,68,68,0.12)';
       ctx.fillRect(0, Math.min(eY, slY), chartW, Math.abs(slY - eY));
 
-      ctx.setLineDash([4, 4]);
-      const lines = [
-        { p: activeTrade.entryPrice, c: '#06B6D4', l: `ENTRY (${activeTrade.volume} lot)` },
-        { p: activeTrade.slPrice,    c: '#EF4444', l: `SL ${activeTrade.slPrice.toFixed(2)}` },
-        { p: activeTrade.tpPrice,    c: '#10B981', l: `TP ${activeTrade.tpPrice.toFixed(2)}` },
+      // Setup lines
+      ctx.setLineDash([5, 4]);
+      const pLines = [
+        {
+          type: 'ENTRY',
+          p: plannedOrder.entryPrice,
+          c: '#06B6D4',
+          l: `ANCANG-ANCANG ${plannedOrder.side} (${plannedOrder.lotSize.toFixed(2)}L)`,
+          pillText: '↕ GESER ENTRY',
+          badgeBg: '#0891B2',
+        },
+        {
+          type: 'SL',
+          p: plannedOrder.slPrice,
+          c: '#EF4444',
+          l: `TARGET SL ${plannedOrder.slPrice.toFixed(2)} (-$${plannedOrder.riskAmount.toFixed(0)})`,
+          pillText: '↕ GESER SL',
+          badgeBg: '#DC2626',
+        },
+        {
+          type: 'TP',
+          p: plannedOrder.tpPrice,
+          c: '#10B981',
+          l: `TARGET TP ${plannedOrder.tpPrice.toFixed(2)} (+$${plannedOrder.targetProfit.toFixed(0)} • 1:${plannedOrder.rrRatio.toFixed(1)})`,
+          pillText: '↕ GESER TP',
+          badgeBg: '#059669',
+        },
       ];
-      lines.forEach(({ p, c, l }) => {
+
+      pLines.forEach(({ p, c, l, pillText, badgeBg }) => {
         const y = getY(p);
-        ctx.strokeStyle = c; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(chartW, y); ctx.stroke();
-        ctx.fillStyle = c; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'right';
-        ctx.fillText(l, chartW - 6, y - 3);
+        if (y >= 0 && y <= mainH) {
+          ctx.strokeStyle = c;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(chartW, y);
+          ctx.stroke();
+
+          // Draggable handle grip pill on left
+          const pillW = 88;
+          const pillH = 18;
+          ctx.fillStyle = badgeBg;
+          ctx.beginPath();
+          ctx.roundRect(10, y - pillH / 2, pillW, pillH, 4);
+          ctx.fill();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = 'bold 8.5px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(pillText, 10 + pillW / 2, y + 3);
+
+          // Circular drag handle grip
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath();
+          ctx.arc(10 + pillW + 12, y, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = c;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Label inside chart on right
+          ctx.fillStyle = c;
+          ctx.font = 'bold 9px monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(l, chartW - 6, y - 4);
+
+          // Axis badge on price scale
+          ctx.fillStyle = badgeBg;
+          ctx.fillRect(chartW + 1, y - 8, priceScaleW - 2, 16);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = 'bold 9.5px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(p.toFixed(2), chartW + 5, y + 3.5);
+        }
       });
       ctx.setLineDash([]);
     }
 
-    // 9. Replay Frontier Boundary
-    const fx = getX(candles.length - 1);
-    if (fx > 0 && fx < chartW) {
-      ctx.strokeStyle = '#F59E0B'; ctx.lineWidth = 1.5;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath(); ctx.moveTo(fx, 0); ctx.lineTo(fx, mainH); ctx.stroke();
+    // 9. Replay Frontier Boundary (only in replay mode)
+    if (appMode === 'replay') {
+      const fx = getX(candles.length - 1);
+      if (fx > 0 && fx < chartW) {
+        ctx.strokeStyle = '#F59E0B'; ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(fx, 0); ctx.lineTo(fx, mainH); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // 9b. Current / Latest Price Line
+    const latestC = candles[candles.length - 1];
+    if (latestC) {
+      const lastY = getY(latestC.close);
+      if (lastY >= 0 && lastY <= mainH) {
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = '#38BDF8';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, lastY);
+        ctx.lineTo(chartW, lastY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Tag on price axis
+        ctx.fillStyle = '#0284C7';
+        ctx.fillRect(chartW + 1, lastY - 9, priceScaleW - 2, 18);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(latestC.close.toFixed(2), chartW + 6, lastY + 3.5);
+      }
+    }
+
+    // 9c. Replay Selection Cursor (in 'selecting' mode)
+    if (appMode === 'selecting' && mousePos && mousePos.x <= chartW && mousePos.y <= mainH) {
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(mousePos.x, 0);
+      ctx.lineTo(mousePos.x, mainH);
+      ctx.stroke();
       ctx.setLineDash([]);
+
+      ctx.fillStyle = '#B45309';
+      ctx.fillRect(mousePos.x - 70, 10, 140, 22);
+      ctx.strokeStyle = '#FCD34D';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(mousePos.x - 70, 10, 140, 22);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🎯 Klik Mulai Replay', mousePos.x, 25);
     }
 
     // 10. Crosshair & HUD
@@ -686,19 +1115,105 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [
     candles, candleWidth, scrollOffset, priceZoom, pricePanOffset, dimensions,
-    activeTrade, indicators, drawings, drawingDraft, selectedDrawingId, mousePos,
-    sma20v, sma50v, sma200v, buildVP,
+    activeTrade, activeTrades, plannedOrder, indicators, drawings, drawingDraft, selectedDrawingId, mousePos,
+    sma20v, sma50v, sma200v, buildVP, appMode,
   ]);
 
-  // Wheel Zoom Listener (Centered Zoom)
+  // Wheel Zoom Listener (Centered on mouse position in both X and Y)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
-      setCandleWidth((prev) => Math.min(45, Math.max(2, prev * zoomFactor)));
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = rect.width > 0 ? dimensions.width / rect.width : 1;
+      const scaleY = rect.height > 0 ? dimensions.height / rect.height : 1;
+      const mouseX = (e.clientX - rect.left) * scaleX;
+      const mouseY = (e.clientY - rect.top) * scaleY;
+      const vp = vpRef.current;
+      if (!vp) return;
+
+      // Check if event is within canvas bounds
+      if (mouseX < 0 || mouseX > dimensions.width || mouseY < 0 || mouseY > dimensions.height) return;
+
+      const candlesList = candlesRef.current;
+      const lastGlobalIdx = candlesList.length - 1;
+      if (lastGlobalIdx <= 0) return;
+
+      // Case A: Price Scale Area Scrolling -> Vertical Price Zoom
+      if (mouseX > vp.chartW && mouseY <= vp.candleH) {
+        e.preventDefault();
+        e.stopPropagation();
+        const delta = Math.max(-50, Math.min(50, e.deltaY));
+        const factor = Math.exp(-delta * 0.003);
+        const newPZ = Math.min(5.0, Math.max(0.2, pzRef.current * factor));
+        pzRef.current = newPZ;
+        setPriceZoom(newPZ);
+        return;
+      }
+
+      // Case B: Touchpad Two-Finger Horizontal Swipe -> Horizontal Pan
+      if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.2) {
+        e.preventDefault();
+        e.stopPropagation();
+        const shift = -e.deltaX / vp.slot;
+        const maxFutureBars = Math.min(30, Math.max(5, Math.floor((vp.chartW * 0.25) / vp.slot)));
+        const minOffset = -maxFutureBars;
+        const maxOffset = Math.max(0, candlesList.length - 2);
+        const newOffset = Math.max(minOffset, Math.min(maxOffset, soRef.current + shift));
+        soRef.current = newOffset;
+        setScrollOffset(newOffset);
+        return;
+      }
+
+      // Case C: Main Chart Area Zoom (Mouse wheel or Trackpad pinch)
+      if (mouseX <= vp.chartW && mouseY <= vp.candleH) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        onDisableFollowReplay?.();
+
+        // Softer, damped delta for comfortable analysis (not twitchy / hyper-responsive)
+        const delta = Math.max(-35, Math.min(35, e.deltaY));
+        const zoomFactor = Math.exp(-delta * 0.0012);
+        const curCW = cwRef.current;
+        const newCW = Math.min(45, Math.max(2, curCW * zoomFactor));
+        if (Math.abs(newCW - curCW) < 0.001) return;
+
+        // Progressive smooth anchor:
+        // When zooming in (delta < 0), focus smoothly on the mouse cursor.
+        // When zooming out (delta > 0), blend 65% towards the viewport center to prevent disorienting sideways jumping.
+        const isZoomIn = delta < 0;
+        const clampedMouseX = Math.max(vp.chartW * 0.08, Math.min(vp.chartW * 0.92, mouseX));
+        const effectiveAnchorX = isZoomIn
+          ? clampedMouseX
+          : clampedMouseX * 0.35 + (vp.chartW * 0.5) * 0.65;
+
+        const anchorGIdx = vp.xToGIdx(effectiveAnchorX);
+
+        // 2. Compute new horizontal geometry matching buildVP exactly
+        const newSpacing = Math.max(1, newCW * 0.2);
+        const newSlot = newCW + newSpacing;
+        const newRightMargin = Math.max(35, newSlot * 8);
+        const newR = vp.chartW - newRightMargin;
+
+        // 3. Solve for newSO such that getX(anchorGIdx) === effectiveAnchorX
+        let newSO = lastGlobalIdx - anchorGIdx - (newR - effectiveAnchorX + newSlot / 2) / newSlot;
+
+        // 4. Soft boundary protection
+        const maxFutureBars = Math.min(30, Math.max(5, Math.floor((vp.chartW * 0.25) / newSlot)));
+        const minOffset = -maxFutureBars;
+        const maxOffset = Math.max(0, candlesList.length + 50);
+        newSO = Math.max(minOffset, Math.min(maxOffset, newSO));
+
+        // Update horizontal zoom & scroll offset without artificial vertical price jumping
+        cwRef.current = newCW;
+        soRef.current = newSO;
+        setCandleWidth(newCW);
+        setScrollOffset(newSO);
+      }
     };
+
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
   }, []);
@@ -707,7 +1222,31 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    return { x: clientX - rect.left, y: clientY - rect.top };
+    const scaleX = rect.width > 0 ? dimensions.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? dimensions.height / rect.height : 1;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  };
+
+  // ── Hit-Testing Planned Order Lines (Pre-Entry Setup Dragging) ──
+  const hitTestPlannedOrder = (clientX: number, clientY: number): 'ENTRY' | 'SL' | 'TP' | null => {
+    if (tradesList.length > 0 || !plannedOrder || plannedOrder.entryPrice <= 0) return null;
+    const vp = vpRef.current;
+    if (!vp) return null;
+    const { x, y } = clientToCanvas(clientX, clientY);
+    if (x > vp.chartW + 15 || x < 0 || y < 0 || y > vp.mainH) return null;
+
+    const eY = vp.getY(plannedOrder.entryPrice);
+    const slY = vp.getY(plannedOrder.slPrice);
+    const tpY = vp.getY(plannedOrder.tpPrice);
+
+    const THRESH = 14;
+    if (Math.abs(y - tpY) <= THRESH) return 'TP';
+    if (Math.abs(y - slY) <= THRESH) return 'SL';
+    if (Math.abs(y - eY) <= THRESH) return 'ENTRY';
+    return null;
   };
 
   // ── Hit-Testing Handles for Dragging ──
@@ -720,7 +1259,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const { x, y } = clientToCanvas(clientX, clientY);
     const mousePrice = vp.yToPrice(y);
     const mouseTime = vp.xToTime(x);
-    const THRESH_PX = 16;
+    const THRESH_PX = 20;
     const PRICE_THRESH = (vp.totalRange) * 0.025;
 
     // Check selected drawing first for handles
@@ -734,28 +1273,54 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           const eY = vp.getY(sel.startPrice!);
           const slY = vp.getY(sel.slPrice!);
           const tpY = vp.getY(sel.tpPrice!);
+          const hx = px + 28;
 
-          // Check TP line across whole box width
-          if (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - tpY) < THRESH_PX) {
+          // Check handle anchors (dots) and lines across whole box width
+          if (Math.hypot(x - hx, y - tpY) < 22 || (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - tpY) < THRESH_PX)) {
             return { drawing: sel, handleType: 'TP' };
           }
-          // Check SL line across whole box width
-          if (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - slY) < THRESH_PX) {
+          if (Math.hypot(x - hx, y - slY) < 22 || (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - slY) < THRESH_PX)) {
             return { drawing: sel, handleType: 'SL' };
           }
-          // Check Entry line across whole box width
-          if (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - eY) < THRESH_PX) {
+          if (Math.hypot(x - hx, y - eY) < 22 || (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - eY) < THRESH_PX)) {
             return { drawing: sel, handleType: 'ENTRY' };
           }
           // Check Width Handle at right edge
-          if (Math.abs(x - (px + boxW)) < THRESH_PX && y >= Math.min(tpY, slY) - 10 && y <= Math.max(tpY, slY) + 10) {
+          if (Math.hypot(x - (px + boxW), y - ((tpY + slY) / 2)) < 22 || (Math.abs(x - (px + boxW)) < THRESH_PX && y >= Math.min(tpY, slY) - 10 && y <= Math.max(tpY, slY) + 10)) {
             return { drawing: sel, handleType: 'WIDTH' };
           }
           // Check Body Move
           if (x >= px && x <= px + boxW && y >= Math.min(tpY, slY) && y <= Math.max(tpY, slY)) {
             return { drawing: sel, handleType: 'MOVE_ALL' };
           }
-        } else if (sel.type === 'trendline' || sel.type === 'rect' || sel.type === 'fibonacci' || sel.type === 'measure') {
+        } else if (sel.type === 'fibonacci') {
+          const x1 = vp.timeToX(sel.startTime!), y1 = vp.getY(sel.startPrice!);
+          const x2 = vp.timeToX(sel.endTime!),   y2 = vp.getY(sel.endPrice!);
+
+          if (Math.hypot(x - x1, y - y1) < THRESH_PX) return { drawing: sel, handleType: 'P1' };
+          if (Math.hypot(x - x2, y - y2) < THRESH_PX) return { drawing: sel, handleType: 'P2' };
+
+          const levels = sel.fibLevels && sel.fibLevels.length > 0 ? sel.fibLevels : DEFAULT_FIBONACCI_LEVELS;
+          const diff = sel.endPrice! - sel.startPrice!;
+          const lx = Math.min(x1, x2);
+          const rx = Math.max(x1, x2);
+          const rightExtent = Math.min(vp.chartW - 4, Math.max(rx + 40, rx + (rx - lx) * 0.25));
+
+          if (x >= lx - 10 && x <= rightExtent + 10) {
+            for (const fl of levels) {
+              if (!fl.visible) continue;
+              const fy = vp.getY(sel.startPrice! + diff * fl.value);
+              if (Math.abs(y - fy) < THRESH_PX) {
+                return { drawing: sel, handleType: 'MOVE_ALL' };
+              }
+            }
+            const yMin = Math.min(y1, y2) - 10;
+            const yMax = Math.max(y1, y2) + 10;
+            if (y >= yMin && y <= yMax) {
+              return { drawing: sel, handleType: 'MOVE_ALL' };
+            }
+          }
+        } else if (sel.type === 'trendline' || sel.type === 'rect' || sel.type === 'measure') {
           const x1 = vp.timeToX(sel.startTime!), y1 = vp.getY(sel.startPrice!);
           const x2 = vp.timeToX(sel.endTime!),   y2 = vp.getY(sel.endPrice!);
 
@@ -790,11 +1355,37 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         const eY = vp.getY(d.startPrice!);
         const slY = vp.getY(d.slPrice!);
         const tpY = vp.getY(d.tpPrice!);
-        if (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - tpY) < THRESH_PX) return { drawing: d, handleType: 'TP' };
-        if (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - slY) < THRESH_PX) return { drawing: d, handleType: 'SL' };
-        if (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - eY) < THRESH_PX) return { drawing: d, handleType: 'ENTRY' };
+        const hx = px + 28;
+
+        if (Math.hypot(x - hx, y - tpY) < 22 || (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - tpY) < THRESH_PX)) return { drawing: d, handleType: 'TP' };
+        if (Math.hypot(x - hx, y - slY) < 22 || (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - slY) < THRESH_PX)) return { drawing: d, handleType: 'SL' };
+        if (Math.hypot(x - hx, y - eY) < 22 || (x >= px - 10 && x <= px + boxW + 10 && Math.abs(y - eY) < THRESH_PX)) return { drawing: d, handleType: 'ENTRY' };
         if (x >= px && x <= px + boxW && y >= Math.min(tpY, slY) && y <= Math.max(tpY, slY)) {
           return { drawing: d, handleType: 'MOVE_ALL' };
+        }
+      } else if (d.type === 'fibonacci' && d.startTime != null && d.startPrice != null && d.endTime != null && d.endPrice != null) {
+        const x1 = vp.timeToX(d.startTime), y1 = vp.getY(d.startPrice);
+        const x2 = vp.timeToX(d.endTime),   y2 = vp.getY(d.endPrice);
+        if (Math.hypot(x - x1, y - y1) < THRESH_PX) return { drawing: d, handleType: 'P1' };
+        if (Math.hypot(x - x2, y - y2) < THRESH_PX) return { drawing: d, handleType: 'P2' };
+        const levels = d.fibLevels && d.fibLevels.length > 0 ? d.fibLevels : DEFAULT_FIBONACCI_LEVELS;
+        const diff = d.endPrice - d.startPrice;
+        const lx = Math.min(x1, x2);
+        const rx = Math.max(x1, x2);
+        const rightExtent = Math.min(vp.chartW - 4, Math.max(rx + 40, rx + (rx - lx) * 0.25));
+        if (x >= lx - 10 && x <= rightExtent + 10) {
+          for (const fl of levels) {
+            if (!fl.visible) continue;
+            const fy = vp.getY(d.startPrice + diff * fl.value);
+            if (Math.abs(y - fy) < THRESH_PX) {
+              return { drawing: d, handleType: 'MOVE_ALL' };
+            }
+          }
+          const yMin = Math.min(y1, y2) - 10;
+          const yMax = Math.max(y1, y2) + 10;
+          if (y >= yMin && y <= yMax) {
+            return { drawing: d, handleType: 'MOVE_ALL' };
+          }
         }
       } else if (d.startTime != null && d.startPrice != null && d.endTime != null && d.endPrice != null) {
         const pMin = Math.min(d.startPrice, d.endPrice) - PRICE_THRESH;
@@ -823,6 +1414,24 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
     const { x, y } = clientToCanvas(e.clientX, e.clientY);
+    activePointersRef.current.set(e.pointerId, { x, y });
+
+    // Multi-touch Pinch Zoom Initialization (2 fingers)
+    if (activePointersRef.current.size === 2) {
+      dragModeRef.current = 'PINCH_ZOOM';
+      panStartRef.current = null;
+      draggingHandleRef.current = null;
+      const pts = Array.from(activePointersRef.current.values());
+      const p1 = pts[0];
+      const p2 = pts[1];
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      pinchStartDistRef.current = Math.max(10, dist);
+      pinchStartCWRef.current = cwRef.current;
+      pinchMidRef.current = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      return;
+    }
+    if (activePointersRef.current.size > 2) return;
+
     const vp = vpRef.current;
     if (!vp) return;
 
@@ -843,8 +1452,27 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const price = Math.round(vp.yToPrice(y) * 1000) / 1000;
     const time = vp.xToTime(x);
 
+    // 2b. Replay Selection Mode: clicking on chart selects replay start time
+    if (appMode === 'selecting') {
+      onReplaySelectionClick?.(new Date(time));
+      return;
+    }
+
     // 3. Cursor / Crosshair Mode: Check drawings or Pan
     if (activeTool === 'cursor' || activeTool === 'crosshair') {
+      const plannedHit = hitTestPlannedOrder(e.clientX, e.clientY);
+      if (plannedHit && plannedOrder) {
+        dragModeRef.current = 'PLANNED_ORDER_HANDLE';
+        plannedDragHandleRef.current = {
+          type: plannedHit,
+          startMousePrice: price,
+          startEntry: plannedOrder.entryPrice,
+          startSL: plannedOrder.slPrice,
+          startTP: plannedOrder.tpPrice,
+        };
+        return;
+      }
+
       const hit = hitTestDrawing(e.clientX, e.clientY);
       if (hit) {
         onSelectDrawing?.(hit.drawing.id);
@@ -925,6 +1553,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           startPrice: price,
           endTime: time,
           endPrice: price,
+          ...(activeTool === 'fibonacci' ? { fibLevels: DEFAULT_FIBONACCI_LEVELS.map((l) => ({ ...l })) } : {}),
         };
         setDrawingDraft(nd);
         draftStartMouseRef.current = { x, y };
@@ -949,9 +1578,72 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const { x, y } = clientToCanvas(e.clientX, e.clientY);
     setMousePos({ x, y });
+    activePointersRef.current.set(e.pointerId, { x, y });
 
     const vp = vpRef.current;
     if (!vp) return;
+
+    // 0. Multi-touch Pinch Zoom
+    if (dragModeRef.current === 'PINCH_ZOOM' && activePointersRef.current.size >= 2) {
+      const pts = Array.from(activePointersRef.current.values());
+      const p1 = pts[0];
+      const p2 = pts[1];
+      const curDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const ratio = curDist / (pinchStartDistRef.current || 1);
+
+      const newCW = Math.min(45, Math.max(2, pinchStartCWRef.current * ratio));
+      if (Math.abs(newCW - cwRef.current) > 0.05) {
+        const midX = pinchMidRef.current.x;
+        const midY = pinchMidRef.current.y;
+        const candlesList = candlesRef.current;
+        const lastGlobalIdx = candlesList.length - 1;
+        if (lastGlobalIdx > 0) {
+          const anchorGIdx = vp.xToGIdx(midX);
+          const anchorPrice = vp.yToPrice(midY);
+          const newSlot = newCW * 1.2;
+          const newRightMargin = Math.max(35, newSlot * 8);
+          const newR = vp.chartW - newRightMargin;
+          let newSO = lastGlobalIdx - anchorGIdx - (newR - midX + newSlot / 2) / newSlot;
+          const maxFutureBars = Math.min(30, Math.max(5, Math.floor((vp.chartW * 0.25) / newSlot)));
+          const minOffset = -maxFutureBars;
+          const maxOffset = Math.max(0, candlesList.length - 2);
+          newSO = Math.max(minOffset, Math.min(maxOffset, newSO));
+
+          // Vertical Anchor Compensation
+          const newRightmostIdx = lastGlobalIdx - newSO;
+          const newVisibleBars = (vp.chartW - newRightMargin) / newSlot;
+          const newEndIdx = Math.min(lastGlobalIdx, Math.max(0, Math.ceil(newRightmostIdx + newRightMargin / newSlot + 2)));
+          const newStartIdx = Math.max(0, Math.floor(newRightmostIdx - newVisibleBars - 4));
+          let minP = Infinity, maxP = -Infinity;
+          for (let i = newStartIdx; i <= newEndIdx && i < candlesList.length; i++) {
+            const c = candlesList[i];
+            if (c.low < minP) minP = c.low;
+            if (c.high > maxP) maxP = c.high;
+          }
+          if (!isFinite(minP)) { minP = 3000; maxP = 3100; }
+          for (const t of activeTradesRef.current) {
+            minP = Math.min(minP, t.slPrice, t.entryPrice);
+            maxP = Math.max(maxP, t.tpPrice, t.entryPrice);
+          }
+          const newMidPrice = (maxP + minP) / 2;
+          const newBaseRange = (maxP - minP) || 1;
+          const newScaledRange = (newBaseRange * 1.16) / Math.max(0.1, pzRef.current);
+          const newTotalRange = newScaledRange;
+          if (vp.candleH > 20) {
+            const clampedY = Math.max(10, Math.min(vp.candleH - 10, midY));
+            const newPO = anchorPrice + ((clampedY - 10) / (vp.candleH - 20)) * newTotalRange - (newMidPrice + newScaledRange / 2);
+            poRef.current = newPO;
+            setPricePanOffset(newPO);
+          }
+
+          cwRef.current = newCW;
+          soRef.current = newSO;
+          setCandleWidth(newCW);
+          setScrollOffset(newSO);
+        }
+      }
+      return;
+    }
 
     // 1. Right Price Scale Dragging (Scale Y)
     if (dragModeRef.current === 'SCALE_PRICE' && priceScaleStartRef.current) {
@@ -973,6 +1665,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     const price = Math.round(vp.yToPrice(y) * 1000) / 1000;
     const time = vp.xToTime(x);
+
+    // Replay Selection Cursor Hover Update
+    if (appMode === 'selecting' && x <= vp.chartW && y <= vp.mainH) {
+      onSelectionTimeChange?.(new Date(time));
+    }
 
     // 3. Handle or Drawing Dragging
     const dh = draggingHandleRef.current;
@@ -1010,20 +1707,54 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         if (dh.handleType === 'P2') return { ...d, endTime: time, endPrice: price };
         if (dh.handleType === 'WIDTH') return { ...d, endTime: time };
 
-        if (dh.handleType === 'ENTRY' || dh.handleType === 'SL' || dh.handleType === 'TP') {
-          const geo = calculatePositionToolGeometry(
-            d.type === 'long_position' ? 'LONG' : 'SHORT',
-            d.startPrice!,
-            d.slPrice!,
-            d.tpPrice!,
-            d.lockRR ?? lockRR
-          );
-          const ng = updatePositionToolHandle(geo, dh.handleType, price);
+        if (dh.handleType === 'ENTRY') {
+          // Draggable Entry line: Moves Entry, SL, and TP together by exactly dPrice
+          // Strictly preserving risk distance, reward distance, and RR ratio!
+          const newEntry = Math.round((dInit.startPrice! + dPrice) * 1000) / 1000;
+          const newSL = Math.round((dInit.slPrice! + dPrice) * 1000) / 1000;
+          const newTP = Math.round((dInit.tpPrice! + dPrice) * 1000) / 1000;
           return {
             ...d,
-            startPrice: ng.entryPrice,
-            slPrice: ng.slPrice,
-            tpPrice: ng.tpPrice,
+            startPrice: newEntry,
+            slPrice: newSL,
+            tpPrice: newTP,
+          };
+        }
+
+        if (dh.handleType === 'SL') {
+          const isLong = d.type === 'long_position';
+          // Clamping: SL cannot cross Entry
+          const clampedSL = isLong
+            ? Math.min(d.startPrice! - 0.1, price)
+            : Math.max(d.startPrice! + 0.1, price);
+          const newSL = Math.round(clampedSL * 1000) / 1000;
+          let newTP = d.tpPrice!;
+          const shouldLockRR = d.lockRR ?? lockRR;
+          if (shouldLockRR) {
+            const initRisk = isLong ? (dInit.startPrice! - dInit.slPrice!) : (dInit.slPrice! - dInit.startPrice!);
+            const initReward = isLong ? (dInit.tpPrice! - dInit.startPrice!) : (dInit.startPrice! - dInit.tpPrice!);
+            const initRR = initRisk > 0 ? initReward / initRisk : 2.0;
+            const newRisk = isLong ? (d.startPrice! - newSL) : (newSL - d.startPrice!);
+            const newReward = newRisk * initRR;
+            newTP = Math.round((isLong ? (d.startPrice! + newReward) : (d.startPrice! - newReward)) * 1000) / 1000;
+          }
+          return {
+            ...d,
+            slPrice: newSL,
+            tpPrice: newTP,
+          };
+        }
+
+        if (dh.handleType === 'TP') {
+          const isLong = d.type === 'long_position';
+          // Clamping: TP cannot cross Entry
+          const clampedTP = isLong
+            ? Math.max(d.startPrice! + 0.1, price)
+            : Math.min(d.startPrice! - 0.1, price);
+          const newTP = Math.round(clampedTP * 1000) / 1000;
+          return {
+            ...d,
+            tpPrice: newTP,
           };
         }
 
@@ -1031,6 +1762,41 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       });
 
       onDrawingsChange?.(updated);
+      return;
+    }
+
+    // 3b. Planned Order Handle Dragging (Pre-entry SL / TP dragging)
+    const ph = plannedDragHandleRef.current;
+    if (dragModeRef.current === 'PLANNED_ORDER_HANDLE' && ph && plannedOrder) {
+      const isLong = plannedOrder.side === 'BUY';
+      if (ph.type === 'ENTRY') {
+        const dPrice = price - ph.startMousePrice;
+        const newEntry = Math.round((ph.startEntry + dPrice) * 1000) / 1000;
+        const newSL = Math.round((ph.startSL + dPrice) * 1000) / 1000;
+        const newTP = Math.round((ph.startTP + dPrice) * 1000) / 1000;
+        onPlannedOrderChange?.({ entryPrice: newEntry, slPrice: newSL, tpPrice: newTP });
+      } else if (ph.type === 'SL') {
+        const clampedSL = isLong
+          ? Math.min(plannedOrder.entryPrice - 0.1, price)
+          : Math.max(plannedOrder.entryPrice + 0.1, price);
+        const newSL = Math.round(clampedSL * 1000) / 1000;
+        let newTP = plannedOrder.tpPrice;
+        if (lockRR) {
+          const initRisk = isLong ? (ph.startEntry - ph.startSL) : (ph.startSL - ph.startEntry);
+          const initReward = isLong ? (ph.startTP - ph.startEntry) : (ph.startEntry - ph.startTP);
+          const initRR = initRisk > 0 ? initReward / initRisk : 2.0;
+          const newRisk = isLong ? (plannedOrder.entryPrice - newSL) : (newSL - plannedOrder.entryPrice);
+          const newReward = newRisk * initRR;
+          newTP = Math.round((isLong ? (plannedOrder.entryPrice + newReward) : (plannedOrder.entryPrice - newReward)) * 1000) / 1000;
+        }
+        onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: newSL, tpPrice: newTP });
+      } else if (ph.type === 'TP') {
+        const clampedTP = isLong
+          ? Math.max(plannedOrder.entryPrice + 0.1, price)
+          : Math.min(plannedOrder.entryPrice - 0.1, price);
+        const newTP = Math.round(clampedTP * 1000) / 1000;
+        onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: plannedOrder.slPrice, tpPrice: newTP });
+      }
       return;
     }
 
@@ -1049,16 +1815,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       // Drag left -> scroll toward latest candle -> decrease offset
       const shift = dx / vp.slot;
 
-      // CLAMP: scrollOffset >= 0 means oldest visible direction
-      // scrollOffset max = candles.length - visibleCount/2 (don't show blank left area)
-      // scrollOffset min = -(rightMargin/slot) means right edge shows empty future space
-      // We allow a small negative so the right margin is honored but no further
-      const minOffset = -(vp.rightMargin / vp.slot);
+      // Geometric boundaries:
+      const maxFutureBars = Math.min(30, Math.max(5, Math.floor((vp.chartW * 0.25) / vp.slot)));
+      const minOffset = -maxFutureBars;
       const maxOffset = Math.max(0, candles.length - 2);
       const newOffset = Math.max(minOffset, Math.min(maxOffset, panStartRef.current.startSO + shift));
       setScrollOffset(newOffset);
 
-      if (newOffset > 2 && onDisableFollowReplay) {
+      if (appMode === 'replay' && newOffset > 2 && onDisableFollowReplay) {
         onDisableFollowReplay();
       }
 
@@ -1084,14 +1848,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     } else if (y >= vp.mainH) {
       setHoverCursor('ew-resize');
     } else if (activeTool === 'cursor') {
-      const hit = hitTestDrawing(e.clientX, e.clientY);
-      if (hit) {
-        if (hit.handleType === 'TP' || hit.handleType === 'SL' || hit.handleType === 'ENTRY') setHoverCursor('ns-resize');
-        else if (hit.handleType === 'WIDTH') setHoverCursor('ew-resize');
-        else if (hit.handleType === 'P1' || hit.handleType === 'P2') setHoverCursor('crosshair');
-        else setHoverCursor('move');
+      const plannedHit = hitTestPlannedOrder(e.clientX, e.clientY);
+      if (plannedHit) {
+        setHoverCursor('ns-resize');
       } else {
-        setHoverCursor('default');
+        const hit = hitTestDrawing(e.clientX, e.clientY);
+        if (hit) {
+          if (hit.handleType === 'TP' || hit.handleType === 'SL' || hit.handleType === 'ENTRY') setHoverCursor('ns-resize');
+          else if (hit.handleType === 'WIDTH') setHoverCursor('ew-resize');
+          else if (hit.handleType === 'P1' || hit.handleType === 'P2') setHoverCursor('crosshair');
+          else setHoverCursor('move');
+        } else {
+          setHoverCursor('default');
+        }
       }
     } else {
       setHoverCursor('crosshair');
@@ -1106,35 +1875,20 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   // ── Pointer Up Handler ──
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    dragModeRef.current = 'NONE';
-    panStartRef.current = null;
-    priceScaleStartRef.current = null;
-    timeScaleStartRef.current = null;
-    draggingHandleRef.current = null;
-
-    if (draftRef.current && draftStartMouseRef.current) {
-      const { x, y } = clientToCanvas(e.clientX, e.clientY);
-      const dist = Math.hypot(x - draftStartMouseRef.current.x, y - draftStartMouseRef.current.y);
-      if (dist > 6) {
-        const vp = vpRef.current;
-        if (vp) {
-          const price = Math.round(vp.yToPrice(y) * 1000) / 1000;
-          const time = vp.xToTime(x);
-          const completed: DrawingItem = {
-            ...draftRef.current,
-            endTime: time,
-            endPrice: price,
-          };
-          if (draftRef.current.type !== 'measure') {
-            onDrawingsChange?.([...drawingsRef.current, completed]);
-            onSelectDrawing?.(completed.id);
-          }
-          setDrawingDraft(null);
-          draftStartMouseRef.current = null;
-          onToolChange?.('cursor');
-        }
-      }
+    activePointersRef.current.delete(e.pointerId);
+    if (activePointersRef.current.size < 2 && dragModeRef.current === 'PINCH_ZOOM') {
+      dragModeRef.current = 'NONE';
     }
+    if (activePointersRef.current.size === 0) {
+      dragModeRef.current = 'NONE';
+      panStartRef.current = null;
+      priceScaleStartRef.current = null;
+      timeScaleStartRef.current = null;
+      draggingHandleRef.current = null;
+      plannedDragHandleRef.current = null;
+    }
+    // Note: Do not auto-close active drawing draft on pointerUp.
+    // Preserves drafting preview ("mode geser") until deliberate second tap/click.
   };
 
   // ── Double Click: Price Scale Auto-Reset or Replay Start ──
@@ -1158,7 +1912,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const time = vp.xToTime(x);
 
     if (e.shiftKey) {
-      onSetReplayStart?.(new Date(time));
+      onReplaySelectionClick?.(new Date(time));
     } else {
       setDblConfirm({ time: new Date(time), price });
     }
@@ -1182,51 +1936,76 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const activeC = hoveredCandle || latestC;
   const isCustomScaled = priceZoom !== 1.0 || pricePanOffset !== 0;
 
+  const m = activeC ? (() => {
+    const diff = activeC.close - activeC.open;
+    const diffPct = activeC.open > 0 ? (diff / activeC.open) * 100 : 0;
+    const range = activeC.high - activeC.low;
+    const body = Math.abs(diff);
+    const upperWick = activeC.high - Math.max(activeC.open, activeC.close);
+    const lowerWick = Math.min(activeC.open, activeC.close) - activeC.low;
+    const isBull = activeC.close >= activeC.open;
+    return { diff, diffPct, range, body, upperWick, lowerWick, isBull };
+  })() : null;
+
+  const selectedDrawing = drawings.find((d) => d.id === selectedDrawingId);
+
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full min-w-0 min-h-0 flex-1 flex flex-col bg-[#0B101B] border border-slate-800 rounded-xl overflow-hidden select-none touch-none overscroll-none"
+      className="relative w-full h-full min-w-0 min-h-0 flex-1 flex flex-col bg-[#0B0E17] border border-slate-800 rounded-lg overflow-hidden select-none touch-none overscroll-none shadow-sm"
     >
       {/* Top HUD: Asset, Timeframe, OHLC Values & SMA Toggles */}
-      <div className="flex flex-wrap items-center justify-between px-3 py-1 bg-slate-900/90 backdrop-blur border-b border-slate-800 text-xs z-10 gap-2 shrink-0">
+      <div className="flex flex-wrap items-center justify-between px-3 py-1.5 bg-[#121622] border-b border-slate-800 text-xs z-10 gap-2 shrink-0">
         <div className="flex items-center gap-2.5 flex-wrap">
-          <span className="font-bold text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40">
+          <span className="font-bold text-amber-400 bg-slate-800/80 px-2 py-0.5 border border-slate-700/80 rounded text-xs font-mono tracking-tight">
             XAUUSD • {timeframe}
           </span>
-          {activeC && (
-            <span className="flex items-center gap-2 font-mono text-[11px] text-slate-300">
+          {activeC && m && (
+            <span className="flex items-center gap-2 font-mono text-[11px] text-slate-300 flex-wrap">
               <span>
                 O:
-                <span className={activeC.close >= activeC.open ? ' text-emerald-400 font-bold' : ' text-rose-400 font-bold'}>
+                <span className={m.isBull ? ' text-[#059669] font-bold' : ' text-[#DC2626] font-bold'}>
                   {' '}{activeC.open.toFixed(2)}
                 </span>
               </span>
-              <span>H: <span className="text-slate-100">{activeC.high.toFixed(2)}</span></span>
-              <span>L: <span className="text-slate-100">{activeC.low.toFixed(2)}</span></span>
+              <span>H: <span className="text-slate-100 font-bold">{activeC.high.toFixed(2)}</span></span>
+              <span>L: <span className="text-slate-100 font-bold">{activeC.low.toFixed(2)}</span></span>
               <span>
                 C:
-                <span className={activeC.close >= activeC.open ? ' text-emerald-400 font-bold' : ' text-rose-400 font-bold'}>
+                <span className={m.isBull ? ' text-[#059669] font-bold' : ' text-[#DC2626] font-bold'}>
                   {' '}{activeC.close.toFixed(2)}
                 </span>
               </span>
-              <span className="text-slate-500">{format(new Date(activeC.time), 'yyyy-MM-dd HH:mm')}</span>
+              <span className={m.diff >= 0 ? 'text-[#059669] font-bold' : 'text-[#DC2626] font-bold'}>
+                {m.diff >= 0 ? `+${m.diff.toFixed(2)}` : m.diff.toFixed(2)} ({m.diff >= 0 ? `+${m.diffPct.toFixed(2)}%` : `${m.diffPct.toFixed(2)}%`})
+              </span>
+              <span className="text-slate-400 hidden xl:inline">
+                R: <span className="text-slate-200 font-bold">{m.range.toFixed(2)}</span>
+              </span>
+              <span className="text-slate-400 hidden xl:inline">
+                B: <span className="text-slate-200 font-bold">{m.body.toFixed(2)}</span>
+              </span>
+              {activeC.tickVolume != null && (
+                <span className="text-slate-400 hidden lg:inline">
+                  Vol: <span className="text-[#F0C020] font-bold">{activeC.tickVolume.toLocaleString()}</span>
+                </span>
+              )}
+              <span className="text-slate-400 text-[10px]">{format(new Date(activeC.time), 'yyyy-MM-dd HH:mm')}</span>
             </span>
           )}
         </div>
         <div className="flex items-center gap-1.5">
           {(['sma20', 'sma50', 'sma200'] as const).map((k) => {
             const labels: Record<string, string> = { sma20: 'SMA 20', sma50: 'SMA 50', sma200: 'SMA 200' };
-            const colors: Record<string, string> = { sma20: 'amber', sma50: 'sky', sma200: 'purple' };
             const on = indicators[k];
-            const c = colors[k];
             return (
               <button
                 key={k}
                 onClick={() => onIndicatorsChange?.({ ...indicators, [k]: !on })}
-                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
+                className={`px-2 py-0.5 text-[10px] font-bold font-mono border-2 border-[#121212] transition-all ${
                   on
-                    ? `bg-${c}-500/20 text-${c}-300 border border-${c}-500/40`
-                    : 'bg-slate-800 text-slate-500 hover:text-slate-300'
+                    ? 'bg-[#1040C0] text-white shadow-[1px_1px_0px_0px_#000000]'
+                    : 'bg-[#1e2332] text-slate-400 hover:text-white'
                 }`}
               >
                 {labels[k]}
@@ -1239,7 +2018,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             <button
               onClick={handleResetAutoScale}
               title="Reset Skala Harga Otomatis"
-              className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600/30 text-blue-300 border border-blue-500/50 hover:bg-blue-600/50 transition-all"
+              className="px-2 py-0.5 text-[10px] font-black font-mono bg-[#F0C020] text-[#121212] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#000000] hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[1px] active:translate-y-[1px] transition-all"
             >
               AUTO
             </button>
@@ -1247,34 +2026,51 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         </div>
       </div>
 
-      {/* Main Interactive Canvas */}
-      <canvas
-        ref={canvasRef}
-        className="w-full flex-1 touch-none overscroll-none block min-w-0 min-h-0"
-        style={{
-          cursor: dragModeRef.current === 'SCALE_PRICE'
-            ? 'ns-resize'
-            : dragModeRef.current === 'SCALE_TIME'
-            ? 'ew-resize'
-            : dragModeRef.current === 'PAN_CHART'
-            ? 'grabbing'
-            : hoverCursor !== 'default'
-            ? hoverCursor
-            : activeTool === 'cursor'
-            ? 'default'
-            : 'crosshair',
-        }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={() => {
-          setMousePos(null);
-          setHoveredCandle(null);
-          dragModeRef.current = 'NONE';
-        }}
-        onDoubleClick={handleDoubleClick}
-        onContextMenu={handleContextMenu}
-      />
+      {/* Main Interactive Canvas Wrapper */}
+      <div ref={canvasWrapperRef} className="w-full flex-1 relative min-w-0 min-h-0 overflow-hidden">
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full touch-none overscroll-none block min-w-0 min-h-0"
+          style={{
+            cursor: dragModeRef.current === 'SCALE_PRICE'
+              ? 'ns-resize'
+              : dragModeRef.current === 'SCALE_TIME'
+              ? 'ew-resize'
+              : dragModeRef.current === 'PAN_CHART'
+              ? 'grabbing'
+              : hoverCursor !== 'default'
+              ? hoverCursor
+              : activeTool === 'cursor'
+              ? 'default'
+              : 'crosshair',
+          }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={(e) => {
+            activePointersRef.current.delete(e.pointerId);
+            if (activePointersRef.current.size === 0) {
+              setMousePos(null);
+              setHoveredCandle(null);
+              dragModeRef.current = 'NONE';
+              panStartRef.current = null;
+              draggingHandleRef.current = null;
+              plannedDragHandleRef.current = null;
+            }
+          }}
+          onPointerCancel={(e) => {
+            activePointersRef.current.delete(e.pointerId);
+            if (activePointersRef.current.size === 0) {
+              dragModeRef.current = 'NONE';
+              panStartRef.current = null;
+              draggingHandleRef.current = null;
+              plannedDragHandleRef.current = null;
+            }
+          }}
+          onDoubleClick={handleDoubleClick}
+          onContextMenu={handleContextMenu}
+        />
+      </div>
 
       {/* Double Click Confirmation Dialog */}
       {dblConfirm && (
@@ -1294,7 +2090,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               </button>
               <button
                 onClick={() => {
-                  onSetReplayStart?.(dblConfirm.time);
+                  onReplaySelectionClick?.(dblConfirm.time);
                   setDblConfirm(null);
                 }}
                 className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold"
@@ -1349,7 +2145,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           </button>
           <div className="h-px bg-slate-800 my-1" />
           <button
-            onClick={() => onSetReplayStart?.(new Date(contextMenu.chartTime))}
+            onClick={() => onReplaySelectionClick?.(new Date(contextMenu.chartTime))}
             className="w-full text-left px-2.5 py-1.5 hover:bg-amber-600/40 text-amber-300 rounded font-semibold"
           >
             Set Replay Start Di Sini
@@ -1373,6 +2169,169 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {/* Floating Drawing Action Bar for Selected Drawing */}
+      {selectedDrawing && (
+        <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-slate-900/95 border border-slate-700/80 shadow-lg rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs backdrop-blur-sm">
+          <span className="text-slate-300 font-semibold uppercase text-[10px] tracking-wider pr-2 border-r border-slate-700">
+            {selectedDrawing.type.replace('_', ' ')}
+          </span>
+          {(selectedDrawing.type === 'long_position' || selectedDrawing.type === 'short_position') && onExecutePlannedTrade && (
+            <button
+              onClick={() => onExecutePlannedTrade(selectedDrawing)}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase rounded transition-colors shadow-xs"
+              title="Buka Posisi Langsung dari Tool Ini"
+            >
+              <Zap className="w-3.5 h-3.5 fill-current" />
+              <span>Buka Posisi</span>
+            </button>
+          )}
+          {selectedDrawing.type === 'fibonacci' && (
+            <button
+              onClick={() => setFibSettingsOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs uppercase border border-slate-700 rounded transition-colors"
+              title="Pengaturan Level Fibonacci"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Settings</span>
+            </button>
+          )}
+          <button
+            onClick={() => {
+              onDrawingsChange?.(drawings.filter((d) => d.id !== selectedDrawing.id));
+              onSelectDrawing?.(null);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white font-semibold text-xs uppercase border border-rose-500/30 rounded transition-colors"
+            title="Hapus Gambar (Del / Backspace)"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-current" />
+            <span>Hapus</span>
+          </button>
+        </div>
+      )}
+
+      {/* Fibonacci Settings Modal */}
+      {fibSettingsOpen && selectedDrawing && selectedDrawing.type === 'fibonacci' && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md p-4 space-y-4 text-xs text-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2 font-bold text-sm text-slate-100">
+                <Settings className="w-4 h-4 text-blue-400" />
+                <span>Pengaturan Level Fibonacci</span>
+              </div>
+              <button
+                onClick={() => setFibSettingsOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-200 rounded-md hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+              {(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS).map((lvl, idx) => (
+                <div key={idx} className="flex items-center gap-2 bg-slate-950/50 p-1.5 rounded border border-slate-800/80">
+                  <input
+                    type="checkbox"
+                    checked={lvl.visible}
+                    onChange={(e) => {
+                      const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
+                      curLevels[idx] = { ...curLevels[idx], visible: e.target.checked };
+                      const updated = drawings.map((d) =>
+                        d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
+                      );
+                      onDrawingsChange?.(updated);
+                    }}
+                    className="rounded bg-slate-800 border-slate-700 text-blue-500 focus:ring-0 cursor-pointer"
+                  />
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={lvl.value}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      if (isNaN(val)) return;
+                      const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
+                      curLevels[idx] = { ...curLevels[idx], value: val };
+                      const updated = drawings.map((d) =>
+                        d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
+                      );
+                      onDrawingsChange?.(updated);
+                    }}
+                    className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-slate-100 font-mono text-xs focus:border-blue-500 outline-none"
+                  />
+                  <input
+                    type="color"
+                    value={lvl.color || '#F59E0B'}
+                    onChange={(e) => {
+                      const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
+                      curLevels[idx] = { ...curLevels[idx], color: e.target.value };
+                      const updated = drawings.map((d) =>
+                        d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
+                      );
+                      onDrawingsChange?.(updated);
+                    }}
+                    className="w-6 h-6 rounded bg-transparent border-0 cursor-pointer"
+                  />
+                  <span className="text-[11px] text-slate-400 font-mono flex-1">
+                    {(lvl.value * 100).toFixed(1)}%
+                  </span>
+                  <button
+                    onClick={() => {
+                      const curLevels = (selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS).filter((_, i) => i !== idx);
+                      const updated = drawings.map((d) =>
+                        d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
+                      );
+                      onDrawingsChange?.(updated);
+                    }}
+                    className="text-slate-500 hover:text-rose-400 p-1"
+                    title="Hapus level"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
+                    curLevels.push({ value: 0.705, color: '#2962FF', visible: true });
+                    const updated = drawings.map((d) =>
+                      d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
+                    );
+                    onDrawingsChange?.(updated);
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded text-xs font-semibold"
+                >
+                  <Plus className="w-3 h-3 text-emerald-400" />
+                  <span>Tambah Level</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const updated = drawings.map((d) =>
+                      d.id === selectedDrawing.id ? { ...d, fibLevels: DEFAULT_FIBONACCI_LEVELS.map((l) => ({ ...l })) } : d
+                    );
+                    onDrawingsChange?.(updated);
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-slate-200 text-xs"
+                  title="Kembalikan ke level default TradingView"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset Default</span>
+                </button>
+              </div>
+              <button
+                onClick={() => setFibSettingsOpen(false)}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-xs"
+              >
+                Selesai
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

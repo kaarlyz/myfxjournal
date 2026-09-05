@@ -89,3 +89,8 @@ copyit/
 # local ngrok binary
 ngrok
 *.tgz
+
+# Local Prisma SQLite database
+server/prisma/prisma/*.db
+server/prisma/prisma/*.db-shm
+server/prisma/prisma/*.db-wal

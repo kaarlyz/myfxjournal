@@ -79,9 +79,33 @@ export interface BacktestStats {
 
 export const XAUUSD_CONTRACT_SIZE = 100; // 100 troy ounces per lot
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 1. LOOK-AHEAD BIAS PROTECTION & REPLAY SLICING
-// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Returns the contract size multiplier for a given financial symbol.
+ * - XAUUSD / Gold: 100 oz per lot ($100/point for 1.00 lot)
+ * - NSXUSD / NAS100 / USTEC: 1 index point = $1 per lot (standard CFD contract)
+ * - Forex majors (EURUSD, GBPUSD): 100,000 units per lot
+ */
+export function getSymbolContractSize(symbol?: string): number {
+  const sym = (symbol || '').toUpperCase();
+  if (sym === 'XAUUSD' || sym === 'GOLD') return 100;
+  if (sym.includes('NSX') || sym.includes('NAS') || sym.includes('USTEC') || sym.includes('US100') || sym.includes('NDX')) return 1;
+  if (sym.includes('EUR') || sym.includes('GBP') || sym.includes('JPY') || sym.includes('AUD')) return 100000;
+  return 100;
+}
+
+/**
+ * Returns reasonable default SL distance in points based on price scale of the symbol.
+ * - XAUUSD: ~5.0 points
+ * - NSXUSD / Nasdaq: ~50.0 points
+ * - Forex: ~0.0050 (50 pips)
+ */
+export function getDefaultSlDistance(symbol?: string): number {
+  const sym = (symbol || '').toUpperCase();
+  if (sym === 'XAUUSD' || sym === 'GOLD') return 5.0;
+  if (sym.includes('NSX') || sym.includes('NAS') || sym.includes('USTEC') || sym.includes('US100') || sym.includes('NDX')) return 50.0;
+  if (sym.includes('EUR') || sym.includes('GBP') || sym.includes('AUD')) return 0.0050;
+  return 5.0;
+}
 
 /**
  * Returns ONLY candles up to replayIndex.
@@ -354,7 +378,7 @@ export function calculateSMA(
 export function calculateBacktestStats(
   trades: BacktestTradeRecord[],
   initialBalance: number,
-  activeTrade?: BacktestTradeRecord | null,
+  activeTrade?: BacktestTradeRecord | null | BacktestTradeRecord[],
   currentPrice?: number
 ): BacktestStats {
   const closedTrades = trades.filter(t => t.status === 'CLOSED');
@@ -395,14 +419,16 @@ export function calculateBacktestStats(
   }
 
   let equity = currentBalance;
-  if (activeTrade && activeTrade.status === 'OPEN' && currentPrice && currentPrice > 0) {
-    const unrealizedPnl = calculatePnL(
-      activeTrade.side,
-      activeTrade.entryPrice,
-      currentPrice,
-      activeTrade.volume
-    );
-    equity = currentBalance + unrealizedPnl;
+  const openTradesList: BacktestTradeRecord[] = Array.isArray(activeTrade)
+    ? activeTrade.filter(t => t.status === 'OPEN')
+    : (activeTrade && activeTrade.status === 'OPEN' ? [activeTrade] : []);
+
+  if (openTradesList.length > 0 && currentPrice && currentPrice > 0) {
+    let totalUnrealized = 0;
+    for (const ot of openTradesList) {
+      totalUnrealized += calculatePnL(ot.side, ot.entryPrice, currentPrice, ot.volume);
+    }
+    equity = currentBalance + totalUnrealized;
   }
 
   const netPnl = currentBalance - initialBalance;
