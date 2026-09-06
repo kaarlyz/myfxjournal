@@ -1,5 +1,16 @@
 import dotenv from 'dotenv';
-dotenv.config();
+import path from 'path';
+
+const envPaths = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(__dirname, '..', '.env'),
+  path.resolve(__dirname, '../..', '.env'),
+];
+
+for (const envPath of envPaths) {
+  dotenv.config({ path: envPath, override: true });
+}
+
 
 import { PrismaClient } from '@prisma/client';
 

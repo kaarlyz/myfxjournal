@@ -44,6 +44,13 @@ export class DukascopyImporter {
     const fileStream = fs.createReadStream(options.filePath);
     const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
+    const existingLatest = await prisma.mt5CandleData.findFirst({
+      where: { provider, symbol, timeframe },
+      orderBy: { time: 'desc' },
+      select: { time: true },
+    });
+    const resumeAfter = existingLatest?.time ?? null;
+
     let totalLinesRead = 0;
     let insertedCount = 0;
     let isHeader = true;
@@ -136,6 +143,7 @@ export class DukascopyImporter {
 
       if (options.fromTimestamp && time < options.fromTimestamp) continue;
       if (options.toTimestamp && time > options.toTimestamp) continue;
+      if (resumeAfter && time <= resumeAfter) continue;
 
       if (!firstDate || time < firstDate) firstDate = time;
       if (!lastDate || time > lastDate) lastDate = time;

@@ -28,32 +28,33 @@ router.get('/symbols', async (_req: Request, res: Response) => {
     const catalogs = await prisma.marketDataCatalog.findMany({
       select: { symbol: true, provider: true, candleCount: true },
     });
-    if (catalogs && catalogs.length > 0) {
-      const map = new Map<string, { symbol: string; provider: string; candleCount: number }>();
-      for (const c of catalogs) {
-        const key = `${c.symbol}_${c.provider}`;
-        if (!map.has(key)) {
-          map.set(key, { symbol: c.symbol, provider: c.provider, candleCount: c.candleCount });
-        } else {
-          map.get(key)!.candleCount = Math.max(map.get(key)!.candleCount, c.candleCount);
-        }
-      }
-      return res.json({ ok: true, data: Array.from(map.values()) });
+    const map = new Map<string, { symbol: string; provider: string; candleCount: number }>();
+    for (const c of catalogs) {
+      const key = `${c.symbol}_${c.provider}`;
+      map.set(key, { symbol: c.symbol, provider: c.provider, candleCount: c.candleCount });
     }
 
     const symbolsGroup = await prisma.mt5CandleData.groupBy({
       by: ['symbol', 'provider'],
       _count: { _all: true },
     });
-    const catalog = symbolsGroup.map((item) => ({
-      symbol: item.symbol,
-      provider: item.provider,
-      candleCount: item._count._all,
-    }));
-    if (catalog.length === 0) {
-      catalog.push({ symbol: 'XAUUSD', provider: 'DUKASCOPY', candleCount: 0 });
+    for (const item of symbolsGroup) {
+      const key = `${item.symbol}_${item.provider}`;
+      const existing = map.get(key);
+      map.set(key, {
+        symbol: item.symbol,
+        provider: item.provider,
+        candleCount: Math.max(existing?.candleCount ?? 0, item._count._all),
+      });
     }
-    return res.json({ ok: true, data: catalog });
+
+    if (map.size === 0) {
+      for (const symbol of ['XAUUSD', 'EURUSD', 'NSXUSD']) {
+        map.set(`${symbol}_DUKASCOPY`, { symbol, provider: 'DUKASCOPY', candleCount: 0 });
+      }
+    }
+
+    return res.json({ ok: true, data: Array.from(map.values()) });
   } catch (error: any) {
     return res.status(500).json({ ok: false, error: error.message });
   }

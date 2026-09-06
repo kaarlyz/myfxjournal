@@ -1,9 +1,14 @@
 import { dukascopyImporter } from '../integrations/dukascopy/dukascopyImporter';
 
 async function main() {
-  const filePath = process.argv[2] || '/home/vallencia/Downloads/QuantDataManager/export/2026.8.22XAUUSD_dukascopy-M1-No Session.csv';
-  const symbol = process.argv[3] || 'XAUUSD';
-  console.log(`Starting Dukascopy ${symbol} M1 import from:`, filePath);
+  const filePath = process.argv[2];
+  const symbol = (process.argv[3] || 'XAUUSD').toUpperCase();
+
+  if (!filePath) {
+    throw new Error('Usage: ts-node src/scripts/importDukascopy.ts <csvPath> [symbol]');
+  }
+
+  console.log(`Starting/resuming Dukascopy ${symbol} M1 import from:`, filePath);
 
   let lastReport = Date.now();
   const result = await dukascopyImporter.importCsv({

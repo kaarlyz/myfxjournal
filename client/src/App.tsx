@@ -46,7 +46,7 @@ function AnimatedRoutes() {
         transition={{ duration: 0.25, ease: 'easeOut' }}
         className={
           isBacktest
-            ? "w-full max-w-none p-1 sm:p-2 flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden"
+            ? "w-full max-w-none p-0 flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden"
             : "w-full max-w-none px-3.5 sm:px-6 lg:px-8 2xl:px-12 py-4 md:py-6 pb-24 md:pb-8"
         }
       >
@@ -146,84 +146,116 @@ export default function App() {
     );
   }
 
+  const isBacktestPath = (pathname: string) => pathname === '/backtest';
+
   return (
     <MotionConfig reducedMotion="user">
       <Router>
-        <div className="app-shell">
-          <Sidebar mobileOpen={mobileNavOpen} setMobileOpen={setMobileNavOpen} />
-
-          <main className="main-shell relative z-10">
-            <div className="topbar" aria-label="Application toolbar">
-              <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                {sseStatus === 'live' && (
-                  <div
-                    className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--profit)] text-[10px] sm:text-xs"
-                    style={{ background: 'var(--profit-dim)', color: 'var(--profit)' }}
-                    role="status"
-                    aria-label="Realtime connection active"
-                  >
-                    <Wifi className="w-3 h-3" aria-hidden="true" />
-                    <span>REALTIME LIVE</span>
-                  </div>
-                )}
-                {sseStatus === 'connecting' && (
-                  <div
-                    className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--warning)] text-[10px] sm:text-xs"
-                    style={{ background: 'var(--warning-dim)', color: 'var(--warning)' }}
-                    role="status"
-                    aria-label="Connecting to server"
-                  >
-                    <RefreshCw className="w-3 h-3 animate-spin" aria-hidden="true" />
-                    <span>CONNECTING</span>
-                  </div>
-                )}
-                {sseStatus === 'offline' && (
-                  <div
-                    className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--loss)] text-[10px] sm:text-xs"
-                    style={{ background: 'var(--loss-dim)', color: 'var(--loss)' }}
-                    role="status"
-                    aria-label="Connection offline"
-                  >
-                    <WifiOff className="w-3 h-3" aria-hidden="true" />
-                    <span>OFFLINE</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-1" />
-
-              <div
-                className="flex items-center gap-1.5 sm:gap-2 font-number text-[11px] sm:text-xs"
-                style={{ color: 'var(--text-secondary)' }}
-                aria-label={`Current time: ${timeStr}`}
-              >
-                <Clock className="w-3 h-3" aria-hidden="true" />
-                <span className="font-bold" style={{ color: 'var(--text-primary)', letterSpacing: '0.05em' }}>
-                  {timeStr}
-                </span>
-                <span className="hidden sm:inline" style={{ color: 'var(--text-muted)' }}>·</span>
-                <span className="hidden sm:inline" style={{ color: 'var(--text-muted)' }}>{dateStr}</span>
-              </div>
-            </div>
-
-            {error && (
-              <div
-                className="banner-danger flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm"
-                role="alert"
-                aria-live="assertive"
-              >
-                <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <AnimatedRoutes />
-          </main>
-
-          {/* Mobile Bottom Navigation Bar */}
-          <MobileBottomNav onToggleMenu={() => setMobileNavOpen(prev => !prev)} isMenuOpen={mobileNavOpen} />
-        </div>
+        <AppShell
+          mobileNavOpen={mobileNavOpen}
+          setMobileNavOpen={setMobileNavOpen}
+          isBacktestPath={isBacktestPath}
+          sseStatus={sseStatus}
+          error={error}
+          timeStr={timeStr}
+          dateStr={dateStr}
+        />
       </Router>
     </MotionConfig>
+  );
+}
+
+interface AppShellProps {
+  mobileNavOpen: boolean;
+  setMobileNavOpen: (open: boolean) => void;
+  isBacktestPath: (pathname: string) => boolean;
+  sseStatus: string;
+  error: string | null;
+  timeStr: string;
+  dateStr: string;
+}
+
+function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, error, timeStr, dateStr }: AppShellProps) {
+  const location = useLocation();
+  const hideChrome = isBacktestPath(location.pathname);
+
+  return (
+    <div className="app-shell">
+      <Sidebar mobileOpen={mobileNavOpen} setMobileOpen={setMobileNavOpen} />
+
+      <main className="main-shell relative z-10">
+        {!hideChrome && (
+          <div className="topbar" aria-label="Application toolbar">
+            <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold" style={{ fontFamily: 'Outfit, sans-serif' }}>
+              {sseStatus === 'live' && (
+                <div
+                  className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--profit)] text-[10px] sm:text-xs"
+                  style={{ background: 'var(--profit-dim)', color: 'var(--profit)' }}
+                  role="status"
+                  aria-label="Realtime connection active"
+                >
+                  <Wifi className="w-3 h-3" aria-hidden="true" />
+                  <span>REALTIME LIVE</span>
+                </div>
+              )}
+              {sseStatus === 'connecting' && (
+                <div
+                  className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--warning)] text-[10px] sm:text-xs"
+                  style={{ background: 'var(--warning-dim)', color: 'var(--warning)' }}
+                  role="status"
+                  aria-label="Connecting to server"
+                >
+                  <RefreshCw className="w-3 h-3 animate-spin" aria-hidden="true" />
+                  <span>CONNECTING</span>
+                </div>
+              )}
+              {sseStatus === 'offline' && (
+                <div
+                  className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--loss)] text-[10px] sm:text-xs"
+                  style={{ background: 'var(--loss-dim)', color: 'var(--loss)' }}
+                  role="status"
+                  aria-label="Connection offline"
+                >
+                  <WifiOff className="w-3 h-3" aria-hidden="true" />
+                  <span>OFFLINE</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1" />
+
+            <div
+              className="flex items-center gap-1.5 sm:gap-2 font-number text-[11px] sm:text-xs"
+              style={{ color: 'var(--text-secondary)' }}
+              aria-label={`Current time: ${timeStr}`}
+            >
+              <Clock className="w-3 h-3" aria-hidden="true" />
+              <span className="font-bold" style={{ color: 'var(--text-primary)', letterSpacing: '0.05em' }}>
+                {timeStr}
+              </span>
+              <span className="hidden sm:inline" style={{ color: 'var(--text-muted)' }}>·</span>
+              <span className="hidden sm:inline" style={{ color: 'var(--text-muted)' }}>{dateStr}</span>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div
+            className="banner-danger flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm"
+            role="alert"
+            aria-live="assertive"
+          >
+            <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <AnimatedRoutes />
+      </main>
+
+      {!hideChrome && (
+        <MobileBottomNav onToggleMenu={() => setMobileNavOpen(!mobileNavOpen)} isMenuOpen={mobileNavOpen} />
+      )}
+    </div>
   );
 }

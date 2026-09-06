@@ -16,7 +16,8 @@ import { useTranslation } from 'react-i18next';
 
 const menuItems = [
   { path: '/',                name: 'Sesi Backtest',    icon: Home,          group: 'BACKTEST', key: 'sessions_home' },
-  { path: '/backtest',        name: 'Chart Reply',      icon: PlayCircle,    group: 'BACKTEST', key: 'bar_replay' },
+  { path: '/backtest',        name: 'Chart Replay',     icon: PlayCircle,    group: 'BACKTEST', key: 'bar_replay' },
+
   { path: '/create-session',  name: 'Buat Sesi',        icon: PlusCircle,    group: 'BACKTEST', key: 'create_session' },
   { path: '/csv-import',      name: 'Import CSV',       icon: UploadCloud,   group: 'BACKTEST', key: 'import_csv' },
   { path: '/mt5-import',      name: 'Import MT5',       icon: FileSearch,    group: 'BACKTEST', key: 'import_mt5' },

@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import prisma from './prisma';
 
 // Import routers
@@ -25,7 +26,15 @@ import backtestRouter from './routes/backtest';
 import { logIntegration } from './utils/logger';
 
 // Load environment variables
-dotenv.config();
+const envPaths = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(__dirname, '..', '.env'),
+  path.resolve(__dirname, '../..', '.env'),
+];
+
+for (const envPath of envPaths) {
+  dotenv.config({ path: envPath, override: true });
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;

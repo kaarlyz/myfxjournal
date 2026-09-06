@@ -220,7 +220,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   // Interaction Drag States
   const dragModeRef = useRef<'NONE' | 'PAN_CHART' | 'SCALE_PRICE' | 'SCALE_TIME' | 'DRAWING_HANDLE' | 'PINCH_ZOOM' | 'PLANNED_ORDER_HANDLE'>('NONE');
-  const panStartRef = useRef<{ startX: number; startY: number; startSO: number; startPO: number } | null>(null);
+  const panStartRef = useRef<{ startX: number; startY: number; startSO: number; startPO: number; anchorTime: number; anchorX: number } | null>(null);
   const priceScaleStartRef = useRef<{ startY: number; startPZ: number } | null>(null);
   const timeScaleStartRef = useRef<{ startX: number; startCW: number } | null>(null);
 
@@ -258,7 +258,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const activeTradeRef = useRef(activeTrade);
   activeTradeRef.current = activeTrade;
 
-  const prevCandlesRef = useRef<ChartCandle[]>(candles);
+   const prevCandlesRef = useRef<ChartCandle[]>(candles);
+   const lastPanAnchorRef = useRef<{ time: number; x: number } | null>(null);
+
 
   // Preserve user's viewport on data prepend / append
   useEffect(() => {
@@ -267,10 +269,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     if (prev.length === 0 || candles.length === 0) return;
 
+    const prevFirstTime = new Date(prev[0].time).getTime();
     const prevLastTime = new Date(prev[prev.length - 1].time).getTime();
+    const curFirstTime = new Date(candles[0].time).getTime();
     const curLastTime = new Date(candles[candles.length - 1].time).getTime();
 
-    // Check if newer candles were appended at the end
     if (curLastTime > prevLastTime) {
       let appendedCount = 0;
       for (let i = candles.length - 1; i >= 0; i--) {
@@ -284,9 +287,37 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         if (appMode === 'replay' && followReplay) {
           setScrollOffset(0);
         } else {
-          // Keep the user's viewport fixed to the same historical candle!
           setScrollOffset((curSO) => curSO + appendedCount);
         }
+      }
+    }
+
+    const anchor = lastPanAnchorRef.current;
+    if (anchor && candles.length > 0) {
+      const vp = vpRef.current;
+      if (vp) {
+        const anchorIdx = vp.timeToGIdx(anchor.time);
+        const currentX = vp.getX(anchorIdx);
+        const deltaX = currentX - anchor.x;
+        if (Math.abs(deltaX) > 0.25) {
+          const adjustedSO = soRef.current + deltaX / vp.slot;
+          soRef.current = adjustedSO;
+          setScrollOffset(adjustedSO);
+        }
+      }
+    }
+
+    if (curFirstTime < prevFirstTime) {
+      let prependedCount = 0;
+      for (let i = 0; i < candles.length; i++) {
+        if (new Date(candles[i].time).getTime() === prevFirstTime) {
+          prependedCount = i;
+          break;
+        }
+      }
+
+      if (prependedCount > 0) {
+        setScrollOffset((curSO) => curSO + prependedCount);
       }
     }
   }, [candles, appMode, followReplay]);
@@ -1090,7 +1121,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.fillStyle = '#FFFFFF';
       ctx.font = 'bold 10px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('🎯 Klik Mulai Replay', mousePos.x, 25);
+      ctx.fillText('Klik Mulai Replay', mousePos.x, 25);
     }
 
     // 10. Crosshair & HUD
@@ -1140,20 +1171,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const lastGlobalIdx = candlesList.length - 1;
       if (lastGlobalIdx <= 0) return;
 
-      // Case A: Price Scale Area Scrolling -> Vertical Price Zoom
-      if (mouseX > vp.chartW && mouseY <= vp.candleH) {
-        e.preventDefault();
-        e.stopPropagation();
-        const delta = Math.max(-50, Math.min(50, e.deltaY));
-        const factor = Math.exp(-delta * 0.003);
-        const newPZ = Math.min(5.0, Math.max(0.2, pzRef.current * factor));
-        pzRef.current = newPZ;
-        setPriceZoom(newPZ);
-        return;
-      }
-
-      // Case B: Touchpad Two-Finger Horizontal Swipe -> Horizontal Pan
-      if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.2) {
+      // Case A: Touchpad two-finger horizontal swipe -> horizontal pan only
+      if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.15) {
         e.preventDefault();
         e.stopPropagation();
         const shift = -e.deltaX / vp.slot;
@@ -1166,47 +1185,32 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         return;
       }
 
-      // Case C: Main Chart Area Zoom (Mouse wheel or Trackpad pinch)
-      if (mouseX <= vp.chartW && mouseY <= vp.candleH) {
+      const isPinchLike = e.ctrlKey || Math.abs(e.deltaY) < Math.abs(e.deltaX) * 0.35;
+
+      // Case B: Main chart zoom (mouse wheel or pinch)
+      if (mouseX <= vp.chartW && mouseY <= vp.candleH && isPinchLike) {
         e.preventDefault();
         e.stopPropagation();
 
         onDisableFollowReplay?.();
 
-        // Softer, damped delta for comfortable analysis (not twitchy / hyper-responsive)
-        const delta = Math.max(-35, Math.min(35, e.deltaY));
+        const delta = Math.max(-35, Math.min(35, e.deltaY || -e.deltaX));
         const zoomFactor = Math.exp(-delta * 0.0012);
         const curCW = cwRef.current;
         const newCW = Math.min(45, Math.max(2, curCW * zoomFactor));
         if (Math.abs(newCW - curCW) < 0.001) return;
 
-        // Progressive smooth anchor:
-        // When zooming in (delta < 0), focus smoothly on the mouse cursor.
-        // When zooming out (delta > 0), blend 65% towards the viewport center to prevent disorienting sideways jumping.
-        const isZoomIn = delta < 0;
-        const clampedMouseX = Math.max(vp.chartW * 0.08, Math.min(vp.chartW * 0.92, mouseX));
-        const effectiveAnchorX = isZoomIn
-          ? clampedMouseX
-          : clampedMouseX * 0.35 + (vp.chartW * 0.5) * 0.65;
-
-        const anchorGIdx = vp.xToGIdx(effectiveAnchorX);
-
-        // 2. Compute new horizontal geometry matching buildVP exactly
+        const anchorGIdx = vp.xToGIdx(mouseX);
         const newSpacing = Math.max(1, newCW * 0.2);
         const newSlot = newCW + newSpacing;
         const newRightMargin = Math.max(35, newSlot * 8);
         const newR = vp.chartW - newRightMargin;
-
-        // 3. Solve for newSO such that getX(anchorGIdx) === effectiveAnchorX
-        let newSO = lastGlobalIdx - anchorGIdx - (newR - effectiveAnchorX + newSlot / 2) / newSlot;
-
-        // 4. Soft boundary protection
+        let newSO = lastGlobalIdx - anchorGIdx - (newR - mouseX + newSlot / 2) / newSlot;
         const maxFutureBars = Math.min(30, Math.max(5, Math.floor((vp.chartW * 0.25) / newSlot)));
         const minOffset = -maxFutureBars;
         const maxOffset = Math.max(0, candlesList.length + 50);
         newSO = Math.max(minOffset, Math.min(maxOffset, newSO));
 
-        // Update horizontal zoom & scroll offset without artificial vertical price jumping
         cwRef.current = newCW;
         soRef.current = newSO;
         setCandleWidth(newCW);
@@ -1490,7 +1494,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       // Empty chart clicked -> deselect and initiate pan (X and Y)
       onSelectDrawing?.(null);
       dragModeRef.current = 'PAN_CHART';
-      panStartRef.current = { startX: x, startY: y, startSO: soRef.current, startPO: poRef.current };
+      panStartRef.current = { startX: x, startY: y, startSO: soRef.current, startPO: poRef.current, anchorTime: 0, anchorX: 0 };
       return;
     }
 
@@ -1820,6 +1824,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const minOffset = -maxFutureBars;
       const maxOffset = Math.max(0, candles.length - 2);
       const newOffset = Math.max(minOffset, Math.min(maxOffset, panStartRef.current.startSO + shift));
+      lastPanAnchorRef.current = { time, x };
       setScrollOffset(newOffset);
 
       if (appMode === 'replay' && newOffset > 2 && onDisableFollowReplay) {
@@ -1866,11 +1871,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       setHoverCursor('crosshair');
     }
 
-    // 7. Update hovered candle for HUD
-    if (x <= vp.chartW) {
-      const idx = Math.round(vp.xToGIdx(x));
-      setHoveredCandle(idx >= 0 && idx < candles.length ? candles[idx] : null);
-    }
+      // 7. Update hovered candle for HUD
+      if (x <= vp.chartW && y <= vp.mainH) {
+        const idx = Math.round(vp.xToGIdx(x));
+        setHoveredCandle(idx >= 0 && idx < candles.length ? candles[idx] : null);
+      } else {
+        setHoveredCandle(null);
+      }
+
   };
 
   // ── Pointer Up Handler ──
@@ -1952,7 +1960,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full min-w-0 min-h-0 flex-1 flex flex-col bg-[#0B0E17] border border-slate-800 rounded-lg overflow-hidden select-none touch-none overscroll-none shadow-sm"
+      className="relative w-full h-full min-w-0 min-h-0 flex-1 flex flex-col bg-[#0B0E17] border border-slate-800 rounded-lg overflow-hidden select-none touch-none overscroll-contain shadow-sm"
     >
       {/* Top HUD: Asset, Timeframe, OHLC Values & SMA Toggles */}
       <div className="flex flex-wrap items-center justify-between px-3 py-1.5 bg-[#121622] border-b border-slate-800 text-xs z-10 gap-2 shrink-0">
@@ -2059,13 +2067,17 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             }
           }}
           onPointerCancel={(e) => {
-            activePointersRef.current.delete(e.pointerId);
-            if (activePointersRef.current.size === 0) {
-              dragModeRef.current = 'NONE';
-              panStartRef.current = null;
-              draggingHandleRef.current = null;
-              plannedDragHandleRef.current = null;
-            }
+      activePointersRef.current.delete(e.pointerId);
+      if (activePointersRef.current.size === 0) {
+        dragModeRef.current = 'NONE';
+        panStartRef.current = null;
+        priceScaleStartRef.current = null;
+        timeScaleStartRef.current = null;
+        draggingHandleRef.current = null;
+        plannedDragHandleRef.current = null;
+      }
+      lastPanAnchorRef.current = null;
+
           }}
           onDoubleClick={handleDoubleClick}
           onContextMenu={handleContextMenu}

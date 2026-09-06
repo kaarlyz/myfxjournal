@@ -100,7 +100,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700/80 rounded px-2.5 py-1 text-xs font-semibold tracking-tight">
             <span className="text-amber-400 font-bold">{symbol}</span>
-            {availableSymbols && availableSymbols.length > 1 ? (
+            {(availableSymbols && availableSymbols.length > 0) ? (
               <select
                 value={symbol}
                 onChange={(e) => onSymbolChange?.(e.target.value)}
@@ -116,7 +116,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
             ) : (
               <>
                 <span className="text-slate-500">•</span>
-                <span className="text-[10px] text-slate-400 font-mono">DUKASCOPY</span>
+                <span className="text-[10px] text-slate-400 font-mono">XAUUSD · EURUSD · NSXUSD</span>
               </>
             )}
           </div>
@@ -148,11 +148,12 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
               Pilih Candle Titik Awal
             </span>
           )}
-          {appMode === 'replay' && (
-            <span className="text-[11px] font-semibold px-2 py-0.5 bg-blue-500/15 text-blue-300 border border-blue-500/30 rounded">
-              Chart Reply
-            </span>
-          )}
+            {appMode === 'replay' && (
+              <span className="text-[11px] font-semibold px-2 py-0.5 bg-blue-500/15 text-blue-300 border border-blue-500/30 rounded">
+                Chart Replay
+              </span>
+            )}
+
         </div>
 
         {/* Center: Mode Controls */}
@@ -176,11 +177,11 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
             </button>
             <button
               onClick={onActivateBarReplay}
-              title="Aktifkan Chart Reply"
+              title="Aktifkan Chart Replay"
               className="flex items-center gap-1.5 px-3.5 h-8 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-xs"
             >
               <Video className="w-3.5 h-3.5" />
-              <span>Chart Reply</span>
+              <span>Chart Replay</span>
             </button>
           </div>
         )}
@@ -322,7 +323,8 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
           {appMode === 'replay' && (
             <button
               onClick={onExitReplay}
-              title="Keluar dari Chart Reply"
+              title="Keluar dari Chart Replay"
+
               className="flex items-center gap-1.5 px-2.5 h-8 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded text-xs font-semibold transition-colors"
             >
               <X className="w-3.5 h-3.5" />

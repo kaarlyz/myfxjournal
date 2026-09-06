@@ -252,9 +252,9 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({
       {isTradeOpen ? (
         <div className="space-y-3.5">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-              <span>Posisi Aktif</span>
+            <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span>Open position</span>
             </span>
             <span className="text-[11px] font-mono text-slate-400">
               #{activeTrade.id.slice(0, 6)}
@@ -330,7 +330,7 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({
         /* ── STATE A: FLAT / NEW ORDER FORM ── */
         <div className="space-y-3.5">
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Order Baru (Entry)
+            Entry order
           </div>
 
           {/* Side Selector (BUY vs SELL) */}
@@ -497,12 +497,12 @@ export const OrderPanel: React.FC<OrderPanelProps> = ({
             {showChartPlannedLines ? (
               <>
                 <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                <span>✕ Sembunyikan Garis SL & TP di Chart</span>
+                <span>Sembunyikan garis SL dan TP</span>
               </>
             ) : (
               <>
                 <Crosshair className="w-3.5 h-3.5 text-amber-400" />
-                <span>🎯 Tampilkan Garis Geser SL & TP di Chart</span>
+                <span>Tampilkan garis SL dan TP</span>
               </>
             )}
           </button>

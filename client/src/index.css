@@ -972,6 +972,215 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
+/* ── Mobile Terminal Shell ──
+   Focused Market Workspace: chart-first, action-second, info-third.
+   Canvas uses the existing dark market palette (#0B0E17) so the chart
+   reads as one continuous surface with the workspace, not a card. */
+.mobile-terminal {
+  /* dvh keeps the chart tall under mobile browser chrome;
+     100vh would overflow and hide the bottom actions. */
+  height: 100dvh;
+  min-height: 100dvh;
+  background: #0B0E17;
+  color: #E6EDF3;
+  display: flex;
+  flex-direction: column;
+  /* safe-area insets keep the top strip and bottom actions off the
+     notch / home indicator on real devices. */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow: hidden;
+}
+
+.mobile-terminal-strip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #0B0E17;
+  border-bottom: 1px solid rgba(230, 237, 243, 0.08);
+  min-height: 44px;
+}
+
+.mobile-terminal-chart {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Chart gets the largest share of the viewport; the surface is the
+     background, not a card, so the canvas reads edge-to-edge. */
+  background: #0B0E17;
+}
+
+.mobile-terminal-context {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  background: #0B0E17;
+  border-top: 1px solid rgba(230, 237, 243, 0.08);
+}
+
+.mobile-terminal-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  background: #0B0E17;
+  border-top: 1px solid rgba(230, 237, 243, 0.08);
+}
+
+/* Compact pill for sticky symbol / mode tags on mobile */
+.mobile-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(230, 237, 243, 0.06);
+  color: #E6EDF3;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.mobile-tag-accent {
+  background: rgba(16, 64, 192, 0.18);
+  color: #9DB4FF;
+}
+
+.mobile-tag-warn {
+  background: rgba(240, 192, 32, 0.16);
+  color: #F0C020;
+}
+
+.mobile-tag-profit {
+  background: rgba(5, 150, 105, 0.18);
+  color: #34D399;
+}
+
+.mobile-tag-loss {
+  background: rgba(220, 38, 38, 0.18);
+  color: #F87171;
+}
+
+/* Compact icon button with a real 44px hit box but a smaller visual */
+.mobile-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(230, 237, 243, 0.06);
+  color: #E6EDF3;
+  border: 1px solid rgba(230, 237, 243, 0.08);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.mobile-icon-btn:active {
+  background: rgba(230, 237, 243, 0.12);
+}
+
+.mobile-icon-btn[data-active="true"] {
+  background: rgba(16, 64, 192, 0.22);
+  color: #9DB4FF;
+  border-color: rgba(16, 64, 192, 0.4);
+}
+
+.mobile-icon-btn:focus-visible {
+  outline: 2px solid #1040C0;
+  outline-offset: 2px;
+}
+
+/* Bottom sheet surface for contextual controls (order panel, tools) */
+.mobile-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  max-height: 82dvh;
+  overflow-y: auto;
+  background: #0F1420;
+  color: #E6EDF3;
+  border-top: 1px solid rgba(230, 237, 243, 0.1);
+  border-radius: 16px 16px 0 0;
+  padding: 8px 12px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.mobile-sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 9999px;
+  background: rgba(230, 237, 243, 0.22);
+  margin: 2px auto 8px;
+}
+
+/* Trading action buttons: large, thumb-reachable, color-coded.
+   Green = BUY, red = SELL, the only two actions that are primary. */
+.mobile-action-buy {
+  flex: 1;
+  min-height: 48px;
+  border-radius: 8px;
+  background: #059669;
+  color: #FFFFFF;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.mobile-action-sell {
+  flex: 1;
+  min-height: 48px;
+  border-radius: 8px;
+  background: #DC2626;
+  color: #FFFFFF;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.mobile-action-buy:disabled,
+.mobile-action-sell:disabled {
+  opacity: 0.4;
+}
+
+.mobile-action-buy:focus-visible,
+.mobile-action-sell:focus-visible {
+  outline: 2px solid #1040C0;
+  outline-offset: 2px;
+}
+
+/* Contextual toolbar for drawing tools: horizontal scroll on mobile so
+   the chart stays the hero and tools stay one thumb-flick away. */
+.mobile-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.mobile-tool-row::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── Responsive ── */
 @media (max-width: 1024px) {
   .sidebar { width: 220px; }

@@ -354,6 +354,23 @@ model MT5Report          { id, filename, rawData, createdAt }
 
 ---
 
+## Chart UX Audit
+
+Backtest chart sudah ditata ulang untuk fokus interaksi, bukan dekorasi. Perubahan utama:
+- zoom mouse tetap cursor-centered
+- pinch pakai focal point yang sama
+- swipe horizontal touchpad jadi pan saja
+- page scroll di luar chart tetap normal
+- viewport prepend dan append dijaga supaya tidak lompat
+- label mode replay dipertegas jadi Chart Replay
+
+### Verification status
+- AUTOMATED VERIFIED: build dan lint setelah perubahan
+- NOT VERIFIED: browser manual, touchpad hardware, real-browser zoom QA
+- NOT VERIFIED: flow pengguna end-to-end di browser
+
+---
+
 ## 🛠 Scripts
 
 ```bash

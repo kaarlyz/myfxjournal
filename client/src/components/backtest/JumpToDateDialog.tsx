@@ -57,7 +57,7 @@ export const JumpToDateDialog: React.FC<JumpToDateDialogProps> = ({
               <Calendar className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-100">Navigasi Waktu Historis (Chart Reply)</h2>
+              <h2 className="text-sm font-bold text-slate-100">Navigasi Waktu Historis (Chart Replay)</h2>
               <p className="text-[11px] text-slate-400">Pilih titik awal backtest dari dataset Dukascopy 2021–2026</p>
             </div>
           </div>
