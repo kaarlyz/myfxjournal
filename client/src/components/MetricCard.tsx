@@ -81,10 +81,10 @@ export default function MetricCard({
 
   return (
     <motion.div
-      whileHover={{ y: -4, x: -2, boxShadow: '6px 6px 0px 0px #121212' }}
-      whileTap={{ y: 0, x: 0, boxShadow: '2px 2px 0px 0px #121212' }}
-      transition={{ type: "spring", stiffness: 400, damping: 17 }}
-      initial={{ opacity: 0, y: 10 }}
+      whileHover={{ y: -2, boxShadow: '0 12px 24px -18px rgba(15, 23, 42, 0.22)' }}
+      whileTap={{ y: 0 }}
+      transition={{ type: "spring", stiffness: 350, damping: 22 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className="card p-4 hover-lift relative overflow-hidden bg-white"
       title={tooltip}
@@ -122,13 +122,13 @@ export default function MetricCard({
         {/* Icon box — Bauhaus flat bordered */}
         {Icon && (
           <div
-            className="w-9 h-9 flex items-center justify-center flex-shrink-0 border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212]"
-            style={{ backgroundColor: resolvedAccent }}
+            className="w-9 h-9 flex items-center justify-center flex-shrink-0 rounded-lg border border-slate-200"
+            style={{ backgroundColor: resolvedAccent === '#121212' ? '#F8FAFC' : resolvedAccent === '#F6C453' ? '#FEF3C7' : '#EFF6FF' }}
             aria-hidden="true"
           >
             <Icon
               className="w-4 h-4"
-              style={{ color: resolvedAccent === '#F0C020' ? '#121212' : '#FFFFFF' }}
+              style={{ color: resolvedAccent === '#F6C453' ? '#B45309' : resolvedAccent === '#121212' ? '#0F172A' : '#FFFFFF' }}
             />
           </div>
         )}

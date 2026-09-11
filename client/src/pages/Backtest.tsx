@@ -11,6 +11,7 @@ import {
   Video,
   ExternalLink,
   Calendar,
+  Menu,
   MousePointer2,
   PanelRightOpen,
   Minimize2,
@@ -18,6 +19,10 @@ import {
   Play,
   Pause,
   X,
+  XCircle,
+  ArrowUpRight,
+  ArrowDownRight,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { CandlestickChart, ChartCandle, ChartIndicators, DrawingItem, PlannedOrderPreview } from '../components/backtest/CandlestickChart';
@@ -25,7 +30,7 @@ import { DrawingToolbar, DrawingTool } from '../components/backtest/DrawingToolb
 import { ReplayControls, ReplaySpeed, ChartTimeframe, AppMode } from '../components/backtest/ReplayControls';
 import { ReplayTimeline } from '../components/backtest/ReplayTimeline';
 import { JumpToDateDialog } from '../components/backtest/JumpToDateDialog';
-import { OrderPanel } from '../components/backtest/OrderPanel';
+import { OrderPanel, type OrderPanelHandle } from '../components/backtest/OrderPanel';
 import { BacktestStats } from '../components/backtest/BacktestStats';
 import { TradeHistory } from '../components/backtest/TradeHistory';
 import {
@@ -33,6 +38,9 @@ import {
   evaluateCandleHit,
   calculateBacktestStats,
   calculatePnL,
+  calculateRR,
+  calculateTPFromRR,
+  getDefaultSlDistance,
   getSymbolContractSize,
   BacktestTradeRecord,
   TradeSide,
@@ -88,10 +96,93 @@ export default function Backtest() {
   const [availableSymbols, setAvailableSymbols] = useState<Array<{ symbol: string; provider: string; candleCount: number }>>([]);
   const navigate = useNavigate();
 
+  useEffect(() => {
+    const handler = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement;
+      console.log('Global Tap Target:', target?.tagName, target?.className, target?.id);
+    };
+
+    window.addEventListener('click', handler, true);
+    window.addEventListener('touchstart', handler, true);
+
+    return () => {
+      window.removeEventListener('click', handler, true);
+      window.removeEventListener('touchstart', handler, true);
+    };
+  }, []);
+
+  const handleToggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (error) {
+      console.error('Fullscreen toggle failed:', error);
+    }
+
+    setIsFullscreen((prev) => !prev);
+  }, []);
+
   const handlePlannedOrderChange = useCallback((newPlanned: { entryPrice: number; slPrice: number; tpPrice: number }) => {
     setControlledSlPrice(newPlanned.slPrice);
     setControlledTpPrice(newPlanned.tpPrice);
-  }, []);
+
+    setPlannedTrade((prev) => {
+      if (!prev) return prev;
+
+      const rr = calculateRR(
+        prev.side === 'BUY' ? 'LONG' : 'SHORT',
+        newPlanned.entryPrice,
+        newPlanned.slPrice,
+        newPlanned.tpPrice
+      );
+      const riskAmount = (balance * riskPercent) / 100;
+      const lotSize = calculatePositionSize(
+        balance,
+        riskPercent,
+        newPlanned.entryPrice,
+        newPlanned.slPrice,
+        getSymbolContractSize(symbol)
+      );
+
+      return {
+        ...prev,
+        entryPrice: newPlanned.entryPrice,
+        slPrice: newPlanned.slPrice,
+        tpPrice: newPlanned.tpPrice,
+        lotSize,
+        riskAmount,
+        targetProfit: rr.isValid ? riskAmount * rr.rr : 0,
+        rrRatio: rr.isValid ? rr.rr : 0,
+      };
+    });
+  }, [balance, riskPercent, symbol]);
+
+  const buildPlannedTrade = useCallback((side: TradeSide, entryPrice: number): PlannedOrderPreview | null => {
+    if (entryPrice <= 0) return null;
+
+    const defaultSlDistance = getDefaultSlDistance(symbol);
+    const slPrice = side === 'LONG'
+      ? Math.round((entryPrice - defaultSlDistance) * 100) / 100
+      : Math.round((entryPrice + defaultSlDistance) * 100) / 100;
+    const tpPrice = calculateTPFromRR(side, entryPrice, slPrice, 2.0);
+    const riskAmount = (balance * riskPercent) / 100;
+    const lotSize = calculatePositionSize(balance, riskPercent, entryPrice, slPrice, getSymbolContractSize(symbol));
+    const rr = calculateRR(side, entryPrice, slPrice, tpPrice);
+
+    return {
+      side: side === 'LONG' ? 'BUY' : 'SELL',
+      entryPrice,
+      slPrice,
+      tpPrice,
+      lotSize,
+      riskAmount,
+      targetProfit: rr.isValid ? riskAmount * rr.rr : 0,
+      rrRatio: rr.isValid ? rr.rr : 0,
+    };
+  }, [balance, riskPercent, symbol]);
 
   // Chart, Drawing & Tool State
   const [activeTool, setActiveTool] = useState<DrawingTool>('cursor');
@@ -107,12 +198,16 @@ export default function Backtest() {
   // UI Workspace State
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isOrderPanelOpen, setIsOrderPanelOpen] = useState<boolean>(true);
+  const [isVisualOrderActive, setIsVisualOrderActive] = useState<boolean>(false);
+  const [tradeSide, setTradeSide] = useState<TradeSide>('LONG');
   const [bottomDrawerTab, setBottomDrawerTab] = useState<'NONE' | 'STATS' | 'HISTORY'>('NONE');
   const [isJumpDialogOpen, setIsJumpDialogOpen] = useState<boolean>(false);
 
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isFetchingOlderRef = useRef<boolean>(false);
   const isFetchingNewerRef = useRef<boolean>(false);
+  const orderPanelRef = useRef<OrderPanelHandle | null>(null);
+  const mobileOrderPanelRef = useRef<OrderPanelHandle | null>(null);
 
   // ── 1. Fetch Timeline Bounds & Available Symbols ──
   useEffect(() => {
@@ -419,7 +514,20 @@ export default function Backtest() {
       const nextCandle: ChartCandle = json.data;
       const nextTime = new Date(nextCandle.time);
 
-      setCandles((prev) => [...prev, nextCandle]);
+      setCandles((prev) => {
+        if (prev.length === 0) return [nextCandle];
+        const lastT = new Date(prev[prev.length - 1].time).getTime();
+        const nextT = new Date(nextCandle.time).getTime();
+        if (nextT === lastT) {
+          const updated = [...prev];
+          updated[updated.length - 1] = nextCandle;
+          return updated;
+        }
+        if (nextT < lastT) {
+          return prev;
+        }
+        return [...prev, nextCandle];
+      });
       setReplayTime(nextTime);
 
       // Evaluate active position if open
@@ -458,6 +566,15 @@ export default function Backtest() {
               const closed = closeJson.data.trade;
               setTrades((prev) => prev.map((t) => (t.id === closed.id ? closed : t)));
               setBalance(closeJson.data.session.currentBalance);
+
+              if (hitResult.type === 'TP' || hitResult.type === 'SL') {
+                setTradeHitToast({
+                  kind: hitResult.type,
+                  amount: typeof closed.pnl === 'number' ? closed.pnl : 0,
+                  rr: typeof closed.rr === 'number' ? closed.rr : null,
+                });
+              }
+
               fetch(`${API_BASE}/sessions/${sessionId}/sync-to-journal`, { method: 'POST' }).catch(console.error);
             }
           } catch (closeErr) {
@@ -565,6 +682,14 @@ export default function Backtest() {
       setIsSubmittingTrade(false);
     }
   };
+
+  // Quick-trade from mobile bar: delegate to whichever OrderPanel instance is mounted
+  const handleQuickTrade = useCallback((side: TradeSide) => {
+    const ref = mobileOrderPanelRef.current || orderPanelRef.current;
+    if (ref) {
+      ref.executeQuick(side);
+    }
+  }, []);
 
   // ── 13. Manual Close Individual Trade ──
   const handleManualClose = async (tradeId?: string) => {
@@ -707,6 +832,8 @@ export default function Backtest() {
 
   // Current market price from latest visible candle
   const currentPrice = candles.length > 0 ? candles[candles.length - 1].close : 0;
+  const buyPriceLabel = currentPrice > 0 ? currentPrice.toFixed(2) : '--.--';
+  const sellPriceLabel = currentPrice > 0 ? Math.max(currentPrice - 0.02, 0).toFixed(2) : '--.--';
   const stats: IBacktestStats = calculateBacktestStats(tradeHistory, initialBalance, activeTrade, currentPrice);
   // Floating PnL for the open position, computed locally (not in BacktestStats).
   const liveFloatingPnl = activeTrade && activeTrade.status === 'OPEN' && currentPrice > 0
@@ -714,12 +841,120 @@ export default function Backtest() {
     : 0;
 
   const [isMobileSheetOpen, setMobileSheetOpen] = useState(false);
-  const [mobileSheetKind, setMobileSheetKind] = useState<'ORDER' | 'TOOLS' | 'STATS' | 'HISTORY'>('ORDER');
+  const [mobileSheetKind, setMobileSheetKind] = useState<'MENU' | 'ORDER' | 'TOOLS' | 'STATS' | 'HISTORY'>('ORDER');
+  const [tradeHitToast, setTradeHitToast] = useState<{ kind: 'TP' | 'SL'; amount: number; rr: number | null } | null>(null);
 
   const openMobileSheet = (kind: typeof mobileSheetKind) => {
     setMobileSheetKind(kind);
     setMobileSheetOpen(true);
   };
+
+  const closeMobileSheet = () => {
+    setMobileSheetOpen(false);
+  };
+
+  const handleMobileBack = () => {
+    console.log('Executing handleMobileBack...', { isMobileSheetOpen, isVisualOrderActive });
+
+    if (isMobileSheetOpen) {
+      closeMobileSheet();
+      return;
+    }
+
+    if (isVisualOrderActive) {
+      setIsVisualOrderActive(false);
+      return;
+    }
+
+    if (window.history.length > 2) {
+      navigate(-1);
+    } else {
+      navigate('/dashboard');
+    }
+  };
+
+  const handleChartOrderOpen = (side: TradeSide) => {
+    setTradeSide(side);
+    setIsVisualOrderActive(false);
+    setPlannedTrade(null);
+    setIsOrderPanelOpen(true);
+    const isMobileViewport = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+    if (isMobileViewport) {
+      openMobileSheet('ORDER');
+    }
+  };
+
+  const handleSubmitVisualOrder = useCallback((tradeParams: {
+    side: TradeSide;
+    entryPrice: number;
+    slPrice: number;
+    tpPrice: number;
+    volume: number;
+    riskAmount: number;
+  }) => {
+    if (activeTrade) {
+      alert('Posisi aktif masih terbuka. Tutup posisi terlebih dahulu sebelum membuka posisi baru.');
+      return;
+    }
+
+    const rrCalc = calculateRR(tradeParams.side, tradeParams.entryPrice, tradeParams.slPrice, tradeParams.tpPrice);
+    const nextPlannedTrade: PlannedOrderPreview = {
+      side: tradeParams.side === 'LONG' ? 'BUY' : 'SELL',
+      entryPrice: tradeParams.entryPrice,
+      slPrice: tradeParams.slPrice,
+      tpPrice: tradeParams.tpPrice,
+      lotSize: tradeParams.volume,
+      riskAmount: tradeParams.riskAmount,
+      targetProfit: rrCalc.isValid ? tradeParams.riskAmount * rrCalc.rr : 0,
+      rrRatio: rrCalc.isValid ? rrCalc.rr : 0,
+    };
+
+    setTradeSide(tradeParams.side);
+    setPlannedTrade(nextPlannedTrade);
+    setIsVisualOrderActive(true);
+    setIsOrderPanelOpen(false);
+    setMobileSheetOpen(false);
+  }, [activeTrade]);
+
+  const handleConfirmVisualOrder = useCallback(async () => {
+    if (!plannedTrade) return;
+
+    if (activeTrade) {
+      alert('Posisi aktif masih terbuka. Tutup posisi terlebih dahulu sebelum membuka posisi baru.');
+      return;
+    }
+
+    await handleOpenTrade({
+      side: plannedTrade.side === 'BUY' ? 'LONG' : 'SHORT',
+      entryPrice: plannedTrade.entryPrice,
+      slPrice: plannedTrade.slPrice,
+      tpPrice: plannedTrade.tpPrice,
+      volume: plannedTrade.lotSize,
+      riskAmount: plannedTrade.riskAmount,
+    });
+
+    setIsVisualOrderActive(false);
+    setPlannedTrade(null);
+    setControlledSlPrice(null);
+    setControlledTpPrice(null);
+  }, [activeTrade, handleOpenTrade, plannedTrade]);
+
+  const handleCancelVisualOrder = useCallback(() => {
+    setIsVisualOrderActive(false);
+    setPlannedTrade(null);
+    setControlledSlPrice(null);
+    setControlledTpPrice(null);
+  }, []);
+
+  useEffect(() => {
+    if (!tradeHitToast) return;
+
+    const timer = window.setTimeout(() => {
+      setTradeHitToast(null);
+    }, 3000);
+
+    return () => window.clearTimeout(timer);
+  }, [tradeHitToast]);
 
   const replayReset = appMode === 'replay' && replayStartTime
     ? () => { void initReplaySession(replayStartTime, timeframe); }
@@ -729,76 +964,59 @@ export default function Backtest() {
   // Chart is the hero. Strip = symbol/TF/mode. Context = position info.
   // Actions = primary buy/sell (or replay controls), secondary in a sheet.
   const mobileTerminal = (
-    <div className={`mobile-terminal md:hidden ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
-      {/* Top strip: symbol / TF / mode. One line, scannable. */}
+    <div className={`mobile-terminal block md:hidden ${isFullscreen ? 'fixed inset-0 z-50 w-full' : 'w-full'} h-[100dvh] flex flex-col overflow-hidden bg-slate-50`}>
+      <button
+        type="button"
+        id="mobile-back-button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log('MOBILE BACK TRIGGERED VIA CLICK');
+          handleMobileBack();
+        }}
+        onTouchStart={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log('MOBILE BACK TRIGGERED VIA TOUCH');
+          handleMobileBack();
+        }}
+        className="fixed top-3 left-3 z-[99999] pointer-events-auto flex items-center justify-center w-10 h-10 rounded-xl border border-slate-300 bg-white shadow-md active:bg-slate-100 active:scale-95 transition-all cursor-pointer"
+        aria-label="Back"
+      >
+        <ChevronLeft className="w-6 h-6 text-slate-800 pointer-events-none" />
+      </button>
+
+      {/* Top strip: compact app-like header for pair / timeframe / mode. */}
       <div className="mobile-terminal-strip">
-        <span className="mobile-tag mobile-tag-accent">{symbol}</span>
-        <select
-          value={timeframe}
-          onChange={(e) => handleTimeframeChange(e.target.value as ChartTimeframe)}
-          aria-label="Timeframe"
-          className="mobile-tag bg-transparent border-0 px-1 py-1 text-[#E6EDF3] font-mono font-semibold"
+        <div className="mobile-terminal-header">
+          <span className="mobile-tag mobile-tag-accent">{symbol}</span>
+          <select
+            value={timeframe}
+            onChange={(e) => handleTimeframeChange(e.target.value as ChartTimeframe)}
+            aria-label="Timeframe"
+            className="mobile-tag mobile-select"
+          >
+            {(['M1','M5','M15','M30','H1','H4','D1'] as ChartTimeframe[]).map(tf => (
+              <option key={tf} value={tf} className="bg-white text-slate-700">{tf}</option>
+            ))}
+          </select>
+          {appMode === 'analysis' && <span className="mobile-tag mobile-tag-profit">ANALYSIS</span>}
+          {appMode === 'selecting' && <span className="mobile-tag mobile-tag-warn">PICK START</span>}
+          {appMode === 'replay' && <span className="mobile-tag mobile-tag-accent">REPLAY</span>}
+          {appMode === 'replay' && replayTime && (
+            <span className="mobile-tag bg-slate-100 text-slate-600 border-slate-200">{format(replayTime, 'MM-dd HH:mm')}</span>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => openMobileSheet('MENU')}
+          className="mobile-icon-btn"
+          aria-label="Open mobile menu"
+          title="Open mobile menu"
         >
-          {(['M1','M5','M15','M30','H1','H4','D1'] as ChartTimeframe[]).map(tf => (
-            <option key={tf} value={tf} className="bg-[#0B0E17] text-[#E6EDF3]">{tf}</option>
-          ))}
-        </select>
-        {appMode === 'analysis' && <span className="mobile-tag mobile-tag-profit">ANALYSIS</span>}
-        {appMode === 'selecting' && <span className="mobile-tag mobile-tag-warn">PICK START</span>}
-        {appMode === 'replay' && <span className="mobile-tag mobile-tag-accent">REPLAY</span>}
-        {appMode === 'replay' && replayTime && (
-          <span className="mobile-tag font-mono">{format(replayTime, 'MM-dd HH:mm')}</span>
-        )}
-        <div className="flex-1" />
-        {/* Only the two actions that matter before replay: start replay or jump. */}
-        {appMode === 'analysis' && (
-          <>
-            <button
-              type="button"
-              onClick={() => setIsJumpDialogOpen(true)}
-              className="mobile-icon-btn"
-              aria-label="Jump to date"
-              title="Jump to date"
-            >
-              <Calendar className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={handleActivateBarReplay}
-              className="mobile-icon-btn"
-              data-active="true"
-              aria-label="Activate chart replay"
-              title="Activate chart replay"
-            >
-              <Video className="w-4 h-4" />
-            </button>
-          </>
-        )}
-        {appMode === 'selecting' && selectionTime && (
-          <span className="mobile-tag mobile-tag-warn font-mono">{format(selectionTime, 'HH:mm')}</span>
-        )}
-        {appMode === 'replay' && (
-          <>
-            <button
-              type="button"
-              onClick={() => openMobileSheet('STATS')}
-              className="mobile-icon-btn"
-              aria-label="Session stats"
-              title="Session stats"
-            >
-              <Activity className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => openMobileSheet('HISTORY')}
-              className="mobile-icon-btn"
-              aria-label="Trade history"
-              title="Trade history"
-            >
-              <History className="w-4 h-4" />
-            </button>
-          </>
-        )}
+          <Menu className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Error / hint as a thin strip, not a card. */}
@@ -816,7 +1034,45 @@ export default function Backtest() {
       )}
 
       {/* Chart: edge-to-edge, the largest element on the viewport. */}
-      <div className="mobile-terminal-chart relative">
+      <div className="mobile-terminal-chart relative w-full h-full overflow-hidden">
+        <button
+          type="button"
+          onClick={() => openMobileSheet('TOOLS')}
+          className="mobile-icon-btn absolute bottom-4 left-3 z-20 shadow-sm"
+          data-active={activeTool !== 'cursor'}
+          aria-label="Open drawing tools"
+          title="Drawing tools"
+        >
+          <MousePointer2 className="w-4 h-4" />
+        </button>
+
+        <div className="absolute top-2 right-2 z-50 pointer-events-auto flex items-center gap-1.5 bg-white/90 backdrop-blur-md p-1 rounded-lg border border-slate-200 shadow-sm">
+          <button
+            type="button"
+            onClick={() => handleChartOrderOpen('LONG')}
+            disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
+            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-mono text-[10px] font-bold px-3 py-1.5 rounded-md transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:bg-emerald-300"
+            aria-label={`Buy at ${buyPriceLabel}`}
+          >
+            <span className="flex items-center gap-1">
+              <span>BUY</span>
+              <span className="opacity-80">{buyPriceLabel}</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleChartOrderOpen('SHORT')}
+            disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
+            className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-mono text-[10px] font-bold px-3 py-1.5 rounded-md transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:bg-rose-300"
+            aria-label={`Sell at ${sellPriceLabel}`}
+          >
+            <span className="flex items-center gap-1">
+              <span>SELL</span>
+              <span className="opacity-80">{sellPriceLabel}</span>
+            </span>
+          </button>
+        </div>
+
         <CandlestickChart
           candles={candles}
           timeframe={timeframe}
@@ -852,25 +1108,37 @@ export default function Backtest() {
           plannedOrder={plannedTrade}
           onPlannedOrderChange={handlePlannedOrderChange}
           onExecutePlannedTrade={handleExecutePlannedTrade}
+          isVisualOrderActive={isVisualOrderActive}
+          onConfirmVisualOrder={handleConfirmVisualOrder}
+          onCancelVisualOrder={handleCancelVisualOrder}
         />
       </div>
 
-      {/* Context line: current price + position info, directly under chart. */}
-      <div className="mobile-terminal-context flex items-center gap-3 text-[11px] font-mono">
-        <span className="text-[#F0C020] font-bold text-base">{currentPrice > 0 ? currentPrice.toFixed(2) : '--.--'}</span>
-        <span className="text-[#717182]">Bal ${balance.toFixed(0)}</span>
+      {/* Context line: compact price + balance + active trade info. */}
+      <div className="mobile-terminal-context">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Price</span>
+          <span className="text-base font-number font-bold text-amber-600">{currentPrice > 0 ? currentPrice.toFixed(2) : '--.--'}</span>
+        </div>
+
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Balance</span>
+          <span className="text-xs font-number font-semibold text-slate-700">${balance.toFixed(0)}</span>
+        </div>
+
         <div className="flex-1" />
+
         {activeTrade ? (
           <>
             <span className={`mobile-tag ${activeTrade.side === 'LONG' ? 'mobile-tag-profit' : 'mobile-tag-loss'}`}>
               {activeTrade.side === 'LONG' ? 'LONG' : 'SHORT'} {activeTrade.volume.toFixed(2)}L
             </span>
-            <span className={`font-bold ${liveFloatingPnl >= 0 ? 'text-[#34D399]' : 'text-[#F87171]'}`}>
+            <span className={`text-xs font-number font-bold ${liveFloatingPnl >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
               {liveFloatingPnl >= 0 ? '+' : ''}{liveFloatingPnl.toFixed(2)}
             </span>
           </>
         ) : (
-          <span className="text-[#717182]">No position</span>
+          <span className="text-xs font-semibold text-slate-500">Flat</span>
         )}
       </div>
 
@@ -901,7 +1169,7 @@ export default function Backtest() {
             <div className="flex-1" />
             <button
               type="button"
-              onClick={() => setIsFullscreen(!isFullscreen)}
+              onClick={handleToggleFullscreen}
               className="mobile-icon-btn"
               aria-label="Fullscreen"
               title="Fullscreen"
@@ -923,7 +1191,7 @@ export default function Backtest() {
           </button>
         )}
 
-        {/* Replay: step / play / speed are the primary actions. */}
+        {/* Replay: compact playback controls only. Buy/Sell now live on the chart overlay. */}
         {appMode === 'replay' && (
           <>
             <button
@@ -940,12 +1208,11 @@ export default function Backtest() {
               type="button"
               onClick={() => setIsPlaying((prev) => !prev)}
               disabled={loading}
-              className="mobile-action-buy"
-              style={{ flex: 2, background: isPlaying ? '#F0C020' : '#059669', color: isPlaying ? '#0B0E17' : '#FFFFFF' }}
+              className="mobile-icon-btn"
+              style={{ minWidth: 44, background: isPlaying ? '#fef3c7' : '#e2e8f0' }}
               aria-label={isPlaying ? 'Pause' : 'Play'}
             >
-              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-              {isPlaying ? 'Pause' : 'Play'}
+              {isPlaying ? <Pause className="w-4 h-4 text-amber-700" /> : <Play className="w-4 h-4 text-slate-700" />}
             </button>
             <button
               type="button"
@@ -957,25 +1224,17 @@ export default function Backtest() {
             >
               <ChevronRight className="w-5 h-5" />
             </button>
+
+            <div className="flex-1" />
+
             <button
               type="button"
               onClick={() => openMobileSheet('ORDER')}
               className="mobile-icon-btn"
-              data-active={isOrderPanelOpen}
-              aria-label="Order panel"
-              title="Order panel"
+              aria-label="Order settings"
+              title="SL / TP / Risk"
             >
-              <PanelRightOpen className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => openMobileSheet('TOOLS')}
-              className="mobile-icon-btn"
-              data-active={activeTool !== 'cursor'}
-              aria-label="Drawing tools"
-              title="Drawing tools"
-            >
-              <MousePointer2 className="w-4 h-4" />
+              <SlidersHorizontal className="w-4 h-4" />
             </button>
           </>
         )}
@@ -992,7 +1251,8 @@ export default function Backtest() {
           <div className="mobile-sheet" role="dialog" aria-modal="true" aria-label="Contextual controls">
             <div className="mobile-sheet-handle" />
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#9DB4FF]">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                {mobileSheetKind === 'MENU' && 'Menu'}
                 {mobileSheetKind === 'ORDER' && 'Order'}
                 {mobileSheetKind === 'TOOLS' && 'Drawing Tools'}
                 {mobileSheetKind === 'STATS' && 'Session Stats'}
@@ -1009,8 +1269,115 @@ export default function Backtest() {
               </button>
             </div>
 
+            {mobileSheetKind === 'MENU' && (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileSheetOpen(false);
+                    setIsJumpDialogOpen(true);
+                  }}
+                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-700"
+                >
+                  <span>Jump to date</span>
+                  <Calendar className="w-4 h-4 text-slate-500" />
+                </button>
+
+                {appMode === 'analysis' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileSheetOpen(false);
+                      handleActivateBarReplay();
+                    }}
+                    className="w-full flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-left text-sm font-semibold text-blue-700"
+                  >
+                    <span>Activate Chart Replay</span>
+                    <Video className="w-4 h-4" />
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileSheetOpen(false);
+                    openMobileSheet('ORDER');
+                  }}
+                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-700"
+                >
+                  <span>Order entry</span>
+                  <PanelRightOpen className="w-4 h-4 text-slate-500" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileSheetOpen(false);
+                    openMobileSheet('TOOLS');
+                  }}
+                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-700"
+                >
+                  <span>Drawing tools</span>
+                  <MousePointer2 className="w-4 h-4 text-slate-500" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileSheetOpen(false);
+                    openMobileSheet('STATS');
+                  }}
+                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-700"
+                >
+                  <span>Session stats</span>
+                  <Activity className="w-4 h-4 text-slate-500" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileSheetOpen(false);
+                    openMobileSheet('HISTORY');
+                  }}
+                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-700"
+                >
+                  <span>Trade history</span>
+                  <History className="w-4 h-4 text-slate-500" />
+                </button>
+
+                {appMode === 'replay' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileSheetOpen(false);
+                      handleOpenDashboard();
+                    }}
+                    className="w-full flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 text-left text-sm font-semibold text-indigo-700"
+                  >
+                    <span>Open dashboard</span>
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                )}
+
+                {appMode === 'replay' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileSheetOpen(false);
+                      handleExitReplay();
+                    }}
+                    className="w-full flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-left text-sm font-semibold text-rose-700"
+                  >
+                    <span>Exit replay</span>
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
+
             {mobileSheetKind === 'ORDER' && (
               <OrderPanel
+                ref={mobileOrderPanelRef}
                 symbol={symbol}
                 currentPrice={currentPrice}
                 balance={balance}
@@ -1019,11 +1386,13 @@ export default function Backtest() {
                 activeTrade={activeTrade}
                 onOpenTrade={handleOpenTrade}
                 onCloseTrade={handleManualClose}
+                selectedSideOverride={tradeSide}
                 intrabarWarning={intrabarWarning}
                 isSubmitting={isSubmittingTrade}
                 appMode={appMode}
                 onActivateReplay={handleActivateBarReplay}
                 onPlannedTradeChange={setPlannedTrade}
+                onVisualOrderSubmit={handleSubmitVisualOrder}
                 controlledSlPrice={controlledSlPrice}
                 controlledTpPrice={controlledTpPrice}
               />
@@ -1069,223 +1438,276 @@ export default function Backtest() {
   // Adapted from the mobile terminal: same components, but side-by-side.
   // Mobile is the source of truth; desktop reuses it on a wider canvas.
   const desktopWorkspace = (
-    <div className={`hidden md:flex w-full min-w-0 max-w-full overflow-x-hidden flex-col gap-2 select-none ${
-      isFullscreen ? 'fixed inset-0 z-50 bg-[#0B0E17] p-2 h-screen' : 'h-[calc(100vh-62px)] lg:h-[calc(100vh-58px)] pb-1'
-    }`}>
-      <ReplayControls
-        appMode={appMode}
-        isPlaying={isPlaying}
-        onPlayToggle={() => setIsPlaying((prev) => !prev)}
-        onStepForward={stepForward}
-        onStepBack={stepBack}
-        onReset={replayReset ?? (() => {})}
-        speed={speed}
-        onSpeedChange={setSpeed}
-        timeframe={timeframe}
-        onTimeframeChange={handleTimeframeChange}
-        symbol={symbol}
-        onSymbolChange={handleSymbolChange}
-        availableSymbols={availableSymbols}
-        replayTime={replayTime}
-        candleCount={candles.length}
-        followReplay={followReplay}
-        onToggleFollowReplay={() => setFollowReplay((prev) => !prev)}
-        onJumpToCurrent={handleJumpToCurrent}
-        onOpenJumpDialog={() => setIsJumpDialogOpen(true)}
-        onRandomStart={handleRandomStart}
-        onActivateBarReplay={handleActivateBarReplay}
-        onExitReplay={handleExitReplay}
-        onOpenDashboard={handleOpenDashboard}
-        isSyncingDashboard={isSyncingDashboard}
-        isFullscreen={isFullscreen}
-        onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
-        isOrderPanelOpen={isOrderPanelOpen}
-        onToggleOrderPanel={() => setIsOrderPanelOpen(!isOrderPanelOpen)}
-        loading={loading}
-        selectionTime={selectionTime}
-      />
-
-      {error && (
-        <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2 text-xs text-rose-300 flex items-center gap-2 shrink-0">
-          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-          <span>{error}</span>
+    <div className="hidden md:flex h-screen w-screen overflow-hidden bg-slate-900 text-slate-100">
+      <aside className="w-56 flex-shrink-0 border-r border-slate-800 bg-slate-950 h-full overflow-y-auto" aria-label="Backtest sidebar">
+        <div className="flex h-full flex-col gap-3 p-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (window.history.length > 2) {
+                navigate(-1);
+              } else {
+                navigate('/dashboard');
+              }
+            }}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 active:scale-[0.99]"
+            aria-label="Back"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            Back
+          </button>
         </div>
-      )}
+      </aside>
 
-      {appMode === 'selecting' && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-xs text-amber-200 flex items-center gap-2 shrink-0 animate-pulse">
-          <Video className="w-4 h-4 text-amber-400 shrink-0" />
-          <span>
-            <strong>Chart Replay:</strong> Klik candle manapun untuk memulai replay. Candle setelahnya disembunyikan.
-          </span>
-        </div>
-      )}
-
-      <div className="flex items-stretch gap-2 relative flex-1 min-h-0 min-w-0 max-w-full overflow-hidden">
-        <DrawingToolbar
-          activeTool={activeTool}
-          onToolChange={setActiveTool}
-          onDeleteSelected={handleDeleteSelectedDrawing}
-          onDeleteAll={handleDeleteAllDrawings}
-          hasSelectedDrawing={Boolean(selectedDrawingId)}
-          hasDrawings={drawings.length > 0}
-          lockRR={lockRR}
-          onToggleLockRR={() => setLockRR(!lockRR)}
+      <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-slate-900">
+        <ReplayControls
+          appMode={appMode}
+          isPlaying={isPlaying}
+          onPlayToggle={() => setIsPlaying((prev) => !prev)}
+          onStepForward={stepForward}
+          onStepBack={stepBack}
+          onReset={replayReset ?? (() => {})}
+          speed={speed}
+          onSpeedChange={setSpeed}
+          timeframe={timeframe}
+          onTimeframeChange={handleTimeframeChange}
+          symbol={symbol}
+          onSymbolChange={handleSymbolChange}
+          availableSymbols={availableSymbols}
+          replayTime={replayTime}
+          candleCount={candles.length}
+          followReplay={followReplay}
+          onToggleFollowReplay={() => setFollowReplay((prev) => !prev)}
+          onJumpToCurrent={handleJumpToCurrent}
+          onOpenJumpDialog={() => setIsJumpDialogOpen(true)}
+          onRandomStart={handleRandomStart}
+          onActivateBarReplay={handleActivateBarReplay}
+          onExitReplay={handleExitReplay}
+          onOpenDashboard={handleOpenDashboard}
+          isSyncingDashboard={isSyncingDashboard}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
+          isOrderPanelOpen={isOrderPanelOpen}
+          onToggleOrderPanel={() => setIsOrderPanelOpen(!isOrderPanelOpen)}
+          loading={loading}
+          selectionTime={selectionTime}
         />
 
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col relative h-full">
-          <CandlestickChart
-            candles={candles}
-            timeframe={timeframe}
-            symbol={symbol}
-            appMode={appMode}
-            activeTrade={
-              activeTrade
-                ? {
-                    side: activeTrade.side,
-                    entryPrice: activeTrade.entryPrice,
-                    slPrice: activeTrade.slPrice,
-                    tpPrice: activeTrade.tpPrice,
-                    volume: activeTrade.volume,
-                  }
-                : null
-            }
-            indicators={indicators}
-            onIndicatorsChange={setIndicators}
-            activeTool={activeTool}
-            onToolChange={setActiveTool}
-            drawings={drawings}
-            onDrawingsChange={handleDrawingsChange}
-            selectedDrawingId={selectedDrawingId}
-            onSelectDrawing={setSelectedDrawingId}
-            onReplaySelectionClick={handleConfirmReplayStart}
-            onSelectionTimeChange={setSelectionTime}
-            onLoadOlderCandles={handleLoadOlderCandles}
-            onLoadNewerCandles={handleLoadNewerCandles}
-            followReplay={followReplay}
-            onDisableFollowReplay={() => setFollowReplay(false)}
-            lockRR={lockRR}
-            isFullscreen={isFullscreen}
-            plannedOrder={plannedTrade}
-            onPlannedOrderChange={handlePlannedOrderChange}
-            onExecutePlannedTrade={handleExecutePlannedTrade}
-          />
-        </div>
-
-        {isOrderPanelOpen && (
-          <div className="hidden md:block md:w-80 md:shrink-0 md:h-full md:rounded-xl md:overflow-hidden">
-            <OrderPanel
-              symbol={symbol}
-              currentPrice={currentPrice}
-              balance={balance}
-              riskPercent={riskPercent}
-              onRiskPercentChange={setRiskPercent}
-              activeTrade={activeTrade}
-              onOpenTrade={handleOpenTrade}
-              onCloseTrade={handleManualClose}
-              intrabarWarning={intrabarWarning}
-              isSubmitting={isSubmittingTrade}
-              appMode={appMode}
-              onActivateReplay={handleActivateBarReplay}
-              onPlannedTradeChange={setPlannedTrade}
-              controlledSlPrice={controlledSlPrice}
-              controlledTpPrice={controlledTpPrice}
-            />
+        {error && (
+          <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2 text-xs text-rose-300 flex items-center gap-2 shrink-0">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{error}</span>
           </div>
         )}
-      </div>
 
-      <ReplayTimeline
-        dateFrom={timelineBounds.dateFrom}
-        dateTo={timelineBounds.dateTo}
-        currentReplayTime={replayTime || timelineBounds.dateTo}
-        onSeek={(targetDate) => {
-          if (appMode === 'replay') {
-            initReplaySession(targetDate, timeframe);
-          } else {
-            setIsJumpDialogOpen(false);
-          }
-        }}
-        disabled={loading}
-      />
+        {appMode === 'selecting' && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-xs text-amber-200 flex items-center gap-2 shrink-0 animate-pulse">
+            <Video className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              <strong>Chart Replay:</strong> Klik candle manapun untuk memulai replay. Candle setelahnya disembunyikan.
+            </span>
+          </div>
+        )}
 
-      {appMode === 'replay' && (
-        <div className="bg-[#121622] border border-slate-800 rounded-xl overflow-hidden shadow-lg shrink-0 text-slate-200">
-          <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900/90 border-b border-slate-800 text-xs">
-            <div className="flex items-center gap-2">
+        <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+          <DrawingToolbar
+            activeTool={activeTool}
+            onToolChange={setActiveTool}
+            onDeleteSelected={handleDeleteSelectedDrawing}
+            onDeleteAll={handleDeleteAllDrawings}
+            hasSelectedDrawing={Boolean(selectedDrawingId)}
+            hasDrawings={drawings.length > 0}
+            lockRR={lockRR}
+            onToggleLockRR={() => setLockRR(!lockRR)}
+          />
+
+          <div className="relative flex-1 min-w-0 h-full overflow-hidden">
+            <div className="absolute top-2 right-2 z-50 pointer-events-auto flex items-center gap-1.5 bg-white/90 backdrop-blur-md p-1 rounded-lg border border-slate-200 shadow-sm">
               <button
-                onClick={() => setBottomDrawerTab(bottomDrawerTab === 'STATS' ? 'NONE' : 'STATS')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold tracking-wider transition-colors ${
-                  bottomDrawerTab === 'STATS'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                }`}
+                type="button"
+                onClick={() => handleChartOrderOpen('LONG')}
+                disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
+                className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-mono text-[10px] font-bold px-3 py-1.5 rounded-md transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:bg-emerald-300"
+                aria-label={`Buy at ${buyPriceLabel}`}
               >
-                <Activity className="w-3.5 h-3.5" />
-                <span>Statistik Sesi</span>
-                <span className="font-mono text-[11px] opacity-90">
-                  (${stats.currentBalance.toFixed(0)} • {stats.winRate.toFixed(0)}% WR)
+                <span className="flex items-center gap-1">
+                  <span>BUY</span>
+                  <span className="opacity-80">{buyPriceLabel}</span>
                 </span>
               </button>
-
               <button
-                onClick={() => setBottomDrawerTab(bottomDrawerTab === 'HISTORY' ? 'NONE' : 'HISTORY')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold tracking-wider transition-colors ${
-                  bottomDrawerTab === 'HISTORY'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                }`}
+                type="button"
+                onClick={() => handleChartOrderOpen('SHORT')}
+                disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
+                className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-mono text-[10px] font-bold px-3 py-1.5 rounded-md transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:bg-rose-300"
+                aria-label={`Sell at ${sellPriceLabel}`}
               >
-                <History className="w-3.5 h-3.5" />
-                <span>Riwayat Trade ({tradeHistory.length})</span>
+                <span className="flex items-center gap-1">
+                  <span>SELL</span>
+                  <span className="opacity-80">{sellPriceLabel}</span>
+                </span>
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleOpenDashboard}
-                disabled={isSyncingDashboard}
-                title="Buka sesi ini di Dashboard utama"
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 transition-colors disabled:opacity-50"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>{isSyncingDashboard ? 'Sinkronisasi...' : 'Buka di Dashboard'}</span>
-              </button>
-
-              <button
-                onClick={() => setBottomDrawerTab(bottomDrawerTab === 'NONE' ? 'STATS' : 'NONE')}
-                className="p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors"
-                aria-label="Toggle bottom drawer"
-              >
-                {bottomDrawerTab === 'NONE' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </button>
-            </div>
+            <CandlestickChart
+              candles={candles}
+              timeframe={timeframe}
+              symbol={symbol}
+              appMode={appMode}
+              activeTrade={
+                activeTrade
+                  ? {
+                      side: activeTrade.side,
+                      entryPrice: activeTrade.entryPrice,
+                      slPrice: activeTrade.slPrice,
+                      tpPrice: activeTrade.tpPrice,
+                      volume: activeTrade.volume,
+                    }
+                  : null
+              }
+              indicators={indicators}
+              onIndicatorsChange={setIndicators}
+              activeTool={activeTool}
+              onToolChange={setActiveTool}
+              drawings={drawings}
+              onDrawingsChange={handleDrawingsChange}
+              selectedDrawingId={selectedDrawingId}
+              onSelectDrawing={setSelectedDrawingId}
+              onReplaySelectionClick={handleConfirmReplayStart}
+              onSelectionTimeChange={setSelectionTime}
+              onLoadOlderCandles={handleLoadOlderCandles}
+              onLoadNewerCandles={handleLoadNewerCandles}
+              followReplay={followReplay}
+              onDisableFollowReplay={() => setFollowReplay(false)}
+              lockRR={lockRR}
+              isFullscreen={isFullscreen}
+              plannedOrder={plannedTrade}
+              onPlannedOrderChange={handlePlannedOrderChange}
+              onExecutePlannedTrade={handleExecutePlannedTrade}
+              isVisualOrderActive={isVisualOrderActive}
+              onConfirmVisualOrder={handleConfirmVisualOrder}
+              onCancelVisualOrder={handleCancelVisualOrder}
+            />
           </div>
-
-          {bottomDrawerTab === 'STATS' && (
-            <div className="p-3 max-h-48 overflow-y-auto">
-              <BacktestStats stats={stats} />
-            </div>
-          )}
-
-          {bottomDrawerTab === 'HISTORY' && (
-            <div className="p-3 max-h-48 overflow-y-auto">
-              <TradeHistory trades={tradeHistory} />
-            </div>
-          )}
         </div>
-      )}
 
-      <JumpToDateDialog
-        isOpen={isJumpDialogOpen}
-        onClose={() => setIsJumpDialogOpen(false)}
-        onJump={(targetDate) => {
-          setAppMode('replay');
-          initReplaySession(targetDate, timeframe);
-        }}
-        onRandomStart={handleRandomStart}
-        currentReplayTime={replayTime || new Date()}
-      />
+        <ReplayTimeline
+          dateFrom={timelineBounds.dateFrom}
+          dateTo={timelineBounds.dateTo}
+          currentReplayTime={replayTime || timelineBounds.dateTo}
+          onSeek={(targetDate) => {
+            if (appMode === 'replay') {
+              initReplaySession(targetDate, timeframe);
+            } else {
+              setIsJumpDialogOpen(false);
+            }
+          }}
+          disabled={loading}
+        />
+
+        {appMode === 'replay' && (
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm shrink-0 text-slate-800">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-50 border-b border-slate-200 text-xs">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setBottomDrawerTab(bottomDrawerTab === 'STATS' ? 'NONE' : 'STATS')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold tracking-wider transition-colors ${
+                    bottomDrawerTab === 'STATS'
+                      ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                      : 'bg-slate-100 text-slate-600 hover:text-slate-800 hover:bg-slate-200'
+                  }`}
+                >
+                  <Activity className="w-3.5 h-3.5" />
+                  <span>Statistik Sesi</span>
+                  <span className="font-mono text-[11px] opacity-90">
+                    (${stats.currentBalance.toFixed(0)} • {stats.winRate.toFixed(0)}% WR)
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setBottomDrawerTab(bottomDrawerTab === 'HISTORY' ? 'NONE' : 'HISTORY')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold tracking-wider transition-colors ${
+                    bottomDrawerTab === 'HISTORY'
+                      ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                      : 'bg-slate-100 text-slate-600 hover:text-slate-800 hover:bg-slate-200'
+                  }`}
+                >
+                  <History className="w-3.5 h-3.5" />
+                  <span>Riwayat Trade ({tradeHistory.length})</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleOpenDashboard}
+                  disabled={isSyncingDashboard}
+                  title="Buka sesi ini di Dashboard utama"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors disabled:opacity-50"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>{isSyncingDashboard ? 'Sinkronisasi...' : 'Buka di Dashboard'}</span>
+                </button>
+
+                <button
+                  onClick={() => setBottomDrawerTab(bottomDrawerTab === 'NONE' ? 'STATS' : 'NONE')}
+                  className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded transition-colors"
+                  aria-label="Toggle bottom drawer"
+                >
+                  {bottomDrawerTab === 'NONE' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {bottomDrawerTab === 'STATS' && (
+              <div className="p-3 max-h-48 overflow-y-auto">
+                <BacktestStats stats={stats} />
+              </div>
+            )}
+
+            {bottomDrawerTab === 'HISTORY' && (
+              <div className="p-3 max-h-48 overflow-y-auto">
+                <TradeHistory trades={tradeHistory} />
+              </div>
+            )}
+          </div>
+        )}
+
+        <JumpToDateDialog
+          isOpen={isJumpDialogOpen}
+          onClose={() => setIsJumpDialogOpen(false)}
+          onJump={(targetDate) => {
+            setAppMode('replay');
+            initReplaySession(targetDate, timeframe);
+          }}
+          onRandomStart={handleRandomStart}
+          currentReplayTime={replayTime || new Date()}
+        />
+      </main>
+
+      {isOrderPanelOpen && (
+        <aside className="w-72 lg:w-80 flex-shrink-0 border-l border-slate-800 bg-slate-950 flex flex-col h-full overflow-y-auto z-20">
+          <OrderPanel
+            ref={orderPanelRef}
+            symbol={symbol}
+            currentPrice={currentPrice}
+            balance={balance}
+            riskPercent={riskPercent}
+            onRiskPercentChange={setRiskPercent}
+            activeTrade={activeTrade}
+            onOpenTrade={handleOpenTrade}
+            onCloseTrade={handleManualClose}
+            selectedSideOverride={tradeSide}
+            intrabarWarning={intrabarWarning}
+            isSubmitting={isSubmittingTrade}
+            appMode={appMode}
+            onActivateReplay={handleActivateBarReplay}
+            onPlannedTradeChange={setPlannedTrade}
+            onVisualOrderSubmit={handleSubmitVisualOrder}
+            controlledSlPrice={controlledSlPrice}
+            controlledTpPrice={controlledTpPrice}
+          />
+        </aside>
+      )}
     </div>
   );
 
@@ -1293,6 +1715,34 @@ export default function Backtest() {
     <>
       {mobileTerminal}
       {desktopWorkspace}
+
+      {tradeHitToast && (
+        <div className="pointer-events-none fixed inset-x-0 top-5 z-[70] flex justify-center px-4">
+          <div
+            className={`pointer-events-auto w-full max-w-md rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur-sm transition-all duration-300 ${
+              tradeHitToast.kind === 'TP'
+                ? 'border-emerald-300 bg-emerald-500/95 text-white'
+                : 'border-rose-300 bg-rose-500/95 text-white'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">{tradeHitToast.kind === 'TP' ? '🎉' : '🛡️'}</span>
+                <div>
+                  <div className="text-sm font-bold leading-none">
+                    {tradeHitToast.kind === 'TP' ? 'Take Profit Hit!' : 'Stop Loss Hit'}
+                  </div>
+                  <div className="mt-1 text-xs opacity-90">
+                    {tradeHitToast.kind === 'TP'
+                      ? `+$${Math.abs(tradeHitToast.amount).toFixed(2)} (+${Math.abs(tradeHitToast.rr ?? 1).toFixed(1)}R)`
+                      : `-$${Math.abs(tradeHitToast.amount).toFixed(2)} (-${Math.abs(tradeHitToast.rr ?? 1).toFixed(1)}R)`}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

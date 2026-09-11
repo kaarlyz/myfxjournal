@@ -91,21 +91,23 @@ export async function runTradingViewReplayAudit() {
   assert('SHORT WIN intended 1:0.5 SL = entry + 2*tpDist', inferredSLShort === 110, inferredSLShort);
 
   // --------------------------------------------------------------------------
-  // TEST 6: Rollover Missing Market Data Detection
+  // TEST 6: Weekend Gap (Forex Market Closed) = MISSING_MARKET_DATA
+  // Zero-duration trade on Saturday 2025-08-09 — confirmed 0 ticks in parquet.
+  // Zero-duration queryEndTime = entry + 1min → window stays strictly in Saturday.
   // --------------------------------------------------------------------------
   console.log('\n--- Test 6: Rollover Missing Market Data Detection ---');
   const rolloverTrade = {
     id: 'test-rollover',
     symbol: 'XAUUSD',
     side: 'SHORT',
-    entryPrice: 3349.147,
-    exitPrice: 3353.467,
-    entryTime: new Date('2025-08-12T00:29:00.000Z'),
-    exitTime: new Date('2025-08-12T00:34:00.000Z'),
+    entryPrice: 3320.0,
+    exitPrice: 3320.0,
+    entryTime: new Date('2025-08-09T10:00:00.000Z'),
+    exitTime: new Date('2025-08-09T10:00:00.000Z'),
     result: 'LOSS',
   };
   const resRollover = await marketAnalytics.runTradeReplayPipeline(rolloverTrade, 0.5, '2.0.0', 'DUKASCOPY', 'M1');
-  assert('Rollover gap returns MISSING_MARKET_DATA', resRollover.status === 'MISSING_MARKET_DATA', resRollover.status);
+  assert('Weekend gap (Saturday zero-duration) returns MISSING_MARKET_DATA', resRollover.status === 'MISSING_MARKET_DATA', resRollover.status);
 
   // --------------------------------------------------------------------------
   // TEST 7: Intrabar Ambiguity / Conservative SL Hit

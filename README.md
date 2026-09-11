@@ -191,6 +191,10 @@ Buat file `server/.env` untuk mengaktifkan integrasi eksternal:
 # Server port (default: 5000)
 PORT=5000
 
+#database
+DATABASE_URL="file:./dev.db"
+
+
 # Telegram Bot (opsional — dari @BotFather)
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 
@@ -198,6 +202,28 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 TWILIO_ACCOUNT_SID=your_sid
 TWILIO_AUTH_TOKEN=your_token
 TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
+```
+
+### 4. Market Data CSV untuk Chart
+
+Jalur chart juga dapat membaca CSV tick dan mengubahnya menjadi candle secara otomatis. Simpan file di folder berikut:
+
+```text
+server/data/market-data/XAUUSD_ticks.csv
+```
+
+Format kolom tick yang didukung: `Date,Time,Bid,Ask,Last,Volume` atau `Timestamp,Price,Volume`. Chart mengelompokkan tick menjadi candle sesuai timeframe yang dipilih.
+
+CSV candle Dukascopy tetap dapat di-import ke database dengan format `Date,Time,Open,High,Low,Close,Volume`. Jalankan importer dari folder `server`:
+
+```bash
+npx ts-node src/scripts/importDukascopy.ts
+```
+
+Untuk symbol lain, gunakan nama file sesuai symbol atau berikan path CSV secara langsung:
+
+```bash
+npx ts-node src/scripts/importDukascopy.ts data/market-data/EURUSD_M1.csv EURUSD
 ```
 
 > **Tanpa `.env`** aplikasi tetap berjalan normal. Hanya fitur Telegram dan WhatsApp yang membutuhkan konfigurasi ini.

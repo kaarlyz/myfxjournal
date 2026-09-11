@@ -112,10 +112,10 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
       {/* Brand */}
       <div
         className="px-5 py-5 flex-shrink-0"
-        style={{ borderBottom: '2px solid #121212' }}
+        style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.7)' }}
       >
         <BrandLogo size={50} compact className="text-left" />
-        <div className="mt-3 rounded border border-[#121212]/10 bg-[#F0F0F0] px-3 py-2">
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
           <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#717182]">{t('welcome')}</p>
           <p className="mt-1 text-sm font-semibold text-[#121212]">{greeting}</p>
         </div>
@@ -172,7 +172,7 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
       {/* ── Active Session Productivity Widget ── */}
       <div
         className="px-3 py-4 flex-shrink-0"
-        style={{ borderTop: '2px solid #121212' }}
+        style={{ borderTop: '1px solid rgba(148, 163, 184, 0.7)' }}
       >
         {/* Session Switcher Header */}
         <div className="flex items-center gap-2 px-3 mb-3">
@@ -195,7 +195,7 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
         {sessions.length > 0 ? (
           <div className="px-1 mb-3">
             <select
-              className="w-full text-xs font-bold text-[#121212] bg-[#F0F0F0] border-2 border-[#121212] px-2 py-2 outline-none cursor-pointer hover:bg-[#E5E5E5] transition-colors truncate"
+              className="w-full text-xs font-bold text-[#121212] bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 outline-none cursor-pointer hover:bg-slate-100 transition-colors truncate"
               style={{ fontFamily: 'Outfit, sans-serif' }}
               value={activeSessionId || ''}
               onChange={(e) => selectSession(e.target.value || null)}
@@ -220,8 +220,8 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
           <div className="px-1 space-y-2">
             {/* Session name + total PnL */}
             <div
-              className="p-2.5 border-2 border-[#121212]"
-              style={{ background: '#121212' }}
+              className="p-2.5 rounded-xl border border-slate-700"
+              style={{ background: '#0F172A' }}
             >
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[9px] font-extrabold uppercase tracking-widest text-white/50" style={{ fontFamily: 'Outfit' }}>
@@ -247,7 +247,7 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
 
             {/* Today + Streak row */}
             <div className="grid grid-cols-2 gap-2">
-              <div className="p-2 border-2 border-[#121212] bg-[#F0F0F0]">
+              <div className="p-2 rounded-lg border border-slate-200 bg-slate-50">
                 <span className="block text-[8px] font-extrabold uppercase tracking-widest text-[#717182]" style={{ fontFamily: 'Outfit' }}>
                   {t('today')}
                 </span>
@@ -262,7 +262,7 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
                 </span>
               </div>
 
-              <div className="p-2 border-2 border-[#121212] bg-[#F0F0F0]">
+              <div className="p-2 rounded-lg border border-slate-200 bg-slate-50">
                 <span className="block text-[8px] font-extrabold uppercase tracking-widest text-[#717182]" style={{ fontFamily: 'Outfit' }}>
                   {t('streak')}
                 </span>
@@ -286,7 +286,7 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
               <NavLink
                 to="/dashboard"
                 onClick={() => setMobileOpen(false)}
-                className="flex-1 text-center py-1.5 text-[8px] font-extrabold uppercase tracking-widest border-2 border-[#121212] bg-white hover:bg-[#F0F0F0] transition-colors text-[#121212]"
+                className="flex-1 text-center py-1.5 text-[8px] font-extrabold uppercase tracking-widest border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-[#121212] rounded-lg"
                 style={{ fontFamily: 'Outfit' }}
               >
                 {t('analytics_btn')}
@@ -294,7 +294,7 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
               <NavLink
                 to="/prop-sim"
                 onClick={() => setMobileOpen(false)}
-                className="flex-1 text-center py-1.5 text-[8px] font-extrabold uppercase tracking-widest border-2 border-[#121212] bg-white hover:bg-[#F0F0F0] transition-colors text-[#121212]"
+                className="flex-1 text-center py-1.5 text-[8px] font-extrabold uppercase tracking-widest border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-[#121212] rounded-lg"
                 style={{ fontFamily: 'Outfit' }}
               >
                 {t('prop_sim_btn')}
@@ -307,7 +307,7 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
       {/* Footer */}
       <div
         className="px-5 py-3 flex-shrink-0 flex flex-col gap-2"
-        style={{ borderTop: '2px solid #121212', background: '#F0F0F0' }}
+        style={{ borderTop: '1px solid rgba(148, 163, 184, 0.7)', background: '#F8FAFC' }}
       >
         <LanguageSwitcher compact />
         <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 600, color: '#717182' }}>
@@ -347,8 +347,8 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ duration: 0.28, ease: [0.32, 0, 0.16, 1] }}
-              className="fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-white overflow-y-auto md:hidden"
-              style={{ borderRight: '4px solid #121212' }}
+              className="fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-white overflow-y-auto md:hidden shadow-xl"
+              style={{ borderRight: '1px solid rgba(148, 163, 184, 0.7)' }}
               aria-label="Mobile navigation sidebar"
             >
               {sidebarContent}

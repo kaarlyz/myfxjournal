@@ -4,7 +4,7 @@
   "description": "Backend engine for ReplayFX Journal",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "cd \"$(dirname \"$npm_package_json\")\" && ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",    
     "build": "tsc",
     "start": "node dist/index.js",
     "telegram:test-photo": "node -r ts-node/register src/scripts/telegramTestPhoto.ts",

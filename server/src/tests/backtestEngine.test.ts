@@ -13,6 +13,7 @@ import {
   BacktestTradeRecord,
 } from '../services/backtestEngine';
 import { prisma } from '../prisma';
+import * as parquetProvider from '../integrations/mt5-sync/parquetDataProvider';
 
 let passed = 0;
 let failed = 0;
@@ -271,22 +272,36 @@ async function runTests() {
 
   // 20. End-to-End Replay using Real Dukascopy XAUUSD M1 Database Candles
   console.log('\n[20] Testing End-to-End Simulation using Real Database Candles');
+  let realCandles: BacktestCandle[] = [];
+
   const dbCandles = await prisma.mt5CandleData.findMany({
     where: { provider: 'DUKASCOPY', symbol: 'XAUUSD', timeframe: 'M1' },
     orderBy: { time: 'asc' },
     take: 100,
   });
 
-  assert(dbCandles.length === 100, `Fetched ${dbCandles.length} real Dukascopy M1 candles from database`);
+  if (dbCandles.length > 0) {
+    realCandles = dbCandles.map(c => ({
+      time: c.time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      tickVolume: c.tickVolume ?? undefined,
+    }));
+  } else {
+    const pqCandles = await parquetProvider.getCandles({ symbol: 'XAUUSD', timeframe: 'M1', limit: 100 });
+    realCandles = pqCandles.map(c => ({
+      time: c.time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      tickVolume: c.tickVolume,
+    }));
+  }
 
-  const realCandles: BacktestCandle[] = dbCandles.map(c => ({
-    time: c.time,
-    open: c.open,
-    high: c.high,
-    low: c.low,
-    close: c.close,
-    tickVolume: c.tickVolume ?? undefined,
-  }));
+  assert(realCandles.length === 100, `Fetched ${realCandles.length} real Dukascopy M1 candles from database/parquet`);
 
   let replayCursor = 0;
   const initialBalance = 10000;

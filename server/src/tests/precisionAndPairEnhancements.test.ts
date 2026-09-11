@@ -111,11 +111,19 @@ async function runPrecisionAndPairTests() {
 
   // ── TEST 5: Direct Database Candle Query for Symbols ──
   console.log('\n[5] Testing Database Direct Queries');
-  const distinctSymbols = await prisma.mt5CandleData.groupBy({
+  let distinctSymbols = await prisma.mt5CandleData.groupBy({
     by: ['symbol', 'provider'],
     _count: { id: true },
   });
-  assert(distinctSymbols.length > 0, `Database contains ${distinctSymbols.length} symbol/provider datasets`);
+  if (distinctSymbols.length === 0) {
+    const catalog = await prisma.marketDataCatalog.findMany();
+    distinctSymbols = catalog.map(c => ({
+      symbol: c.symbol,
+      provider: c.provider,
+      _count: { id: c.candleCount },
+    }));
+  }
+  assert(distinctSymbols.length > 0, `Database/catalog contains ${distinctSymbols.length} symbol/provider datasets`);
   distinctSymbols.forEach((s) => {
     console.log(`   Database symbol: ${s.symbol} (${s.provider}) -> ${s._count.id} candles`);
   });

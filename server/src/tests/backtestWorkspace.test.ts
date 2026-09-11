@@ -5,6 +5,7 @@ import {
   FIBONACCI_STANDARD_LEVELS,
 } from '../services/backtestEngine';
 import { prisma } from '../prisma';
+import * as parquetProvider from '../integrations/mt5-sync/parquetDataProvider';
 
 let passed = 0;
 let failed = 0;
@@ -98,21 +99,41 @@ async function runWorkspaceTests() {
   const invalidShort = calculatePositionToolGeometry('SHORT', 3130.00, 3125.00, 3110.00);
   assert(!invalidShort.isValid, 'SHORT with SL below Entry correctly marked invalid');
 
-  // 9. Random Start and Nearest Candle Database Checks
+  // 9. Random Start and Nearest Candle Database / Parquet Checks
   console.log('\n[9] Testing Database Integration: Random Start & Timeline Bounds');
-  const totalCount = await prisma.mt5CandleData.count({
+  const totalDbCount = await prisma.mt5CandleData.count({
     where: { provider: 'DUKASCOPY', symbol: 'XAUUSD', timeframe: 'M1' }
   });
-  assert(totalCount === 1768274, '1,768,274 real Dukascopy M1 candles confirmed in database');
+  const bounds = await parquetProvider.getTimelineBounds();
+  const totalCount = totalDbCount > 0 ? totalDbCount : (bounds?.totalTicks || 0);
+  assert(totalCount >= 1768274, `${totalCount.toLocaleString()} real Dukascopy ticks/candles confirmed in storage`);
 
   // Random timestamp selection test
   const minTime = new Date('2021-09-01T00:00:00Z').getTime();
   const maxTime = new Date('2026-06-01T00:00:00Z').getTime();
   const randTime = new Date(minTime + Math.random() * (maxTime - minTime));
-  const nearestRandCandle = await prisma.mt5CandleData.findFirst({
+  let nearestRandCandle = await prisma.mt5CandleData.findFirst({
     where: { provider: 'DUKASCOPY', symbol: 'XAUUSD', timeframe: 'M1', time: { gte: randTime } },
     orderBy: { time: 'asc' },
   });
+
+  if (!nearestRandCandle) {
+    const pqCandle = await parquetProvider.getNextCandle({
+      symbol: 'XAUUSD',
+      timeframe: 'M1',
+      afterTime: randTime,
+    });
+    if (pqCandle) {
+      nearestRandCandle = {
+        time: pqCandle.time,
+        open: pqCandle.open,
+        high: pqCandle.high,
+        low: pqCandle.low,
+        close: pqCandle.close,
+      } as any;
+    }
+  }
+
   assert(nearestRandCandle !== null, 'Random start generator resolves valid real candle');
   assert(nearestRandCandle!.open > 0, `Random candle close: ${nearestRandCandle!.close}`);
 

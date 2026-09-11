@@ -84,17 +84,17 @@ export const ReplayTimeline: React.FC<ReplayTimelineProps> = ({
   ];
 
   return (
-    <div className="bg-[#161922] border-2 border-[#121212] shadow-[3px_3px_0px_0px_#000000] px-4 py-2 select-none text-white">
-      <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-1.5">
+    <div className="bg-white border border-slate-200 shadow-sm px-4 py-2 select-none text-slate-900 rounded-xl">
+      <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 mb-1.5">
         <span className="flex items-center gap-1">
           <Clock className="w-3 h-3 text-[#1040C0]" />
-          <span>Awal: <strong className="text-white">{format(dateFrom, 'yyyy-MM-dd')}</strong></span>
+          <span>Awal: <strong className="text-slate-800">{format(dateFrom, 'yyyy-MM-dd')}</strong></span>
         </span>
-        <span className="text-[#F0C020] font-bold flex items-center gap-1 bg-[#12141C] px-2 py-0.5 border border-[#242836]">
-          <MapPin className="w-3 h-3" />
+        <span className="inline-flex items-center gap-1 bg-slate-900 text-white text-xs px-2.5 py-1 rounded-full">
+          <MapPin className="w-3 h-3 text-slate-200" />
           <span>Replay: {format(currentReplayTime, 'yyyy-MM-dd HH:mm')}</span>
         </span>
-        <span>Akhir: <strong className="text-white">{format(dateTo, 'yyyy-MM-dd')}</strong></span>
+        <span>Akhir: <strong className="text-slate-800">{format(dateTo, 'yyyy-MM-dd')}</strong></span>
       </div>
 
       {/* Interactive Track */}
@@ -106,7 +106,7 @@ export const ReplayTimeline: React.FC<ReplayTimelineProps> = ({
         className="relative h-6 flex items-center cursor-pointer touch-none group"
       >
         {/* Background track line */}
-        <div className="w-full h-2 bg-[#12141C] border-2 border-[#121212] overflow-hidden relative">
+        <div className="w-full h-1.5 bg-slate-100 border border-slate-200 overflow-hidden relative rounded-full">
           {/* Progress fill up to replay cursor */}
           <div
             className="h-full bg-[#1040C0] transition-all duration-75"
@@ -132,7 +132,7 @@ export const ReplayTimeline: React.FC<ReplayTimelineProps> = ({
 
         {/* Draggable Replay Cursor Handle */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 bg-[#F0C020] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#000000] transition-transform group-hover:scale-125 z-10"
+          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-blue-600 border border-blue-500 shadow-sm transition-transform group-hover:scale-125 z-10 rounded-full"
           style={{ left: `${currentPercent}%` }}
         />
       </div>

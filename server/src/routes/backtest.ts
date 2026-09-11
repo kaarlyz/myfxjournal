@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../prisma';
+import { csvProvider } from '../integrations/mt5-sync/csvProvider';
+import * as parquetProvider from '../integrations/mt5-sync/parquetDataProvider';
 import {
   advanceReplay,
   stepBackReplay,
@@ -135,10 +137,56 @@ router.get('/candles', async (req: Request, res: Response) => {
       realVolume: c.realVolume ?? undefined,
     }));
 
+    if (m1Candles.length === 0) {
+      // ── Parquet-first: query DuckDB tick daemon ───────────────────────────
+      const pqCandles = await parquetProvider.getCandles({
+        symbol,
+        timeframe: targetTF,
+        limit,
+        beforeTime: beforeTimeStr ? new Date(beforeTimeStr) : null,
+        afterTime: afterTimeStr ? new Date(afterTimeStr) : null,
+        fromTime: fromStr ? new Date(fromStr) : null,
+        replayTime: replayTimeStr ? new Date(replayTimeStr) : null,
+      });
+
+      if (pqCandles.length > 0) {
+        const sma20 = calculateSMA(pqCandles, 20);
+        const sma50 = calculateSMA(pqCandles, 50);
+        const sma200 = calculateSMA(pqCandles, 200);
+        return res.json({
+          ok: true,
+          data: { symbol, timeframe: targetTF, provider: 'PARQUET', count: pqCandles.length, candles: pqCandles, indicators: { sma20, sma50, sma200 } },
+        });
+      }
+
+      // ── Final fallback: CSV ───────────────────────────────────────────────
+      const csvCandles = await csvProvider.getCandles(
+        symbol,
+        targetTF,
+        fromStr ? new Date(fromStr) : new Date(0),
+        replayTimeStr ? new Date(replayTimeStr) : new Date(),
+      );
+      const candlesFromCsv = csvCandles.map((c) => ({
+        time: new Date(c.time),
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        tickVolume: c.tickVolume ?? undefined,
+        realVolume: c.realVolume ?? undefined,
+      }));
+      const sma20 = calculateSMA(candlesFromCsv, 20);
+      const sma50 = calculateSMA(candlesFromCsv, 50);
+      const sma200 = calculateSMA(candlesFromCsv, 200);
+      return res.json({
+        ok: true,
+        data: { symbol, timeframe: targetTF, provider: 'CSV', count: candlesFromCsv.length, candles: candlesFromCsv, indicators: { sma20, sma50, sma200 } },
+      });
+    }
+
     // Resample to requested timeframe if not M1
     const candles = targetTF === 'M1' ? m1Candles : resampleM1Candles(m1Candles, targetTF);
 
-    // Calculate SMA on visible window
     const sma20 = calculateSMA(candles, 20);
     const sma50 = calculateSMA(candles, 50);
     const sma200 = calculateSMA(candles, 200);
@@ -151,11 +199,7 @@ router.get('/candles', async (req: Request, res: Response) => {
         provider,
         count: candles.length,
         candles,
-        indicators: {
-          sma20,
-          sma50,
-          sma200,
-        },
+        indicators: { sma20, sma50, sma200 },
       },
     });
   } catch (error: any) {
@@ -196,7 +240,27 @@ router.get('/next-candle', async (req: Request, res: Response) => {
       });
 
       if (!nextCandle) {
-        return res.json({ ok: true, data: null, message: 'End of available market dataset reached.' });
+        // Parquet-first step forward
+        const pqNext = await parquetProvider.getNextCandle({ symbol, timeframe: 'M1', afterTime });
+        if (pqNext) {
+          return res.json({ ok: true, data: pqNext });
+        }
+        const csvCandles = await csvProvider.getCandles(symbol, 'M1', new Date(afterTime.getTime() + 1), new Date());
+        const nextCsvCandle = csvCandles[0];
+        if (!nextCsvCandle) {
+          return res.json({ ok: true, data: null, message: 'End of available market dataset reached.' });
+        }
+        return res.json({
+          ok: true,
+          data: {
+            time: nextCsvCandle.time,
+            open: nextCsvCandle.open,
+            high: nextCsvCandle.high,
+            low: nextCsvCandle.low,
+            close: nextCsvCandle.close,
+            tickVolume: nextCsvCandle.tickVolume ?? undefined,
+          },
+        });
       }
 
       const sessionIdParam = req.query.sessionId as string;
@@ -243,7 +307,27 @@ router.get('/next-candle', async (req: Request, res: Response) => {
     });
 
     if (!firstM1) {
-      return res.json({ ok: true, data: null, message: 'End of available market dataset reached.' });
+      // Parquet-first for multi-TF step
+      const pqNext = await parquetProvider.getNextCandle({ symbol, timeframe: targetTF, afterTime });
+      if (pqNext) {
+        return res.json({ ok: true, data: pqNext });
+      }
+      const csvCandles = await csvProvider.getCandles(symbol, targetTF, nextBucketStartDate, new Date());
+      const nextCsvCandle = csvCandles[0];
+      if (!nextCsvCandle) {
+        return res.json({ ok: true, data: null, message: 'End of available market dataset reached.' });
+      }
+      return res.json({
+        ok: true,
+        data: {
+          time: nextCsvCandle.time,
+          open: nextCsvCandle.open,
+          high: nextCsvCandle.high,
+          low: nextCsvCandle.low,
+          close: nextCsvCandle.close,
+          tickVolume: nextCsvCandle.tickVolume ?? undefined,
+        },
+      });
     }
 
     const actualBucketTime = Math.floor(new Date(firstM1.time).getTime() / tfMs) * tfMs;
@@ -315,6 +399,20 @@ router.get('/timeline-bounds', async (req: Request, res: Response) => {
     const timeframe = (req.query.timeframe as string) || 'M1';
     const provider = (req.query.provider as string) || 'DUKASCOPY';
 
+    // Parquet is the primary source of truth for XAUUSD
+    const pqBounds = await parquetProvider.getTimelineBounds();
+    if (pqBounds && pqBounds.symbol === symbol.toUpperCase()) {
+      return res.json({
+        ok: true,
+        data: {
+          dateFrom: pqBounds.dateFrom,
+          dateTo: pqBounds.dateTo,
+          candleCount: pqBounds.totalTicks,
+          provider: 'PARQUET',
+        },
+      });
+    }
+
     const catalog = await prisma.marketDataCatalog.findFirst({
       where: { provider, symbol, timeframe },
     });
@@ -379,11 +477,35 @@ router.get('/random-start', async (req: Request, res: Response) => {
       orderBy: { time: 'asc' },
     });
 
-    if (!candle) {
+    if (candle) {
       return res.json({
         ok: true,
         data: {
-          time: new Date('2025-04-01T04:00:00Z'),
+          time: candle.time,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+        },
+      });
+    }
+
+    // Parquet provider for random start
+    const pqNext = await parquetProvider.getNextCandle({
+      symbol,
+      timeframe,
+      afterTime: new Date(randomTimestamp),
+    });
+
+    if (pqNext) {
+      return res.json({
+        ok: true,
+        data: {
+          time: pqNext.time,
+          open: pqNext.open,
+          high: pqNext.high,
+          low: pqNext.low,
+          close: pqNext.close,
         },
       });
     }
@@ -391,11 +513,7 @@ router.get('/random-start', async (req: Request, res: Response) => {
     return res.json({
       ok: true,
       data: {
-        time: candle.time,
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
+        time: new Date('2025-04-01T04:00:00Z'),
       },
     });
   } catch (error: any) {

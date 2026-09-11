@@ -93,44 +93,44 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
   const TFS: ChartTimeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
 
   return (
-    <div className="bg-[#121622] border border-slate-800 rounded-lg px-3 py-1.5 select-none w-full min-w-0 max-w-full text-white shadow-xs">
+    <div className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 select-none w-full min-w-0 max-w-full text-slate-900 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
 
         {/* Left: Asset + Timeframe */}
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700/80 rounded px-2.5 py-1 text-xs font-semibold tracking-tight">
-            <span className="text-amber-400 font-bold">{symbol}</span>
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-semibold tracking-tight">
+            <span className="text-amber-600 font-bold">{symbol}</span>
             {(availableSymbols && availableSymbols.length > 0) ? (
               <select
                 value={symbol}
                 onChange={(e) => onSymbolChange?.(e.target.value)}
                 aria-label="Pilih Instrumen Trading"
-                className="bg-transparent text-slate-300 text-xs font-mono outline-hidden cursor-pointer"
+                className="bg-transparent text-slate-600 text-xs font-mono outline-hidden cursor-pointer"
               >
                 {availableSymbols.map((s) => (
-                  <option key={`${s.symbol}-${s.provider}`} value={s.symbol} className="bg-slate-900 text-slate-200">
+                  <option key={`${s.symbol}-${s.provider}`} value={s.symbol} className="bg-white text-slate-700">
                     {s.symbol} ({s.provider})
                   </option>
                 ))}
               </select>
             ) : (
               <>
-                <span className="text-slate-500">•</span>
-                <span className="text-[10px] text-slate-400 font-mono">XAUUSD · EURUSD · NSXUSD</span>
+                <span className="text-slate-400">•</span>
+                <span className="text-[10px] text-slate-500 font-mono">XAUUSD · EURUSD · NSXUSD</span>
               </>
             )}
           </div>
 
-          <div className="flex items-center gap-0.5 bg-slate-900/90 p-0.5 border border-slate-800 rounded">
+          <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 border border-slate-200 rounded-lg">
             {TFS.map((tf) => (
               <button
                 key={tf}
                 type="button"
                 onClick={() => onTimeframeChange?.(tf)}
-                className={`px-2 py-0.5 text-xs font-mono font-medium rounded transition-colors ${
+                className={`px-2 py-0.5 text-xs font-number font-medium rounded border transition-colors ${
                   timeframe === tf
-                    ? 'bg-blue-600 text-white font-bold'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    ? 'bg-slate-200 text-slate-800 border-slate-300'
+                    : 'bg-slate-100 text-slate-600 border-slate-200 hover:text-slate-900 hover:bg-slate-200'
                 }`}
               >
                 {tf}
@@ -162,7 +162,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
             <button
               onClick={onOpenJumpDialog}
               title="Jump ke Tanggal"
-              className="flex items-center gap-1.5 px-3 h-8 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 h-8 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-xs font-medium transition-colors"
             >
               <Calendar className="w-3.5 h-3.5 text-amber-400" />
               <span className="hidden sm:inline">Jump</span>
@@ -170,7 +170,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
             <button
               onClick={onRandomStart}
               title="Random Start"
-              className="flex items-center gap-1.5 px-3 h-8 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 h-8 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-xs font-medium transition-colors"
             >
               <Dices className="w-3.5 h-3.5 text-amber-400" />
               <span className="hidden sm:inline">Random</span>
@@ -178,7 +178,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
             <button
               onClick={onActivateBarReplay}
               title="Aktifkan Chart Replay"
-              className="flex items-center gap-1.5 px-3.5 h-8 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-xs"
+              className="flex items-center gap-1.5 px-3.5 h-8 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-xs font-medium uppercase tracking-wider transition-colors"
             >
               <Video className="w-3.5 h-3.5" />
               <span>Chart Replay</span>
@@ -207,8 +207,8 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
 
         {appMode === 'replay' && (
           <div className="flex items-center justify-center gap-1.5">
-            <div className="flex items-center gap-1.5 text-slate-200 text-xs font-mono bg-slate-900/90 px-2.5 py-1 border border-slate-800 rounded mr-1">
-              <Clock className="w-3.5 h-3.5 text-amber-400" />
+            <div className="flex items-center gap-1.5 text-slate-700 text-xs font-mono bg-slate-50 px-2.5 py-1 border border-slate-200 rounded-lg mr-1">
+              <Clock className="w-3.5 h-3.5 text-amber-500" />
               <span className="font-semibold">{replayTime ? format(replayTime, 'yyyy-MM-dd HH:mm') : '--:--'}</span>
               <span className="text-slate-500 text-[10px]">#{candleCount}</span>
             </div>
@@ -217,7 +217,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
               onClick={onStepBack}
               disabled={loading || candleCount <= 1}
               title="Mundur 1 Candle (Left)"
-              className="flex items-center justify-center w-8 h-8 bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-30 border border-slate-700 rounded transition-colors"
+              className="flex items-center justify-center w-8 h-8 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 border border-slate-200 rounded transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -258,20 +258,20 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
               onClick={onReset}
               disabled={loading}
               title="Reset ke Titik Awal"
-              className="flex items-center justify-center w-8 h-8 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 rounded transition-colors"
+              className="flex items-center justify-center w-8 h-8 bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 border border-slate-200 rounded transition-colors"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
 
-            <div className="flex items-center gap-0.5 ml-1 bg-slate-900/90 p-0.5 border border-slate-800 rounded">
+            <div className="flex items-center gap-0.5 ml-1 bg-slate-100 p-0.5 border border-slate-200 rounded-lg">
               {([1, 2, 5, 10] as ReplaySpeed[]).map((s) => (
                 <button
                   key={s}
                   onClick={() => onSpeedChange(s)}
-                  className={`px-2 py-0.5 text-xs font-mono font-medium rounded transition-colors ${
+                  className={`px-2 py-0.5 text-xs font-number font-medium rounded border transition-colors ${
                     speed === s
-                      ? 'bg-blue-600 text-white font-bold'
-                      : 'text-slate-400 hover:text-slate-200'
+                      ? 'bg-slate-200 text-slate-800 border-slate-300'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200 border-transparent'
                   }`}
                 >
                   {s}x
@@ -283,10 +283,10 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
               <button
                 onClick={onToggleFollowReplay}
                 title={followReplay ? 'Follow Replay: ON' : 'Follow Replay: OFF'}
-                className={`flex items-center gap-1 px-2.5 h-8 border rounded text-xs font-medium transition-colors ml-1 ${
+                className={`flex items-center gap-1 px-2.5 h-8 border rounded-lg text-xs font-medium transition-colors ml-1 ${
                   followReplay
-                    ? 'bg-blue-600/20 text-blue-400 border-blue-500/30'
-                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200 hover:text-slate-800'
                 }`}
               >
                 <LocateFixed className="w-3.5 h-3.5" />
@@ -298,7 +298,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
               <button
                 onClick={onJumpToCurrent}
                 title="Jump to Current Candle (J)"
-                className="flex items-center gap-1 px-2.5 h-8 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-xs font-semibold transition-colors animate-pulse"
+                className="flex items-center gap-1 px-2.5 h-8 bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-xs font-semibold transition-colors animate-pulse"
               >
                 <Navigation className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Live</span>
@@ -314,7 +314,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
               onClick={onOpenDashboard}
               disabled={isSyncingDashboard}
               title="Sinkronkan & Buka di Dashboard"
-              className="flex items-center gap-1 px-2.5 h-8 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded text-xs font-semibold transition-colors disabled:opacity-50"
+              className="flex items-center gap-1 px-2.5 h-8 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
             >
               <LayoutDashboard className="w-3.5 h-3.5" />
               <span className="hidden md:inline">{isSyncingDashboard ? 'Syncing...' : 'Dashboard'}</span>
@@ -325,7 +325,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
               onClick={onExitReplay}
               title="Keluar dari Chart Replay"
 
-              className="flex items-center gap-1.5 px-2.5 h-8 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded text-xs font-semibold transition-colors"
+              className="flex items-center gap-1.5 px-2.5 h-8 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold transition-colors"
             >
               <X className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Exit</span>
@@ -334,10 +334,10 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
           <button
             onClick={onToggleOrderPanel}
             title={isOrderPanelOpen ? 'Sembunyikan Order Panel' : 'Tampilkan Order Panel'}
-            className={`w-8 h-8 flex items-center justify-center border rounded transition-colors ${
+            className={`w-8 h-8 flex items-center justify-center border rounded-lg transition-colors ${
               isOrderPanelOpen
                 ? 'bg-blue-600 text-white border-blue-500'
-                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                : 'bg-slate-100 text-slate-600 border-slate-200 hover:text-slate-800 hover:bg-slate-200'
             }`}
           >
             {isOrderPanelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
@@ -345,10 +345,10 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
           <button
             onClick={onToggleFullscreen}
             title={isFullscreen ? 'Exit Fullscreen (Esc)' : 'Fullscreen (F)'}
-            className={`w-8 h-8 flex items-center justify-center border rounded transition-colors ${
+            className={`w-8 h-8 flex items-center justify-center border rounded-lg transition-colors ${
               isFullscreen
                 ? 'bg-amber-500 text-slate-950 border-amber-400'
-                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
             }`}
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}

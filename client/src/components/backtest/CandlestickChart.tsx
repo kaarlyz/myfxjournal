@@ -116,6 +116,9 @@ interface CandlestickChartProps {
   lockRR?: boolean;
   isFullscreen?: boolean;
   onExecutePlannedTrade?: (position: DrawingItem) => void;
+  isVisualOrderActive?: boolean;
+  onConfirmVisualOrder?: () => void;
+  onCancelVisualOrder?: () => void;
 }
 
 interface DraggingHandleState {
@@ -145,6 +148,7 @@ interface VP {
   totalRange: number;
   priceZoom: number;
   pricePanOffset: number;
+  panOffsetX: number;
   getX: (gIdx: number) => number;
   getY: (price: number) => number;
   timeToGIdx: (ms: number) => number;
@@ -180,6 +184,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   lockRR = false,
   isFullscreen = false,
   onExecutePlannedTrade,
+  isVisualOrderActive = false,
+  onConfirmVisualOrder,
+  onCancelVisualOrder,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
@@ -196,19 +203,20 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // Container dimensions tracked by ResizeObserver
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>({ width: 900, height: 500 });
 
-  // Camera & Viewport State
+  // Camera & Viewport State (Canonical Pixel-Based Viewport)
   const [candleWidth, setCandleWidth] = useState<number>(8);
-  const [scrollOffset, setScrollOffset] = useState<number>(0);
+  const [panOffsetX, setPanOffsetX] = useState<number>(0);
   const [priceZoom, setPriceZoom] = useState<number>(1.0);
   const [pricePanOffset, setPricePanOffset] = useState<number>(0);
 
   const cwRef = useRef<number>(8);
-  const soRef = useRef<number>(0);
+  const panXRef = useRef<number>(0);
   const pzRef = useRef<number>(1.0);
   const poRef = useRef<number>(0);
+  const lastFetchCheckRef = useRef<number>(0);
 
   cwRef.current = candleWidth;
-  soRef.current = scrollOffset;
+  panXRef.current = panOffsetX;
   pzRef.current = priceZoom;
   poRef.current = pricePanOffset;
 
@@ -220,7 +228,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   // Interaction Drag States
   const dragModeRef = useRef<'NONE' | 'PAN_CHART' | 'SCALE_PRICE' | 'SCALE_TIME' | 'DRAWING_HANDLE' | 'PINCH_ZOOM' | 'PLANNED_ORDER_HANDLE'>('NONE');
-  const panStartRef = useRef<{ startX: number; startY: number; startSO: number; startPO: number; anchorTime: number; anchorX: number } | null>(null);
+  const panStartRef = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
   const priceScaleStartRef = useRef<{ startY: number; startPZ: number } | null>(null);
   const timeScaleStartRef = useRef<{ startX: number; startCW: number } | null>(null);
 
@@ -274,6 +282,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const curFirstTime = new Date(candles[0].time).getTime();
     const curLastTime = new Date(candles[candles.length - 1].time).getTime();
 
+    // Case 1: Newer candles appended at the end
     if (curLastTime > prevLastTime) {
       let appendedCount = 0;
       for (let i = candles.length - 1; i >= 0; i--) {
@@ -285,47 +294,32 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       if (appendedCount > 0) {
         if (appMode === 'replay' && followReplay) {
-          setScrollOffset(0);
+          panXRef.current = 0;
+          setPanOffsetX(0);
         } else {
-          setScrollOffset((curSO) => curSO + appendedCount);
+          const cw = cwRef.current;
+          const slot = cw + Math.max(1, cw * 0.2);
+          const deltaPixels = appendedCount * slot;
+          // If actively dragging, compensate startPanX so mouse tracking never skips!
+          if (panStartRef.current) {
+            panStartRef.current.startPanX += deltaPixels;
+          }
+          panXRef.current += deltaPixels;
+          setPanOffsetX((cur) => cur + deltaPixels);
         }
       }
     }
-
-    const anchor = lastPanAnchorRef.current;
-    if (anchor && candles.length > 0) {
-      const vp = vpRef.current;
-      if (vp) {
-        const anchorIdx = vp.timeToGIdx(anchor.time);
-        const currentX = vp.getX(anchorIdx);
-        const deltaX = currentX - anchor.x;
-        if (Math.abs(deltaX) > 0.25) {
-          const adjustedSO = soRef.current + deltaX / vp.slot;
-          soRef.current = adjustedSO;
-          setScrollOffset(adjustedSO);
-        }
-      }
-    }
-
-    if (curFirstTime < prevFirstTime) {
-      let prependedCount = 0;
-      for (let i = 0; i < candles.length; i++) {
-        if (new Date(candles[i].time).getTime() === prevFirstTime) {
-          prependedCount = i;
-          break;
-        }
-      }
-
-      if (prependedCount > 0) {
-        setScrollOffset((curSO) => curSO + prependedCount);
-      }
-    }
+    // Case 2: Prepending older candles to index 0.
+    // In our canonical projection formula, (gIdx - lastGlobalIdx) is invariant when items
+    // are prepended to the array (both gIdx and lastGlobalIdx increase by prependedCount).
+    // Hence, no pixel offset adjustment is needed and zero teleport occurs.
   }, [candles, appMode, followReplay]);
 
   // When toggling followReplay explicitly in replay mode
   useEffect(() => {
     if (appMode === 'replay' && followReplay) {
-      setScrollOffset(0);
+      panXRef.current = 0;
+      setPanOffsetX(0);
     }
   }, [followReplay, appMode]);
 
@@ -363,10 +357,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const sma50v = indicators.sma50 ? computeSMA(50) : [];
   const sma200v = indicators.sma200 ? computeSMA(200) : [];
 
-  // ── Build Viewport Projection (Right-Pinned Continuous Transform) ──
+  // ── Build Viewport Projection (Canonical Pixel-Based Viewport) ──
   const buildVP = useCallback((cssW: number, cssH: number): VP => {
     const cw = cwRef.current;
-    const so = soRef.current;
+    const panX = panXRef.current;
     const pz = pzRef.current;
     const po = poRef.current;
 
@@ -379,44 +373,65 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     const spacing = Math.max(1, cw * 0.2);
     const slot = cw + spacing;
-    const rightMargin = Math.max(35, slot * 8);
+    const rightMargin = Math.max(35, slot * 6);
 
-    // Visible index bounds derived consistently from rightmostIdx
-    const lastGlobalIdx = candles.length - 1;
-    const rightmostIdx = lastGlobalIdx - so;
+    const lastGlobalIdx = Math.max(0, candles.length - 1);
 
-    const visibleBars = (chartW - rightMargin) / slot;
-    const endIdx = Math.min(lastGlobalIdx, Math.max(0, Math.ceil(rightmostIdx + rightMargin / slot + 2)));
-    const startIdx = Math.max(0, Math.floor(rightmostIdx - visibleBars - 4));
+    // Canonical Projection:
+    // 1 px pointer movement = 1 px visual chart movement.
+    const getX = (gIdx: number): number => {
+      return chartW - rightMargin + (gIdx - lastGlobalIdx) * slot + panX + slot / 2;
+    };
+
+    // Inverse Projection: exact mathematical inverse
+    const xToGIdx = (x: number): number => {
+      return lastGlobalIdx + (x - (chartW - rightMargin) - panX - slot / 2) / slot;
+    };
+
+    // Derived visible index bounds directly from screen boundaries:
+    const gIdxLeft = xToGIdx(0);
+    const gIdxRight = xToGIdx(chartW);
+    const startIdx = Math.max(0, Math.floor(gIdxLeft) - 5);
+    const endIdx = Math.min(lastGlobalIdx, Math.ceil(gIdxRight) + 5);
     const vis = candles.slice(startIdx, Math.min(candles.length, endIdx + 1));
 
     // Dynamic Price Range Calculation
     let minP = Infinity, maxP = -Infinity;
     for (const c of vis) {
-      if (c.low < minP) minP = c.low;
-      if (c.high > maxP) maxP = c.high;
+      if (c.low > 0 && c.low < minP) minP = c.low;
+      if (c.high > 0 && c.high > maxP) maxP = c.high;
     }
-    if (!isFinite(minP)) { minP = 3000; maxP = 3100; }
+    if (!isFinite(minP) || minP <= 0 || maxP <= minP) {
+      const fallbackPrice = candles.length > 0 ? candles[candles.length - 1].close : 3000;
+      minP = fallbackPrice * 0.99;
+      maxP = fallbackPrice * 1.01;
+    }
 
     if (tradesList.length > 0) {
+      const mid = (maxP + minP) / 2;
+      const span = Math.max(1, maxP - minP);
       for (const t of tradesList) {
-        minP = Math.min(minP, t.slPrice, t.entryPrice);
-        maxP = Math.max(maxP, t.tpPrice, t.entryPrice);
+        if (t.entryPrice > 0 && Math.abs(t.entryPrice - mid) < span * 4) {
+          minP = Math.min(minP, t.entryPrice);
+          maxP = Math.max(maxP, t.entryPrice);
+        }
+        if (t.slPrice > 0 && Math.abs(t.slPrice - mid) < span * 4) {
+          minP = Math.min(minP, t.slPrice);
+          maxP = Math.max(maxP, t.slPrice);
+        }
+        if (t.tpPrice > 0 && Math.abs(t.tpPrice - mid) < span * 4) {
+          minP = Math.min(minP, t.tpPrice);
+          maxP = Math.max(maxP, t.tpPrice);
+        }
       }
     }
 
     const midPrice = (maxP + minP) / 2;
-    const baseRange = (maxP - minP) || 1;
+    const baseRange = Math.max(0.5, maxP - minP);
     const scaledRange = (baseRange * 1.16) / Math.max(0.1, pz);
     const paddedMin = midPrice - scaledRange / 2 + po;
     const paddedMax = midPrice + scaledRange / 2 + po;
-    const totalRange = paddedMax - paddedMin;
-
-    // Unified Invertible Right-Aligned Projection Formula
-    const getX = (gIdx: number) => {
-      const distFromRight = rightmostIdx - gIdx;
-      return chartW - rightMargin - distFromRight * slot + slot / 2;
-    };
+    const totalRange = Math.max(0.1, paddedMax - paddedMin);
 
     const getY = (price: number) => {
       return ((paddedMax - price) / totalRange) * (candleH - 20) + 10;
@@ -426,18 +441,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       return paddedMax - ((y - 10) / (candleH - 20)) * totalRange;
     };
 
-    const xToGIdx = (x: number): number => {
-      const distFromRight = (chartW - rightMargin - x + slot / 2) / slot;
-      return rightmostIdx - distFromRight;
-    };
-
     const timeToGIdx = (ms: number): number => {
       if (candles.length === 0) return 0;
       if (candles.length === 1) return 0;
       const t0 = new Date(candles[0].time).getTime();
       const tEnd = new Date(candles[candles.length - 1].time).getTime();
-      if (ms <= t0) return (ms - t0) / 60000;
-      if (ms >= tEnd) return (candles.length - 1) + (ms - tEnd) / 60000;
+      const avgInterval = Math.max(1000, (tEnd - t0) / Math.max(1, candles.length - 1));
+
+      if (ms <= t0) return (ms - t0) / avgInterval;
+      if (ms >= tEnd) return (candles.length - 1) + (ms - tEnd) / avgInterval;
 
       let low = 0, high = candles.length - 1;
       while (low <= high) {
@@ -463,13 +475,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const xToTime = (x: number): number => {
       const gIdx = xToGIdx(x);
       if (candles.length === 0) return Date.now();
+      const t0 = new Date(candles[0].time).getTime();
+      const tEnd = new Date(candles[candles.length - 1].time).getTime();
+      const avgInterval = Math.max(1000, (tEnd - t0) / Math.max(1, candles.length - 1));
+
       if (gIdx <= 0) {
-        const t0 = new Date(candles[0].time).getTime();
-        return t0 + gIdx * 60000;
+        return t0 + gIdx * avgInterval;
       }
       if (gIdx >= candles.length - 1) {
-        const tEnd = new Date(candles[candles.length - 1].time).getTime();
-        return tEnd + (gIdx - (candles.length - 1)) * 60000;
+        return tEnd + (gIdx - (candles.length - 1)) * avgInterval;
       }
       const base = Math.floor(gIdx);
       const frac = gIdx - base;
@@ -481,7 +495,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     return {
       cssW, cssH, priceScaleW, timeScaleH, volH, chartW, mainH, candleH,
       cw, slot, rightMargin, startIdx, endIdx, paddedMin, paddedMax, totalRange,
-      priceZoom: pz, pricePanOffset: po,
+      priceZoom: pz, pricePanOffset: po, panOffsetX: panX,
       getX, getY, timeToGIdx, timeToX, xToGIdx, xToTime, yToPrice,
     };
   }, [candles, activeTrade, activeTrades]);
@@ -509,11 +523,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     for (const c of vis) { if ((c.tickVolume || 0) > maxVol) maxVol = c.tickVolume || 0; }
 
     // 1. Chart Background
-    ctx.fillStyle = '#0B101B';
+    ctx.fillStyle = '#F8FAFC';
     ctx.fillRect(0, 0, cssW, cssH);
 
     // Price Scale & Time Scale Backgrounds
-    ctx.fillStyle = '#070C16';
+    ctx.fillStyle = '#F1F5F9';
     ctx.fillRect(chartW, 0, priceScaleW, cssH);
     ctx.fillRect(0, mainH, chartW, timeScaleH);
 
@@ -542,7 +556,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       if (y < 0 || y > mainH) continue;
 
       // Subtle horizontal grid line across the chart
-      ctx.strokeStyle = '#141A26';
+      ctx.strokeStyle = '#E2E8F0';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, y);
@@ -550,7 +564,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.stroke();
 
       // Tick notch mark on the right scale border
-      ctx.strokeStyle = '#334155';
+      ctx.strokeStyle = '#94A3B8';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(chartW, y);
@@ -558,14 +572,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.stroke();
 
       // Complete, crisp price scale label
-      ctx.fillStyle = '#94A3B8';
+      ctx.fillStyle = '#475569';
       ctx.font = '10px monospace';
       ctx.textAlign = 'left';
       ctx.fillText(p.toFixed(decimals), chartW + 7, y + 3.5);
     }
 
     // Scale separator borders
-    ctx.strokeStyle = '#1E293B'; ctx.lineWidth = 1;
+    ctx.strokeStyle = '#CBD5E1'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(chartW, 0); ctx.lineTo(chartW, cssH); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, mainH); ctx.lineTo(cssW, mainH); ctx.stroke();
 
@@ -574,7 +588,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     for (let i = 0; i < vis.length; i += tStep) {
       const x = getX(startIdx + i);
       if (x < 0 || x > chartW) continue;
-      ctx.strokeStyle = '#151D2C';
+      ctx.strokeStyle = '#E2E8F0';
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, mainH); ctx.stroke();
       ctx.fillStyle = '#64748B'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
 
@@ -584,7 +598,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
 
     // 4. Volume Separator & Bars
-    ctx.strokeStyle = '#151D2C'; ctx.lineWidth = 1;
+    ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, mainH - volH); ctx.lineTo(chartW, mainH - volH); ctx.stroke();
 
     for (let i = 0; i < vis.length; i++) {
@@ -1145,12 +1159,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
     }
   }, [
-    candles, candleWidth, scrollOffset, priceZoom, pricePanOffset, dimensions,
+    candles, candleWidth, panOffsetX, priceZoom, pricePanOffset, dimensions,
     activeTrade, activeTrades, plannedOrder, indicators, drawings, drawingDraft, selectedDrawingId, mousePos,
     sma20v, sma50v, sma200v, buildVP, appMode,
   ]);
 
-  // Wheel Zoom Listener (Centered on mouse position in both X and Y)
+  // Wheel Zoom & Touchpad Pan Listener (Cursor-Centered Zoom without heuristic flaws)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1169,58 +1183,66 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       const candlesList = candlesRef.current;
       const lastGlobalIdx = candlesList.length - 1;
-      if (lastGlobalIdx <= 0) return;
+      if (lastGlobalIdx < 0) return;
 
       // Case A: Touchpad two-finger horizontal swipe -> horizontal pan only
-      if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.15) {
+      if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.15 && Math.abs(e.deltaX) > 1.5) {
         e.preventDefault();
         e.stopPropagation();
-        const shift = -e.deltaX / vp.slot;
-        const maxFutureBars = Math.min(30, Math.max(5, Math.floor((vp.chartW * 0.25) / vp.slot)));
-        const minOffset = -maxFutureBars;
-        const maxOffset = Math.max(0, candlesList.length - 2);
-        const newOffset = Math.max(minOffset, Math.min(maxOffset, soRef.current + shift));
-        soRef.current = newOffset;
-        setScrollOffset(newOffset);
+        const dx = -e.deltaX;
+        const minPanX = -Math.round(vp.chartW * 0.35);
+        const maxPanX = Math.max(0, lastGlobalIdx * vp.slot + 100);
+        const newPanX = Math.max(minPanX, Math.min(maxPanX, panXRef.current + dx));
+        panXRef.current = newPanX;
+        setPanOffsetX(newPanX);
         return;
       }
 
-      const isPinchLike = e.ctrlKey || Math.abs(e.deltaY) < Math.abs(e.deltaX) * 0.35;
-
-      // Case B: Main chart zoom (mouse wheel or pinch)
-      if (mouseX <= vp.chartW && mouseY <= vp.candleH && isPinchLike) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        onDisableFollowReplay?.();
-
-        const delta = Math.max(-35, Math.min(35, e.deltaY || -e.deltaX));
-        const zoomFactor = Math.exp(-delta * 0.0012);
-        const curCW = cwRef.current;
-        const newCW = Math.min(45, Math.max(2, curCW * zoomFactor));
-        if (Math.abs(newCW - curCW) < 0.001) return;
-
-        const anchorGIdx = vp.xToGIdx(mouseX);
-        const newSpacing = Math.max(1, newCW * 0.2);
-        const newSlot = newCW + newSpacing;
-        const newRightMargin = Math.max(35, newSlot * 8);
-        const newR = vp.chartW - newRightMargin;
-        let newSO = lastGlobalIdx - anchorGIdx - (newR - mouseX + newSlot / 2) / newSlot;
-        const maxFutureBars = Math.min(30, Math.max(5, Math.floor((vp.chartW * 0.25) / newSlot)));
-        const minOffset = -maxFutureBars;
-        const maxOffset = Math.max(0, candlesList.length + 50);
-        newSO = Math.max(minOffset, Math.min(maxOffset, newSO));
-
-        cwRef.current = newCW;
-        soRef.current = newSO;
-        setCandleWidth(newCW);
-        setScrollOffset(newSO);
+      // Case B: Vertical scroll outside the main chart body (e.g. price scale or time scale) -> allow natural page scroll
+      if (mouseX > vp.chartW || mouseY > vp.candleH) {
+        return;
       }
+
+      // Case C: Zoom (Mouse wheel or touchpad pinch/ctrl+wheel inside chart area)
+      e.preventDefault();
+      e.stopPropagation();
+
+      onDisableFollowReplay?.();
+
+      const delta = e.deltaY;
+      if (Math.abs(delta) < 0.1) return;
+
+      const zoomFactor = delta < 0 ? 1.12 : 0.89;
+      const curCW = cwRef.current;
+      const newCW = Math.min(45, Math.max(2, curCW * zoomFactor));
+      if (Math.abs(newCW - curCW) < 0.001) return;
+
+      // Cursor-Centered Zoom:
+      // 1. Find global fractional candle index directly under mouseX before zoom
+      const anchorGIdx = vp.xToGIdx(mouseX);
+
+      // 2. Compute new slot & right margin with newCW
+      const newSpacing = Math.max(1, newCW * 0.2);
+      const newSlot = newCW + newSpacing;
+      const newRightMargin = Math.max(35, newSlot * 6);
+
+      // 3. Solve for newPanX so that getX(anchorGIdx) === mouseX:
+      // mouseX = vp.chartW - newRightMargin + (anchorGIdx - lastGlobalIdx) * newSlot + newPanX + newSlot / 2
+      let newPanX = mouseX - (vp.chartW - newRightMargin) - (anchorGIdx - lastGlobalIdx) * newSlot - newSlot / 2;
+
+      const minPanX = -Math.round(vp.chartW * 0.35);
+      const maxPanX = Math.max(0, lastGlobalIdx * newSlot + 100);
+      newPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
+
+      cwRef.current = newCW;
+      panXRef.current = newPanX;
+      setCandleWidth(newCW);
+      setPanOffsetX(newPanX);
     };
 
     canvas.addEventListener('wheel', onWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [dimensions.width, dimensions.height, onDisableFollowReplay]);
 
   const clientToCanvas = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
@@ -1494,7 +1516,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       // Empty chart clicked -> deselect and initiate pan (X and Y)
       onSelectDrawing?.(null);
       dragModeRef.current = 'PAN_CHART';
-      panStartRef.current = { startX: x, startY: y, startSO: soRef.current, startPO: poRef.current, anchorTime: 0, anchorX: 0 };
+      panStartRef.current = { startX: x, startY: y, startPanX: panXRef.current, startPanY: poRef.current };
       return;
     }
 
@@ -1604,20 +1626,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         if (lastGlobalIdx > 0) {
           const anchorGIdx = vp.xToGIdx(midX);
           const anchorPrice = vp.yToPrice(midY);
-          const newSlot = newCW * 1.2;
-          const newRightMargin = Math.max(35, newSlot * 8);
-          const newR = vp.chartW - newRightMargin;
-          let newSO = lastGlobalIdx - anchorGIdx - (newR - midX + newSlot / 2) / newSlot;
-          const maxFutureBars = Math.min(30, Math.max(5, Math.floor((vp.chartW * 0.25) / newSlot)));
-          const minOffset = -maxFutureBars;
-          const maxOffset = Math.max(0, candlesList.length - 2);
-          newSO = Math.max(minOffset, Math.min(maxOffset, newSO));
+          const newSpacing = Math.max(1, newCW * 0.2);
+          const newSlot = newCW + newSpacing;
+          const newRightMargin = Math.max(35, newSlot * 6);
+
+          let newPanX = midX - (vp.chartW - newRightMargin) - (anchorGIdx - lastGlobalIdx) * newSlot - newSlot / 2;
+          const minPanX = -Math.round(vp.chartW * 0.35);
+          const maxPanX = Math.max(0, lastGlobalIdx * newSlot + 100);
+          newPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
 
           // Vertical Anchor Compensation
-          const newRightmostIdx = lastGlobalIdx - newSO;
-          const newVisibleBars = (vp.chartW - newRightMargin) / newSlot;
-          const newEndIdx = Math.min(lastGlobalIdx, Math.max(0, Math.ceil(newRightmostIdx + newRightMargin / newSlot + 2)));
-          const newStartIdx = Math.max(0, Math.floor(newRightmostIdx - newVisibleBars - 4));
+          const newGIdxLeft = lastGlobalIdx + (0 - (vp.chartW - newRightMargin) - newPanX - newSlot / 2) / newSlot;
+          const newGIdxRight = lastGlobalIdx + (vp.chartW - (vp.chartW - newRightMargin) - newPanX - newSlot / 2) / newSlot;
+          const newStartIdx = Math.max(0, Math.floor(newGIdxLeft) - 5);
+          const newEndIdx = Math.min(lastGlobalIdx, Math.ceil(newGIdxRight) + 5);
+
           let minP = Infinity, maxP = -Infinity;
           for (let i = newStartIdx; i <= newEndIdx && i < candlesList.length; i++) {
             const c = candlesList[i];
@@ -1641,9 +1664,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           }
 
           cwRef.current = newCW;
-          soRef.current = newSO;
+          panXRef.current = newPanX;
           setCandleWidth(newCW);
-          setScrollOffset(newSO);
+          setPanOffsetX(newPanX);
         }
       }
       return;
@@ -1815,34 +1838,33 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const dx = x - panStartRef.current.startX;
       const dy = y - panStartRef.current.startY;
 
-      // X Shift: Drag right -> move back in history -> increase offset
-      // Drag left -> scroll toward latest candle -> decrease offset
-      const shift = dx / vp.slot;
+      // 1 px pointer movement = 1 px visual chart movement!
+      const newPanX = panStartRef.current.startPanX + dx;
+      const minPanX = -Math.round(vp.chartW * 0.35);
+      const maxPanX = Math.max(0, (candles.length - 2) * vp.slot);
+      const clampedPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
 
-      // Geometric boundaries:
-      const maxFutureBars = Math.min(30, Math.max(5, Math.floor((vp.chartW * 0.25) / vp.slot)));
-      const minOffset = -maxFutureBars;
-      const maxOffset = Math.max(0, candles.length - 2);
-      const newOffset = Math.max(minOffset, Math.min(maxOffset, panStartRef.current.startSO + shift));
-      lastPanAnchorRef.current = { time, x };
-      setScrollOffset(newOffset);
+      panXRef.current = clampedPanX;
+      setPanOffsetX(clampedPanX);
 
-      if (appMode === 'replay' && newOffset > 2 && onDisableFollowReplay) {
+      if (appMode === 'replay' && clampedPanX > 20 && onDisableFollowReplay) {
         onDisableFollowReplay();
       }
 
       // Y Shift: Drag down -> shift price pan offset
       const priceShift = (dy / (vp.candleH - 20)) * vp.totalRange;
-      setPricePanOffset(panStartRef.current.startPO + priceShift);
+      setPricePanOffset(panStartRef.current.startPanY + priceShift);
 
-      // Trigger older candle prefetch when approaching left boundary
-      if (vp.startIdx < 80) {
-        onLoadOlderCandles?.();
-      }
-
-      // In Analysis mode: trigger newer candle prefetch when near right edge
-      if (appMode === 'analysis' && newOffset < 10) {
-        onLoadNewerCandles?.();
+      // Debounced Prefetch: trigger only when approaching boundaries and not spamming during active drag
+      const now = Date.now();
+      if (now - lastFetchCheckRef.current > 400) {
+        lastFetchCheckRef.current = now;
+        if (vp.startIdx < 40) {
+          onLoadOlderCandles?.();
+        }
+        if (appMode === 'analysis' && vp.endIdx >= candles.length - 10) {
+          onLoadNewerCandles?.();
+        }
       }
       return;
     }
@@ -1912,7 +1934,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     if (y >= vp.mainH) {
       setCandleWidth(8);
-      setScrollOffset(0);
+      panXRef.current = 0;
+      setPanOffsetX(0);
       return;
     }
 
@@ -1960,24 +1983,24 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full min-w-0 min-h-0 flex-1 flex flex-col bg-[#0B0E17] border border-slate-800 rounded-lg overflow-hidden select-none touch-none overscroll-contain shadow-sm"
+      className="relative w-full h-full min-w-0 min-h-0 flex-1 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden select-none touch-none overscroll-contain shadow-sm"
     >
       {/* Top HUD: Asset, Timeframe, OHLC Values & SMA Toggles */}
-      <div className="flex flex-wrap items-center justify-between px-3 py-1.5 bg-[#121622] border-b border-slate-800 text-xs z-10 gap-2 shrink-0">
+      <div className="flex flex-wrap items-center justify-between px-3 py-1.5 pr-28 bg-slate-50 border-b border-slate-200 text-xs z-10 gap-2 shrink-0">
         <div className="flex items-center gap-2.5 flex-wrap">
-          <span className="font-bold text-amber-400 bg-slate-800/80 px-2 py-0.5 border border-slate-700/80 rounded text-xs font-mono tracking-tight">
+          <span className="font-bold text-[#121212] bg-white px-2 py-0.5 border border-slate-200 rounded-lg text-xs font-mono tracking-tight shadow-sm">
             XAUUSD • {timeframe}
           </span>
           {activeC && m && (
-            <span className="flex items-center gap-2 font-mono text-[11px] text-slate-300 flex-wrap">
+            <span className="flex items-center gap-2 font-mono text-[11px] text-[#121212] flex-wrap">
               <span>
                 O:
                 <span className={m.isBull ? ' text-[#059669] font-bold' : ' text-[#DC2626] font-bold'}>
                   {' '}{activeC.open.toFixed(2)}
                 </span>
               </span>
-              <span>H: <span className="text-slate-100 font-bold">{activeC.high.toFixed(2)}</span></span>
-              <span>L: <span className="text-slate-100 font-bold">{activeC.low.toFixed(2)}</span></span>
+              <span>H: <span className="text-[#121212] font-bold">{activeC.high.toFixed(2)}</span></span>
+              <span>L: <span className="text-[#121212] font-bold">{activeC.low.toFixed(2)}</span></span>
               <span>
                 C:
                 <span className={m.isBull ? ' text-[#059669] font-bold' : ' text-[#DC2626] font-bold'}>
@@ -1987,18 +2010,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               <span className={m.diff >= 0 ? 'text-[#059669] font-bold' : 'text-[#DC2626] font-bold'}>
                 {m.diff >= 0 ? `+${m.diff.toFixed(2)}` : m.diff.toFixed(2)} ({m.diff >= 0 ? `+${m.diffPct.toFixed(2)}%` : `${m.diffPct.toFixed(2)}%`})
               </span>
-              <span className="text-slate-400 hidden xl:inline">
-                R: <span className="text-slate-200 font-bold">{m.range.toFixed(2)}</span>
+              <span className="text-[#717182] hidden xl:inline">
+                R: <span className="text-[#121212] font-bold">{m.range.toFixed(2)}</span>
               </span>
-              <span className="text-slate-400 hidden xl:inline">
-                B: <span className="text-slate-200 font-bold">{m.body.toFixed(2)}</span>
+              <span className="text-[#717182] hidden xl:inline">
+                B: <span className="text-[#121212] font-bold">{m.body.toFixed(2)}</span>
               </span>
               {activeC.tickVolume != null && (
-                <span className="text-slate-400 hidden lg:inline">
-                  Vol: <span className="text-[#F0C020] font-bold">{activeC.tickVolume.toLocaleString()}</span>
+                <span className="text-[#717182] hidden lg:inline">
+                  Vol: <span className="text-[#B45309] font-bold">{activeC.tickVolume.toLocaleString()}</span>
                 </span>
               )}
-              <span className="text-slate-400 text-[10px]">{format(new Date(activeC.time), 'yyyy-MM-dd HH:mm')}</span>
+              <span className="text-[#717182] text-[10px]">{format(new Date(activeC.time), 'yyyy-MM-dd HH:mm')}</span>
             </span>
           )}
         </div>
@@ -2010,10 +2033,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               <button
                 key={k}
                 onClick={() => onIndicatorsChange?.({ ...indicators, [k]: !on })}
-                className={`px-2 py-0.5 text-[10px] font-bold font-mono border-2 border-[#121212] transition-all ${
+                className={`px-2 py-0.5 text-[10px] font-bold font-mono border rounded-md transition-all ${
                   on
-                    ? 'bg-[#1040C0] text-white shadow-[1px_1px_0px_0px_#000000]'
-                    : 'bg-[#1e2332] text-slate-400 hover:text-white'
+                    ? 'bg-[#1040C0] text-white border-blue-500 shadow-sm'
+                    : 'bg-white text-[#121212] border-slate-200 hover:bg-[#EAF2FF]'
                 }`}
               >
                 {labels[k]}
@@ -2026,7 +2049,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             <button
               onClick={handleResetAutoScale}
               title="Reset Skala Harga Otomatis"
-              className="px-2 py-0.5 text-[10px] font-black font-mono bg-[#F0C020] text-[#121212] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#000000] hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[1px] active:translate-y-[1px] transition-all"
+              className="px-2 py-0.5 text-[10px] font-black font-mono bg-amber-100 text-[#121212] border border-amber-200 rounded-md shadow-sm hover:bg-amber-200 transition-all"
             >
               AUTO
             </button>
@@ -2181,6 +2204,58 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {/* Visual Order Confirmation Overlay */}
+      {isVisualOrderActive && plannedOrder && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 w-[min(94%,360px)] rounded-xl border border-slate-200 bg-white/95 shadow-xl backdrop-blur-sm p-3">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Pending Order</div>
+              <div className="text-sm font-bold text-slate-900">{plannedOrder.side} • {plannedOrder.entryPrice.toFixed(2)}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">R:R</div>
+              <div className="text-sm font-bold text-[#1040C0]">1 : {plannedOrder.rrRatio.toFixed(2)}</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Risk</div>
+              <div className="mt-1 font-number font-bold text-rose-600">-${plannedOrder.riskAmount.toFixed(2)}</div>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Target Profit</div>
+              <div className="mt-1 font-number font-bold text-emerald-600">+${plannedOrder.targetProfit.toFixed(2)}</div>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Lot Size</div>
+              <div className="mt-1 font-number font-bold text-slate-900">{plannedOrder.lotSize.toFixed(2)} Lot</div>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">SL / TP</div>
+              <div className="mt-1 font-number font-bold text-slate-900">{plannedOrder.slPrice.toFixed(2)} / {plannedOrder.tpPrice.toFixed(2)}</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              type="button"
+              onClick={onCancelVisualOrder}
+              className="flex-1 min-h-[38px] rounded-lg border border-slate-200 bg-slate-100 text-slate-700 font-bold text-[11px] uppercase tracking-wider"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirmVisualOrder}
+              className="flex-1 min-h-[38px] rounded-lg border border-emerald-300 bg-emerald-600 text-white font-bold text-[11px] uppercase tracking-wider shadow-sm"
+            >
+              Confirm Order
+            </button>
+          </div>
         </div>
       )}
 

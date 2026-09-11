@@ -24,7 +24,7 @@ export default function LanguageSwitcher({ compact = false }: LanguageSwitcherPr
     return (
       <button
         onClick={toggle}
-        className="flex items-center gap-1.5 px-2 py-1.5 w-full text-left hover:bg-[#E5E5E5] transition-colors border-2 border-[#121212]"
+        className="flex items-center gap-1.5 px-2 py-1.5 w-full text-left hover:bg-slate-100 transition-colors border border-slate-200 bg-slate-50"
         style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 800, letterSpacing: '0.1em' }}
         aria-label={`Switch language to ${current === 'id' ? 'English' : 'Indonesia'}`}
         title={`Switch to ${current === 'id' ? 'English' : 'Indonesia'}`}

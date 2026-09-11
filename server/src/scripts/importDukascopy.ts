@@ -1,11 +1,15 @@
 import { dukascopyImporter } from '../integrations/dukascopy/dukascopyImporter';
+import path from 'path';
 
 async function main() {
-  const filePath = process.argv[2];
   const symbol = (process.argv[3] || 'XAUUSD').toUpperCase();
+  const defaultFilePath = path.resolve(__dirname, '../../data/market-data', `${symbol}_M1.csv`);
+  const filePath = process.argv[2] || defaultFilePath;
 
-  if (!filePath) {
-    throw new Error('Usage: ts-node src/scripts/importDukascopy.ts <csvPath> [symbol]');
+  if (process.argv[2] === '--help' || process.argv[2] === '-h') {
+    console.log('Usage: ts-node src/scripts/importDukascopy.ts [csvPath] [symbol]');
+    console.log(`Default CSV: ${defaultFilePath}`);
+    return;
   }
 
   console.log(`Starting/resuming Dukascopy ${symbol} M1 import from:`, filePath);

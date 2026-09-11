@@ -155,8 +155,7 @@ export default function Dashboard() {
           {sessions.map(s => (
             <div
               key={s.id}
-              className="bg-white border-2 border-[#121212] p-5 flex flex-col justify-between hover-lift relative group"
-              style={{ boxShadow: '4px 4px 0px 0px #121212' }}
+              className="bg-white border border-slate-200 p-5 flex flex-col justify-between hover-lift relative group rounded-xl shadow-sm"
             >
               <div
                 className="absolute top-0 left-0 right-0 h-[3px]"
@@ -259,7 +258,7 @@ export default function Dashboard() {
 
         {/* ROW 2: Session Metadata & Quick Actions */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs font-medium bg-white px-3.5 py-2 border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212]">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs font-medium bg-white px-3.5 py-2 border border-slate-200 rounded-lg shadow-sm">
             <span className="text-[#717182]">Symbol: <strong className="text-[#121212] font-bold">{session.symbol}</strong></span>
             <span className="text-[#121212]/20">|</span>
             <span className="text-[#717182]">TF: <strong className="text-[#121212] font-bold">{session.timeframe}</strong></span>

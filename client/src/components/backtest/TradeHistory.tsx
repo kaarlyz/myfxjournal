@@ -10,9 +10,9 @@ interface TradeHistoryProps {
 export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
   if (!trades || trades.length === 0) {
     return (
-      <div className="bg-[#0D1117] border border-slate-800 p-8 text-center text-slate-500">
-        <History className="w-8 h-8 mx-auto mb-2 text-slate-600" />
-        <div className="text-sm font-semibold text-slate-300">No trade history yet</div>
+      <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500 shadow-sm">
+        <History className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+        <div className="text-sm font-semibold text-slate-700">No trade history yet</div>
         <div className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
           Open a BUY or SELL position in the Order Panel during replay to test your strategy.
         </div>
@@ -21,11 +21,11 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
   }
 
   return (
-    <div className="bg-[#0D1117] border border-slate-800 overflow-hidden text-white">
-      <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between bg-[#0B0E17]">
+    <div className="bg-white border border-slate-200 overflow-hidden text-slate-800 rounded-xl shadow-sm">
+      <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
         <div className="flex items-center gap-2">
-          <History className="w-4 h-4 text-slate-400" />
-          <span className="font-mono text-xs text-slate-300 uppercase tracking-wider">
+          <History className="w-4 h-4 text-slate-500" />
+          <span className="font-mono text-xs text-slate-700 uppercase tracking-wider">
             Trade History ({trades.length})
           </span>
         </div>
@@ -33,7 +33,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
 
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs">
-          <thead className="bg-[#0B0E17] text-slate-500 border-b border-slate-800 font-mono font-semibold uppercase text-[10px] tracking-wider">
+          <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-mono font-semibold uppercase text-[10px] tracking-wider">
             <tr>
               <th className="py-2 px-3">#</th>
               <th className="py-2 px-3">Side</th>
@@ -49,7 +49,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
               <th className="py-2 px-3 text-right">RR</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60 font-mono text-xs">
+          <tbody className="divide-y divide-slate-200 font-mono text-xs">
             {trades.map((t) => {
               const isLong = t.side === 'LONG';
               const pnl = t.pnl ?? 0;
@@ -57,7 +57,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
               const isLoss = pnl < 0;
 
               return (
-                <tr key={t.id} className="hover:bg-slate-800/20 transition-colors">
+                <tr key={t.id} className="hover:bg-slate-50 transition-colors">
                   <td className="py-2 px-3 text-slate-500">#{t.tradeNumber}</td>
                   
                   {/* Side */}
@@ -78,7 +78,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
                   </td>
 
                   {/* Entry Price */}
-                  <td className="py-2 px-3 font-semibold text-amber-300">
+                  <td className="py-2 px-3 font-semibold text-amber-600">
                     {t.entryPrice.toFixed(2)}
                   </td>
 
@@ -98,7 +98,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
                   </td>
 
                   {/* Exit Price */}
-                  <td className="py-2 px-3 text-slate-200">
+                  <td className="py-2 px-3 text-slate-700">
                     {t.exitPrice !== null ? t.exitPrice.toFixed(2) : '-'}
                   </td>
 
@@ -127,7 +127,7 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ trades }) => {
                   </td>
 
                   {/* Volume */}
-                  <td className="py-2 px-3 text-slate-400">
+                  <td className="py-2 px-3 text-slate-500">
                     {t.volume.toFixed(2)}
                   </td>
 

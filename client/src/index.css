@@ -12,52 +12,52 @@
 /* ── Design Tokens ── */
 :root {
   /* Backgrounds */
-  --bg-base:       #F0F0F0;
+  --bg-base:       #F8FAFC;
   --bg-surface:    #FFFFFF;
-  --bg-dark:       #121212;
-  --bg-muted:      #E0E0E0;
-  --bg-yellow:     #F0C020;
+  --bg-dark:       #0F172A;
+  --bg-muted:      #E2E8F0;
+  --bg-yellow:     #F6C453;
 
   /* Text */
-  --text-primary:   #121212;
-  --text-secondary: #3a3a3a;
-  --text-muted:     #717182;
+  --text-primary:   #0F172A;
+  --text-secondary: #334155;
+  --text-muted:     #64748B;
   --text-inverted:  #FFFFFF;
 
-  /* Accent palette (Bauhaus primaries) */
-  --accent-red:    #D02020;
-  --accent-blue:   #1040C0;
-  --accent-yellow: #F0C020;
-  --accent-dark:   #121212;
+  /* Accent palette */
+  --accent-red:    #DC2626;
+  --accent-blue:   #2563EB;
+  --accent-yellow: #F6C453;
+  --accent-dark:   #0F172A;
 
-  /* Trading-specific semantics (keep readable for financial data) */
+  /* Trading-specific semantics */
   --profit:        #059669;
   --profit-dim:    rgba(5, 150, 105, 0.10);
   --loss:          #DC2626;
   --loss-dim:      rgba(220, 38, 38, 0.10);
   --warning:       #D97706;
   --warning-dim:   rgba(217, 119, 6, 0.10);
-  --neutral:       #4a5568;
+  --neutral:       #475569;
 
   /* Borders */
-  --border-heavy:  4px solid #121212;
-  --border-card:   2px solid #121212;
-  --border-subtle: 1px solid rgba(18, 18, 18, 0.12);
-  --border-color:  #121212;
+  --border-heavy:  1px solid rgba(148, 163, 184, 0.72);
+  --border-card:   1px solid rgba(148, 163, 184, 0.52);
+  --border-subtle: 1px solid rgba(148, 163, 184, 0.26);
+  --border-color:  #CBD5E1;
 
-  /* Shadows (neobrutalist offset) */
-  --shadow-lg:     8px 8px 0px 0px #121212;
-  --shadow-md:     6px 6px 0px 0px #121212;
-  --shadow-sm:     4px 4px 0px 0px #121212;
-  --shadow-xs:     3px 3px 0px 0px #121212;
-  --shadow-red:    6px 6px 0px 0px #D02020;
-  --shadow-blue:   6px 6px 0px 0px #1040C0;
+  /* Shadows */
+  --shadow-lg:     0 18px 45px -24px rgba(15, 23, 42, 0.28);
+  --shadow-md:     0 12px 24px -18px rgba(15, 23, 42, 0.22);
+  --shadow-sm:     0 8px 18px -14px rgba(15, 23, 42, 0.18);
+  --shadow-xs:     0 4px 12px -8px rgba(15, 23, 42, 0.14);
+  --shadow-red:    0 10px 24px -18px rgba(220, 38, 38, 0.26);
+  --shadow-blue:   0 10px 24px -18px rgba(37, 99, 235, 0.28);
 
-  /* Radius — Bauhaus is largely flat/square */
+  /* Radius */
   --radius-none:   0px;
-  --radius-sm:     2px;
-  --radius-md:     4px;
-  --radius-lg:     8px;
+  --radius-sm:     4px;
+  --radius-md:     8px;
+  --radius-lg:     12px;
   --radius-pill:   9999px;
 
   /* Transitions */
@@ -183,6 +183,7 @@ body {
   background: var(--bg-surface);
   border: var(--border-card);
   box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-lg);
   transition: box-shadow var(--transition-fast), transform var(--transition-fast);
 }
 
@@ -585,14 +586,14 @@ select.input {
 }
 
 .nav-item.active {
-  background: var(--bg-dark);
-  color: var(--text-inverted);
-  border-color: var(--bg-dark);
+  background: rgba(37, 99, 235, 0.10);
+  color: var(--accent-blue);
+  border-color: rgba(37, 99, 235, 0.26);
   font-weight: 700;
 }
 
 .nav-item.active svg {
-  color: var(--text-inverted);
+  color: var(--accent-blue);
 }
 
 .nav-section-label {
@@ -837,7 +838,7 @@ select.input {
 }
 .hover-lift:hover {
   transform: translate(-1px, -1px);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 12px 24px -18px rgba(15, 23, 42, 0.25);
 }
 
 /* ── Stat Colors ── */
@@ -977,16 +978,12 @@ textarea:focus-visible {
    Canvas uses the existing dark market palette (#0B0E17) so the chart
    reads as one continuous surface with the workspace, not a card. */
 .mobile-terminal {
-  /* dvh keeps the chart tall under mobile browser chrome;
-     100vh would overflow and hide the bottom actions. */
   height: 100dvh;
   min-height: 100dvh;
-  background: #0B0E17;
-  color: #E6EDF3;
+  background: #F8FAFC;
+  color: #0F172A;
   display: flex;
   flex-direction: column;
-  /* safe-area insets keep the top strip and bottom actions off the
-     notch / home indicator on real devices. */
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   overflow: hidden;
@@ -996,26 +993,50 @@ textarea:focus-visible {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 8px 12px;
-  background: #0B0E17;
-  border-bottom: 1px solid rgba(230, 237, 243, 0.08);
-  min-height: 44px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.65);
+  min-height: 52px;
+  backdrop-filter: blur(10px);
+}
+
+.mobile-terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mobile-select {
+  min-height: 32px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.9);
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 0 8px;
 }
 
 .mobile-terminal-chart {
   flex: 1 1 auto;
   min-height: 0;
-  /* Chart gets the largest share of the viewport; the surface is the
-     background, not a card, so the canvas reads edge-to-edge. */
-  background: #0B0E17;
+  background: #F8FAFC;
 }
 
 .mobile-terminal-context {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 8px 12px;
-  background: #0B0E17;
-  border-top: 1px solid rgba(230, 237, 243, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid rgba(148, 163, 184, 0.65);
+  backdrop-filter: blur(10px);
 }
 
 .mobile-terminal-actions {
@@ -1024,8 +1045,9 @@ textarea:focus-visible {
   align-items: stretch;
   gap: 8px;
   padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
-  background: #0B0E17;
-  border-top: 1px solid rgba(230, 237, 243, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid rgba(148, 163, 184, 0.65);
+  backdrop-filter: blur(10px);
 }
 
 /* Compact pill for sticky symbol / mode tags on mobile */
@@ -1034,9 +1056,10 @@ textarea:focus-visible {
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
-  border-radius: 4px;
-  background: rgba(230, 237, 243, 0.06);
-  color: #E6EDF3;
+  border-radius: 9999px;
+  background: #F8FAFC;
+  color: #334155;
+  border: 1px solid rgba(148, 163, 184, 0.9);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 600;
@@ -1044,23 +1067,23 @@ textarea:focus-visible {
 }
 
 .mobile-tag-accent {
-  background: rgba(16, 64, 192, 0.18);
-  color: #9DB4FF;
+  background: #EAF2FF;
+  color: #1040C0;
 }
 
 .mobile-tag-warn {
-  background: rgba(240, 192, 32, 0.16);
-  color: #F0C020;
+  background: #FFF7D6;
+  color: #B45309;
 }
 
 .mobile-tag-profit {
-  background: rgba(5, 150, 105, 0.18);
-  color: #34D399;
+  background: #E7F9F0;
+  color: #059669;
 }
 
 .mobile-tag-loss {
-  background: rgba(220, 38, 38, 0.18);
-  color: #F87171;
+  background: #FDECEC;
+  color: #DC2626;
 }
 
 /* Compact icon button with a real 44px hit box but a smaller visual */
@@ -1071,21 +1094,22 @@ textarea:focus-visible {
   min-width: 44px;
   min-height: 44px;
   padding: 8px;
-  border-radius: 6px;
-  background: rgba(230, 237, 243, 0.06);
-  color: #E6EDF3;
-  border: 1px solid rgba(230, 237, 243, 0.08);
-  transition: background 120ms ease, color 120ms ease;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #334155;
+  border: 1px solid rgba(148, 163, 184, 0.9);
+  box-shadow: 0 4px 12px -8px rgba(15, 23, 42, 0.20);
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
 .mobile-icon-btn:active {
-  background: rgba(230, 237, 243, 0.12);
+  background: #F0F0F0;
 }
 
 .mobile-icon-btn[data-active="true"] {
-  background: rgba(16, 64, 192, 0.22);
-  color: #9DB4FF;
-  border-color: rgba(16, 64, 192, 0.4);
+  background: #EAF2FF;
+  color: #1D4ED8;
+  border-color: rgba(96, 165, 250, 0.8);
 }
 
 .mobile-icon-btn:focus-visible {
@@ -1102,12 +1126,13 @@ textarea:focus-visible {
   z-index: 60;
   max-height: 82dvh;
   overflow-y: auto;
-  background: #0F1420;
-  color: #E6EDF3;
-  border-top: 1px solid rgba(230, 237, 243, 0.1);
-  border-radius: 16px 16px 0 0;
+  background: rgba(255, 255, 255, 0.96);
+  color: #0F172A;
+  border-top: 1px solid rgba(148, 163, 184, 0.7);
+  border-radius: 18px 18px 0 0;
   padding: 8px 12px calc(16px + env(safe-area-inset-bottom));
-  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 -18px 45px -28px rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(12px);
 }
 
 .mobile-sheet-handle {
@@ -1123,8 +1148,8 @@ textarea:focus-visible {
 .mobile-action-buy {
   flex: 1;
   min-height: 48px;
-  border-radius: 8px;
-  background: #059669;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #10B981 0%, #059669 100%);
   color: #FFFFFF;
   font-family: 'Outfit', sans-serif;
   font-weight: 800;
@@ -1135,13 +1160,14 @@ textarea:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  box-shadow: 0 10px 18px -14px rgba(5, 150, 105, 0.7);
 }
 
 .mobile-action-sell {
   flex: 1;
   min-height: 48px;
-  border-radius: 8px;
-  background: #DC2626;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #EF4444 0%, #DC2626 100%);
   color: #FFFFFF;
   font-family: 'Outfit', sans-serif;
   font-weight: 800;
@@ -1152,6 +1178,7 @@ textarea:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  box-shadow: 0 10px 18px -14px rgba(220, 38, 38, 0.7);
 }
 
 .mobile-action-buy:disabled,

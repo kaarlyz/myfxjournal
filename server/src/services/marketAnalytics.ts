@@ -1,4 +1,5 @@
 import { prisma } from '../prisma';
+import * as parquetProvider from '../integrations/mt5-sync/parquetDataProvider';
 import {
   normalizeSymbol,
   detectPriceDigits,
@@ -385,8 +386,12 @@ export class MarketAnalyticsService {
       ? exitTime
       : new Date(entryTime.getTime() + 14 * 24 * 60 * 60 * 1000);
 
-    // For MFE / excursion exploration before SL is hit, query forward up to 14 days
-    const queryEndTime = new Date(entryTime.getTime() + 14 * 24 * 60 * 60 * 1000);
+    const isZeroDuration = alignedExitTime.getTime() === alignedEntryTime.getTime();
+    // For MFE / excursion exploration before SL is hit, query forward up to 14 days, but respect zero-duration trades.
+    // Zero-duration: extend by 1 minute so strict [entry, entry+1min] captures exactly 1 candle bucket.
+    const queryEndTime = isZeroDuration
+      ? new Date(alignedEntryTime.getTime() + 60 * 1000)
+      : new Date(entryTime.getTime() + 14 * 24 * 60 * 60 * 1000);
 
     // If target timeframe is stored in DB directly
     const storedTf = catalogItem.timeframe;
@@ -401,7 +406,38 @@ export class MarketAnalyticsService {
       take: 100000,
     });
 
-    if (rawCandles.length === 0) {
+    let ohlcCandles: OHLCCandle[] = [];
+    if (rawCandles.length > 0) {
+      ohlcCandles = rawCandles.map(c => ({
+        time: c.time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        tickVolume: c.tickVolume ?? undefined,
+        realVolume: c.realVolume ?? undefined,
+      }));
+    } else if (catalogItem.provider === 'DUKASCOPY' || catalogItem.provider === 'PARQUET') {
+      // Use strict fromTime+toTime — NOT replayTime (adaptive lookback pulls data
+      // from before alignedEntryTime, defeating the empty-window check).
+      const pqCandles = await parquetProvider.getCandles({
+        symbol: catalogItem.symbol,
+        timeframe: storedTf,
+        fromTime: alignedEntryTime,
+        toTime: queryEndTime,
+        limit: isZeroDuration ? 1 : 100000,
+      });
+      ohlcCandles = pqCandles.map(c => ({
+        time: c.time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        tickVolume: c.tickVolume,
+      }));
+    }
+
+    if (ohlcCandles.length === 0) {
       return {
         tradeId,
         status: 'MISSING_MARKET_DATA',
@@ -413,17 +449,6 @@ export class MarketAnalyticsService {
         alignedExitTime,
       };
     }
-
-    // Convert to OHLCCandle format
-    const ohlcCandles: OHLCCandle[] = rawCandles.map(c => ({
-      time: c.time,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-      tickVolume: c.tickVolume ?? undefined,
-      realVolume: c.realVolume ?? undefined,
-    }));
 
     // Resample if stored timeframe is M1 but target timeframe is higher (e.g. M5, M15, H1)
     const candles: OHLCCandle[] = (storedTf === 'M1' && tf !== 'M1')
