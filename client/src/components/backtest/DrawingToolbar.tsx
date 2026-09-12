@@ -63,15 +63,15 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
   ];
 
   return (
-    <div className="flex flex-col items-center bg-white border border-slate-200 shadow-sm p-1 gap-1 z-20 select-none shrink-0 rounded-xl">
+    <div className="flex flex-col items-center bg-white border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] p-1 gap-1 z-20 select-none shrink-0">
       {tools.map((t) => {
         const isActive = activeTool === t.id;
         const activeClass =
           t.id === 'long_position'
-            ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 shadow-sm'
+            ? 'bg-[#E7F9F0] text-[#059669] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]'
             : t.id === 'short_position'
-              ? 'bg-rose-50 text-rose-600 border border-rose-200 shadow-sm'
-              : 'bg-blue-50 text-blue-600 border border-blue-200 shadow-sm';
+              ? 'bg-[#FDECEC] text-[#DC2626] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]'
+              : 'bg-[#EBF2FF] text-[#1040C0] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]';
 
         return (
           <button
@@ -79,26 +79,26 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
             type="button"
             onClick={() => onToolChange(t.id)}
             title={`${t.label} (${t.shortcut})`}
-            className={`relative group p-2 transition-all active:scale-95 rounded-md border ${
+            className={`relative group p-2 transition-all active:scale-95 cursor-pointer ${
               isActive
                 ? activeClass
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 hover:border-slate-200'
+                : 'border-2 border-transparent text-[#121212] hover:text-[#121212] hover:bg-[#FFFDEB] hover:border-[#121212]'
             }`}
           >
             {t.icon}
             
             {/* Tooltip on hover */}
-            <div className="absolute left-full ml-2.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-slate-50 text-slate-700 text-[11px] font-medium border border-slate-200 shadow-sm whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
+            <div className="absolute left-full ml-2.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-white text-[#121212] text-[11px] font-bold border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
               <div className="flex items-center gap-1.5">
                 <span>{t.label}</span>
-                <span className="bg-slate-100 text-slate-600 px-1 py-0.2 font-mono text-[9px] border border-slate-200">{t.shortcut}</span>
+                <span className="bg-[#F0F0F0] text-[#121212] px-1 py-0.2 font-mono text-[9px] border border-[#121212]">{t.shortcut}</span>
               </div>
             </div>
           </button>
         );
       })}
 
-      <div className="w-5 h-[2px] bg-slate-200 my-1" />
+      <div className="w-5 h-[2px] bg-[#121212] my-1" />
 
       {/* Lock RR Toggle for Position Tools */}
       {onToggleLockRR && (
@@ -106,14 +106,14 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
           type="button"
           onClick={onToggleLockRR}
           title={lockRR ? 'Lock RR: ON (TP otomatis menyesuaikan SL)' : 'Lock RR: OFF'}
-          className={`relative group p-2 transition-all active:scale-95 rounded-md border ${
+          className={`relative group p-2 transition-all active:scale-95 cursor-pointer ${
             lockRR
-              ? 'bg-amber-50 text-amber-600 border border-amber-200 shadow-sm'
-              : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100 hover:border-slate-200'
+              ? 'bg-[#FEF3C7] text-[#D97706] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]'
+              : 'border-2 border-transparent text-[#121212] hover:text-[#121212] hover:bg-[#FFFDEB] hover:border-[#121212]'
           }`}
         >
-          {lockRR ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-          <div className="absolute left-full ml-2.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-slate-50 text-slate-700 text-[11px] font-medium border border-slate-200 shadow-sm whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
+          {lockRR ? <Lock className="w-4 h-4 stroke-[2.5]" /> : <Unlock className="w-4 h-4 stroke-[2.5]" />}
+          <div className="absolute left-full ml-2.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-white text-[#121212] text-[11px] font-bold border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
             {lockRR ? 'Lock RR: ON (Kunci Rasio)' : 'Lock RR: OFF'}
           </div>
         </button>
@@ -125,10 +125,10 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
           type="button"
           onClick={onDeleteSelected}
           title="Hapus Gambar Terpilih (Delete / Backspace)"
-          className="relative group p-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 transition-all active:scale-95 border border-transparent hover:border-rose-200"
+          className="relative group p-2 text-[#DC2626] hover:bg-[#FDECEC] border-2 border-transparent hover:border-[#121212] transition-all active:scale-95 cursor-pointer"
         >
-          <Trash2 className="w-4 h-4" />
-          <div className="absolute left-full ml-2.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-slate-50 text-rose-600 text-[11px] font-medium border border-slate-200 shadow-sm whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
+          <Trash2 className="w-4 h-4 stroke-[2.5]" />
+          <div className="absolute left-full ml-2.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-white text-[#DC2626] text-[11px] font-bold border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
             Hapus Terpilih (Del)
           </div>
         </button>
@@ -140,10 +140,10 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
           type="button"
           onClick={onDeleteAll}
           title="Hapus Semua Gambar di Chart"
-          className="relative group p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all active:scale-95 border border-transparent hover:border-slate-200"
+          className="relative group p-2 text-[#121212] hover:bg-[#FFFDEB] border-2 border-transparent hover:border-[#121212] transition-all active:scale-95 cursor-pointer"
         >
-          <Eraser className="w-4 h-4" />
-          <div className="absolute left-full ml-2.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-slate-50 text-slate-700 text-[11px] font-medium border border-slate-200 shadow-sm whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
+          <Eraser className="w-4 h-4 stroke-[2.5]" />
+          <div className="absolute left-full ml-2.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-white text-[#121212] text-[11px] font-bold border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
             Hapus Semua Gambar
           </div>
         </button>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, BarChart3, BookOpen, Layers, Menu, X } from 'lucide-react';
+import { Home, BarChart3, BookOpen, Layers, Menu, X, PlayCircle } from 'lucide-react';
 
 interface MobileBottomNavProps {
   onToggleMenu: () => void;
@@ -12,6 +12,7 @@ export function MobileBottomNav({ onToggleMenu, isMenuOpen }: MobileBottomNavPro
 
   const isHomeActive = location.pathname === '/' || location.pathname === '/sessions';
   const isDashboardActive = location.pathname.startsWith('/dashboard');
+  const isReplayActive = location.pathname.startsWith('/backtest');
   const isLiveActive = location.pathname.startsWith('/live-journal');
   const isToolsActive = ['/market-data', '/prop-sim', '/monte-carlo', '/risk-calculator', '/ea-control', '/mt5-connections'].some(p => location.pathname.startsWith(p));
 
@@ -44,6 +45,19 @@ export function MobileBottomNav({ onToggleMenu, isMenuOpen }: MobileBottomNavPro
       >
         <BarChart3 className="w-4 h-4" />
         <span className="text-[10px] font-bold uppercase tracking-wider font-[Outfit]">Analisa</span>
+      </NavLink>
+
+      {/* Chart Replay */}
+      <NavLink
+        to="/backtest"
+        className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 transition-colors min-h-[44px] ${
+          isReplayActive
+            ? 'text-[#1040C0] bg-[#EBF2FF] font-black border-t-2 border-t-[#1040C0] -mt-[2px]'
+            : 'text-[#717182] hover:text-[#121212]'
+        }`}
+      >
+        <PlayCircle className="w-4 h-4" />
+        <span className="text-[10px] font-bold uppercase tracking-wider font-[Outfit]">Replay</span>
       </NavLink>
 
       {/* Live */}

@@ -24,6 +24,7 @@ import {
   ArrowDownRight,
   SlidersHorizontal,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { CandlestickChart, ChartCandle, ChartIndicators, DrawingItem, PlannedOrderPreview } from '../components/backtest/CandlestickChart';
 import { DrawingToolbar, DrawingTool } from '../components/backtest/DrawingToolbar';
@@ -33,6 +34,7 @@ import { JumpToDateDialog } from '../components/backtest/JumpToDateDialog';
 import { OrderPanel, type OrderPanelHandle } from '../components/backtest/OrderPanel';
 import { BacktestStats } from '../components/backtest/BacktestStats';
 import { TradeHistory } from '../components/backtest/TradeHistory';
+import { TradeNotificationToast, type TradeToastItem } from '../components/backtest/TradeNotificationToast';
 import {
   calculatePositionSize,
   evaluateCandleHit,
@@ -111,18 +113,55 @@ export default function Backtest() {
     };
   }, []);
 
+  const workspaceRef = useRef<HTMLDivElement>(null);
+
   const handleToggleFullscreen = useCallback(async () => {
     try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
+      const doc = document as any;
+      const isFull = document.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement;
+      
+      if (!isFull) {
+        const el = workspaceRef.current as any;
+        if (!el) return;
+        if (el.requestFullscreen) {
+          await el.requestFullscreen();
+        } else if (el.webkitRequestFullscreen) {
+          await el.webkitRequestFullscreen();
+        } else if (el.msRequestFullscreen) {
+          await el.msRequestFullscreen();
+        }
       } else {
-        await document.exitFullscreen();
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if (doc.webkitExitFullscreen) {
+          await doc.webkitExitFullscreen();
+        } else if (doc.msExitFullscreen) {
+          await doc.msExitFullscreen();
+        }
       }
     } catch (error) {
       console.error('Fullscreen toggle failed:', error);
     }
+  }, []);
 
-    setIsFullscreen((prev) => !prev);
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const doc = document as any;
+      const isFull = !!(document.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement);
+      setIsFullscreen(isFull);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
   }, []);
 
   const handlePlannedOrderChange = useCallback((newPlanned: { entryPrice: number; slPrice: number; tpPrice: number }) => {
@@ -568,8 +607,9 @@ export default function Backtest() {
               setBalance(closeJson.data.session.currentBalance);
 
               if (hitResult.type === 'TP' || hitResult.type === 'SL') {
-                setTradeHitToast({
+                showToast({
                   kind: hitResult.type,
+                  symbol,
                   amount: typeof closed.pnl === 'number' ? closed.pnl : 0,
                   rr: typeof closed.rr === 'number' ? closed.rr : null,
                 });
@@ -624,7 +664,11 @@ export default function Backtest() {
     riskAmount: number;
   }) => {
     if (activeTrade) {
-      alert('Posisi aktif sudah ada. Tutup posisi terlebih dahulu sebelum membuka posisi baru.');
+      showToast({
+        kind: 'ERROR',
+        title: 'POSISI AKTIF',
+        message: 'Posisi aktif sudah ada. Tutup posisi terlebih dahulu sebelum membuka posisi baru.',
+      });
       return;
     }
     if (isSubmittingTrade) return;
@@ -676,8 +720,19 @@ export default function Backtest() {
       if (!json.ok) throw new Error(json.error || 'Failed to open trade');
       setTrades((prev) => [json.data, ...prev.filter((t) => t.id !== json.data.id)]);
       setIntrabarWarning(null);
+      showToast({
+        kind: 'ENTRY',
+        symbol,
+        side: tradeParams.side,
+        price: tradeParams.entryPrice,
+        lotSize: tradeParams.volume,
+      });
     } catch (err: any) {
-      alert(`Gagal membuka posisi: ${err.message}`);
+      showToast({
+        kind: 'ERROR',
+        title: 'ORDER GAGAL',
+        message: `Gagal membuka posisi: ${err.message}`,
+      });
     } finally {
       setIsSubmittingTrade(false);
     }
@@ -712,13 +767,27 @@ export default function Backtest() {
         const closed = json.data.trade;
         setTrades((prev) => prev.map((t) => (t.id === closed.id ? closed : t)));
         setBalance(json.data.session.currentBalance);
+        showToast({
+          kind: 'CLOSE',
+          symbol,
+          amount: typeof closed.pnl === 'number' ? closed.pnl : undefined,
+          rr: typeof closed.rr === 'number' ? closed.rr : undefined,
+        });
         fetch(`${API_BASE}/sessions/${sessionId}/sync-to-journal`, { method: 'POST' }).catch(console.error);
       } else {
-        alert(`Gagal menutup posisi: ${json.error || 'Terjadi kesalahan'}`);
+        showToast({
+          kind: 'ERROR',
+          title: 'GAGAL MENUTUP',
+          message: json.error || 'Terjadi kesalahan saat menutup posisi',
+        });
       }
     } catch (err: any) {
       console.error('Manual close error:', err);
-      alert(`Gagal menutup posisi: ${err.message}`);
+      showToast({
+        kind: 'ERROR',
+        title: 'GAGAL MENUTUP',
+        message: err.message,
+      });
     } finally {
       setIsSubmittingTrade(false);
     }
@@ -753,11 +822,19 @@ export default function Backtest() {
   // ── 13d. Execute Planned Position from Drawing Tool ──
   const handleExecutePlannedTrade = (pos: DrawingItem) => {
     if (appMode !== 'replay' || !sessionId) {
-      alert('Aktifkan mode Chart Replay terlebih dahulu untuk melakukan transaksi live backtest.');
+      showToast({
+        kind: 'INFO',
+        title: 'MODE REPLAY',
+        message: 'Aktifkan mode Chart Replay terlebih dahulu untuk melakukan transaksi live backtest.',
+      });
       return;
     }
     if (activeTrade) {
-      alert('Posisi aktif masih terbuka. Tutup posisi terlebih dahulu sebelum membuka posisi baru.');
+      showToast({
+        kind: 'ERROR',
+        title: 'POSISI AKTIF',
+        message: 'Posisi aktif masih terbuka. Tutup posisi terlebih dahulu sebelum membuka posisi baru.',
+      });
       return;
     }
     const isLong = pos.type === 'long_position';
@@ -765,7 +842,11 @@ export default function Backtest() {
     const slPrice = pos.slPrice;
     const tpPrice = pos.tpPrice;
     if (!slPrice || !tpPrice) {
-      alert('Posisi belum memiliki SL dan TP yang valid.');
+      showToast({
+        kind: 'ERROR',
+        title: 'SL / TP INVALID',
+        message: 'Posisi belum memiliki SL dan TP yang valid.',
+      });
       return;
     }
     const lotSize = calculatePositionSize(balance, riskPercent, entryPrice, slPrice);
@@ -842,7 +923,15 @@ export default function Backtest() {
 
   const [isMobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [mobileSheetKind, setMobileSheetKind] = useState<'MENU' | 'ORDER' | 'TOOLS' | 'STATS' | 'HISTORY'>('ORDER');
-  const [tradeHitToast, setTradeHitToast] = useState<{ kind: 'TP' | 'SL'; amount: number; rr: number | null } | null>(null);
+  const [activeToast, setActiveToast] = useState<TradeToastItem | null>(null);
+
+  const showToast = useCallback((item: Omit<TradeToastItem, 'id'>) => {
+    setActiveToast({ ...item, id: Math.random().toString(36).slice(2, 9) });
+  }, []);
+
+  const dismissToast = useCallback(() => {
+    setActiveToast(null);
+  }, []);
 
   const openMobileSheet = (kind: typeof mobileSheetKind) => {
     setMobileSheetKind(kind);
@@ -893,7 +982,11 @@ export default function Backtest() {
     riskAmount: number;
   }) => {
     if (activeTrade) {
-      alert('Posisi aktif masih terbuka. Tutup posisi terlebih dahulu sebelum membuka posisi baru.');
+      showToast({
+        kind: 'ERROR',
+        title: 'POSISI AKTIF',
+        message: 'Posisi aktif masih terbuka. Tutup posisi terlebih dahulu sebelum membuka posisi baru.',
+      });
       return;
     }
 
@@ -914,13 +1007,17 @@ export default function Backtest() {
     setIsVisualOrderActive(true);
     setIsOrderPanelOpen(false);
     setMobileSheetOpen(false);
-  }, [activeTrade]);
+  }, [activeTrade, showToast]);
 
   const handleConfirmVisualOrder = useCallback(async () => {
     if (!plannedTrade) return;
 
     if (activeTrade) {
-      alert('Posisi aktif masih terbuka. Tutup posisi terlebih dahulu sebelum membuka posisi baru.');
+      showToast({
+        kind: 'ERROR',
+        title: 'POSISI AKTIF',
+        message: 'Posisi aktif masih terbuka. Tutup posisi terlebih dahulu sebelum membuka posisi baru.',
+      });
       return;
     }
 
@@ -937,7 +1034,7 @@ export default function Backtest() {
     setPlannedTrade(null);
     setControlledSlPrice(null);
     setControlledTpPrice(null);
-  }, [activeTrade, handleOpenTrade, plannedTrade]);
+  }, [activeTrade, handleOpenTrade, plannedTrade, showToast]);
 
   const handleCancelVisualOrder = useCallback(() => {
     setIsVisualOrderActive(false);
@@ -946,15 +1043,6 @@ export default function Backtest() {
     setControlledTpPrice(null);
   }, []);
 
-  useEffect(() => {
-    if (!tradeHitToast) return;
-
-    const timer = window.setTimeout(() => {
-      setTradeHitToast(null);
-    }, 3000);
-
-    return () => window.clearTimeout(timer);
-  }, [tradeHitToast]);
 
   const replayReset = appMode === 'replay' && replayStartTime
     ? () => { void initReplaySession(replayStartTime, timeframe); }
@@ -964,59 +1052,63 @@ export default function Backtest() {
   // Chart is the hero. Strip = symbol/TF/mode. Context = position info.
   // Actions = primary buy/sell (or replay controls), secondary in a sheet.
   const mobileTerminal = (
-    <div className={`mobile-terminal block md:hidden ${isFullscreen ? 'fixed inset-0 z-50 w-full' : 'w-full'} h-[100dvh] flex flex-col overflow-hidden bg-slate-50`}>
-      <button
-        type="button"
-        id="mobile-back-button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          console.log('MOBILE BACK TRIGGERED VIA CLICK');
-          handleMobileBack();
-        }}
-        onTouchStart={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          console.log('MOBILE BACK TRIGGERED VIA TOUCH');
-          handleMobileBack();
-        }}
-        className="fixed top-3 left-3 z-[99999] pointer-events-auto flex items-center justify-center w-10 h-10 rounded-xl border border-slate-300 bg-white shadow-md active:bg-slate-100 active:scale-95 transition-all cursor-pointer"
-        aria-label="Back"
-      >
-        <ChevronLeft className="w-6 h-6 text-slate-800 pointer-events-none" />
-      </button>
+    <div className="mobile-terminal block md:hidden w-full h-[100dvh] flex flex-col overflow-hidden bg-slate-50">
 
       {/* Top strip: compact app-like header for pair / timeframe / mode. */}
-      <div className="mobile-terminal-strip">
-        <div className="mobile-terminal-header">
-          <span className="mobile-tag mobile-tag-accent">{symbol}</span>
+      <div className="mobile-terminal-strip flex items-center px-2 py-2 border-b-2 border-[#121212] bg-[#F0F0F0]">
+        <div className="flex items-center gap-1.5 w-full overflow-x-auto no-scrollbar">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleMobileBack();
+            }}
+            className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-white border-2 border-[#121212] text-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-[#FFFDEB] transition-colors cursor-pointer"
+            aria-label="Back"
+          >
+            <ChevronLeft className="w-5 h-5 pointer-events-none stroke-[2.5]" />
+          </button>
+          
+          <span className="mobile-tag mobile-tag-accent shrink-0">{symbol}</span>
           <select
             value={timeframe}
             onChange={(e) => handleTimeframeChange(e.target.value as ChartTimeframe)}
             aria-label="Timeframe"
-            className="mobile-tag mobile-select"
+            className="mobile-tag mobile-select shrink-0"
           >
             {(['M1','M5','M15','M30','H1','H4','D1'] as ChartTimeframe[]).map(tf => (
               <option key={tf} value={tf} className="bg-white text-slate-700">{tf}</option>
             ))}
           </select>
-          {appMode === 'analysis' && <span className="mobile-tag mobile-tag-profit">ANALYSIS</span>}
-          {appMode === 'selecting' && <span className="mobile-tag mobile-tag-warn">PICK START</span>}
-          {appMode === 'replay' && <span className="mobile-tag mobile-tag-accent">REPLAY</span>}
+          {appMode === 'analysis' && <span className="mobile-tag mobile-tag-profit shrink-0">ANALYSIS</span>}
+          {appMode === 'selecting' && <span className="mobile-tag mobile-tag-warn shrink-0">PICK START</span>}
+          {appMode === 'replay' && <span className="mobile-tag mobile-tag-accent shrink-0">REPLAY</span>}
           {appMode === 'replay' && replayTime && (
-            <span className="mobile-tag bg-slate-100 text-slate-600 border-slate-200">{format(replayTime, 'MM-dd HH:mm')}</span>
+            <span className="mobile-tag bg-[#F0F0F0] text-[#121212] border-2 border-[#121212] font-mono font-bold shrink-0">{format(replayTime, 'MM-dd HH:mm')}</span>
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => openMobileSheet('MENU')}
-          className="mobile-icon-btn"
-          aria-label="Open mobile menu"
-          title="Open mobile menu"
-        >
-          <Menu className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={handleToggleFullscreen}
+            className="mobile-icon-btn shrink-0 w-8 h-8 p-1.5"
+            aria-label="Toggle Fullscreen"
+            title="Toggle Fullscreen"
+          >
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => openMobileSheet('MENU')}
+            className="mobile-icon-btn shrink-0 w-8 h-8 p-1.5"
+            aria-label="Open mobile menu"
+            title="Open mobile menu"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Error / hint as a thin strip, not a card. */}
@@ -1035,44 +1127,7 @@ export default function Backtest() {
 
       {/* Chart: edge-to-edge, the largest element on the viewport. */}
       <div className="mobile-terminal-chart relative w-full h-full overflow-hidden">
-        <button
-          type="button"
-          onClick={() => openMobileSheet('TOOLS')}
-          className="mobile-icon-btn absolute bottom-4 left-3 z-20 shadow-sm"
-          data-active={activeTool !== 'cursor'}
-          aria-label="Open drawing tools"
-          title="Drawing tools"
-        >
-          <MousePointer2 className="w-4 h-4" />
-        </button>
-
-        <div className="absolute top-2 right-2 z-50 pointer-events-auto flex items-center gap-1.5 bg-white/90 backdrop-blur-md p-1 rounded-lg border border-slate-200 shadow-sm">
-          <button
-            type="button"
-            onClick={() => handleChartOrderOpen('LONG')}
-            disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
-            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-mono text-[10px] font-bold px-3 py-1.5 rounded-md transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:bg-emerald-300"
-            aria-label={`Buy at ${buyPriceLabel}`}
-          >
-            <span className="flex items-center gap-1">
-              <span>BUY</span>
-              <span className="opacity-80">{buyPriceLabel}</span>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleChartOrderOpen('SHORT')}
-            disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
-            className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-mono text-[10px] font-bold px-3 py-1.5 rounded-md transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:bg-rose-300"
-            aria-label={`Sell at ${sellPriceLabel}`}
-          >
-            <span className="flex items-center gap-1">
-              <span>SELL</span>
-              <span className="opacity-80">{sellPriceLabel}</span>
-            </span>
-          </button>
-        </div>
-
+        
         <CandlestickChart
           candles={candles}
           timeframe={timeframe}
@@ -1112,18 +1167,48 @@ export default function Backtest() {
           onConfirmVisualOrder={handleConfirmVisualOrder}
           onCancelVisualOrder={handleCancelVisualOrder}
         />
+
+        {/* Floating Quick Actions (Mobile) - Centered flex container */}
+        <AnimatePresence>
+          {appMode !== 'selecting' && !isSubmittingTrade && !activeTrade && (
+            <div className="pointer-events-none absolute bottom-5 inset-x-0 z-40 flex justify-center">
+              <motion.div
+                initial={{ opacity: 0, y: 16, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.96 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                className="pointer-events-auto flex items-center gap-2 p-1.5 bg-white rounded-xl border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212]"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleChartOrderOpen('LONG')}
+                  className="bg-[#059669] hover:bg-[#047857] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white font-mono font-black text-xs px-7 py-2.5 rounded-lg border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] transition-all cursor-pointer"
+                >
+                  BUY
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleChartOrderOpen('SHORT')}
+                  className="bg-[#DC2626] hover:bg-[#B91C1C] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white font-mono font-black text-xs px-7 py-2.5 rounded-lg border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] transition-all cursor-pointer"
+                >
+                  SELL
+                </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Context line: compact price + balance + active trade info. */}
       <div className="mobile-terminal-context">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Price</span>
-          <span className="text-base font-number font-bold text-amber-600">{currentPrice > 0 ? currentPrice.toFixed(2) : '--.--'}</span>
+        <div className="flex items-center gap-1.5 bg-[#FFFDEB] border-2 border-[#121212] px-2 py-0.5 shadow-[1px_1px_0px_0px_#121212] shrink-0">
+          <span className="text-[9px] font-black uppercase tracking-wider text-[#B45309]">Price</span>
+          <span className="text-xs font-number font-black text-[#121212]">{currentPrice > 0 ? currentPrice.toFixed(2) : '--.--'}</span>
         </div>
 
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Balance</span>
-          <span className="text-xs font-number font-semibold text-slate-700">${balance.toFixed(0)}</span>
+        <div className="flex items-center gap-1.5 bg-[#EBF2FF] border-2 border-[#121212] px-2 py-0.5 shadow-[1px_1px_0px_0px_#121212] shrink-0">
+          <span className="text-[9px] font-black uppercase tracking-wider text-[#1040C0]">Balance</span>
+          <span className="text-xs font-number font-black text-[#1040C0]">${balance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
         </div>
 
         <div className="flex-1" />
@@ -1169,12 +1254,12 @@ export default function Backtest() {
             <div className="flex-1" />
             <button
               type="button"
-              onClick={handleToggleFullscreen}
-              className="mobile-icon-btn"
-              aria-label="Fullscreen"
-              title="Fullscreen"
+              onClick={handleActivateBarReplay}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1040C0] hover:bg-[#0D3399] text-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+              title="Aktifkan Chart Replay"
             >
-              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              <Video className="w-4 h-4 stroke-[2.5]" />
+              <span>Chart Replay</span>
             </button>
           </>
         )}
@@ -1191,7 +1276,7 @@ export default function Backtest() {
           </button>
         )}
 
-        {/* Replay: compact playback controls only. Buy/Sell now live on the chart overlay. */}
+        {/* Replay: compact playback controls + Buy/Sell */}
         {appMode === 'replay' && (
           <>
             <button
@@ -1227,10 +1312,29 @@ export default function Backtest() {
 
             <div className="flex-1" />
 
+            <div className="flex items-center gap-1.5 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => handleChartOrderOpen('LONG')}
+                disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-mono text-[11px] font-bold px-2 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50 min-w-0"
+              >
+                BUY
+              </button>
+              <button
+                type="button"
+                onClick={() => handleChartOrderOpen('SHORT')}
+                disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-mono text-[11px] font-bold px-2 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50 min-w-0"
+              >
+                SELL
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={() => openMobileSheet('ORDER')}
-              className="mobile-icon-btn"
+              className="mobile-icon-btn shrink-0"
               aria-label="Order settings"
               title="SL / TP / Risk"
             >
@@ -1241,33 +1345,47 @@ export default function Backtest() {
       </div>
 
       {/* Mobile bottom sheet: contextual, only when summoned. */}
-      {isMobileSheetOpen && (
-        <div className="md:hidden">
-          <div
-            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
-            onClick={() => setMobileSheetOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="mobile-sheet" role="dialog" aria-modal="true" aria-label="Contextual controls">
-            <div className="mobile-sheet-handle" />
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                {mobileSheetKind === 'MENU' && 'Menu'}
-                {mobileSheetKind === 'ORDER' && 'Order'}
-                {mobileSheetKind === 'TOOLS' && 'Drawing Tools'}
-                {mobileSheetKind === 'STATS' && 'Session Stats'}
-                {mobileSheetKind === 'HISTORY' && 'Trade History'}
-              </span>
-              <button
-                type="button"
-                onClick={() => setMobileSheetOpen(false)}
-                className="mobile-icon-btn"
-                style={{ minWidth: 36, minHeight: 36, padding: 6 }}
-                aria-label="Close sheet"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <AnimatePresence>
+        {isMobileSheetOpen && (
+          <div className="md:hidden">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+              onClick={() => setMobileSheetOpen(false)}
+              aria-hidden="true"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+              className="mobile-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Contextual controls"
+            >
+              <div className="mobile-sheet-handle" />
+              <div className="flex items-center justify-between pb-3 mb-3 border-b-2 border-[#121212]">
+                <span className="text-xs font-black uppercase tracking-wider text-[#121212] font-mono">
+                  {mobileSheetKind === 'MENU' && 'Terminal Menu'}
+                  {mobileSheetKind === 'ORDER' && 'Order Execution'}
+                  {mobileSheetKind === 'TOOLS' && 'Drawing Tools'}
+                  {mobileSheetKind === 'STATS' && 'Session Stats'}
+                  {mobileSheetKind === 'HISTORY' && 'Trade History'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMobileSheetOpen(false)}
+                  className="mobile-icon-btn"
+                  style={{ minWidth: 32, minHeight: 32, padding: 4 }}
+                  aria-label="Close sheet"
+                >
+                  <X className="w-4 h-4" strokeWidth={2.5} />
+                </button>
+              </div>
 
             {mobileSheetKind === 'MENU' && (
               <div className="space-y-2">
@@ -1277,10 +1395,15 @@ export default function Backtest() {
                     setMobileSheetOpen(false);
                     setIsJumpDialogOpen(true);
                   }}
-                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-700"
+                  className="w-full flex items-center justify-between rounded-lg border-2 border-[#121212] bg-white px-3.5 py-2.5 text-left text-xs font-extrabold uppercase tracking-wider text-[#121212] shadow-[2px_2px_0px_0px_#121212] hover:bg-[#F0F0F0] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
                 >
-                  <span>Jump to date</span>
-                  <Calendar className="w-4 h-4 text-slate-500" />
+                  <span className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-md border-2 border-[#121212] bg-[#EAF2FF] flex items-center justify-center text-[#1040C0] shrink-0">
+                      <Calendar className="w-4 h-4" />
+                    </div>
+                    <span>Jump to date</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-[#121212]" />
                 </button>
 
                 {appMode === 'analysis' && (
@@ -1290,10 +1413,15 @@ export default function Backtest() {
                       setMobileSheetOpen(false);
                       handleActivateBarReplay();
                     }}
-                    className="w-full flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-left text-sm font-semibold text-blue-700"
+                    className="w-full flex items-center justify-between rounded-lg border-2 border-[#121212] bg-[#EAF2FF] px-3.5 py-2.5 text-left text-xs font-black uppercase tracking-wider text-[#1040C0] shadow-[2px_2px_0px_0px_#121212] hover:bg-[#D5E5FF] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
                   >
-                    <span>Activate Chart Replay</span>
-                    <Video className="w-4 h-4" />
+                    <span className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-md border-2 border-[#121212] bg-[#1040C0] flex items-center justify-center text-white shrink-0">
+                        <Video className="w-4 h-4" />
+                      </div>
+                      <span>Activate Chart Replay</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-[#1040C0]" />
                   </button>
                 )}
 
@@ -1303,10 +1431,15 @@ export default function Backtest() {
                     setMobileSheetOpen(false);
                     openMobileSheet('ORDER');
                   }}
-                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-700"
+                  className="w-full flex items-center justify-between rounded-lg border-2 border-[#121212] bg-white px-3.5 py-2.5 text-left text-xs font-extrabold uppercase tracking-wider text-[#121212] shadow-[2px_2px_0px_0px_#121212] hover:bg-[#F0F0F0] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
                 >
-                  <span>Order entry</span>
-                  <PanelRightOpen className="w-4 h-4 text-slate-500" />
+                  <span className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-md border-2 border-[#121212] bg-[#F0F0F0] flex items-center justify-center text-[#121212] shrink-0">
+                      <PanelRightOpen className="w-4 h-4" />
+                    </div>
+                    <span>Order Entry</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-[#121212]" />
                 </button>
 
                 <button
@@ -1315,10 +1448,15 @@ export default function Backtest() {
                     setMobileSheetOpen(false);
                     openMobileSheet('TOOLS');
                   }}
-                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-700"
+                  className="w-full flex items-center justify-between rounded-lg border-2 border-[#121212] bg-white px-3.5 py-2.5 text-left text-xs font-extrabold uppercase tracking-wider text-[#121212] shadow-[2px_2px_0px_0px_#121212] hover:bg-[#F0F0F0] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
                 >
-                  <span>Drawing tools</span>
-                  <MousePointer2 className="w-4 h-4 text-slate-500" />
+                  <span className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-md border-2 border-[#121212] bg-[#F0F0F0] flex items-center justify-center text-[#121212] shrink-0">
+                      <MousePointer2 className="w-4 h-4" />
+                    </div>
+                    <span>Drawing Tools</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-[#121212]" />
                 </button>
 
                 <button
@@ -1327,10 +1465,15 @@ export default function Backtest() {
                     setMobileSheetOpen(false);
                     openMobileSheet('STATS');
                   }}
-                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-700"
+                  className="w-full flex items-center justify-between rounded-lg border-2 border-[#121212] bg-white px-3.5 py-2.5 text-left text-xs font-extrabold uppercase tracking-wider text-[#121212] shadow-[2px_2px_0px_0px_#121212] hover:bg-[#F0F0F0] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
                 >
-                  <span>Session stats</span>
-                  <Activity className="w-4 h-4 text-slate-500" />
+                  <span className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-md border-2 border-[#121212] bg-[#F0F0F0] flex items-center justify-center text-[#121212] shrink-0">
+                      <Activity className="w-4 h-4" />
+                    </div>
+                    <span>Session Stats</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-[#121212]" />
                 </button>
 
                 <button
@@ -1339,10 +1482,15 @@ export default function Backtest() {
                     setMobileSheetOpen(false);
                     openMobileSheet('HISTORY');
                   }}
-                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-700"
+                  className="w-full flex items-center justify-between rounded-lg border-2 border-[#121212] bg-white px-3.5 py-2.5 text-left text-xs font-extrabold uppercase tracking-wider text-[#121212] shadow-[2px_2px_0px_0px_#121212] hover:bg-[#F0F0F0] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
                 >
-                  <span>Trade history</span>
-                  <History className="w-4 h-4 text-slate-500" />
+                  <span className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-md border-2 border-[#121212] bg-[#F0F0F0] flex items-center justify-center text-[#121212] shrink-0">
+                      <History className="w-4 h-4" />
+                    </div>
+                    <span>Trade History</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-[#121212]" />
                 </button>
 
                 {appMode === 'replay' && (
@@ -1352,10 +1500,15 @@ export default function Backtest() {
                       setMobileSheetOpen(false);
                       handleOpenDashboard();
                     }}
-                    className="w-full flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 text-left text-sm font-semibold text-indigo-700"
+                    className="w-full flex items-center justify-between rounded-lg border-2 border-[#121212] bg-[#F0EEFF] px-3.5 py-2.5 text-left text-xs font-black uppercase tracking-wider text-[#6366F1] shadow-[2px_2px_0px_0px_#121212] hover:bg-[#E4DEFF] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
                   >
-                    <span>Open dashboard</span>
-                    <ExternalLink className="w-4 h-4" />
+                    <span className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-md border-2 border-[#121212] bg-[#6366F1] flex items-center justify-center text-white shrink-0">
+                        <ExternalLink className="w-4 h-4" />
+                      </div>
+                      <span>Open Dashboard</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-[#6366F1]" />
                   </button>
                 )}
 
@@ -1366,10 +1519,15 @@ export default function Backtest() {
                       setMobileSheetOpen(false);
                       handleExitReplay();
                     }}
-                    className="w-full flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-left text-sm font-semibold text-rose-700"
+                    className="w-full flex items-center justify-between rounded-lg border-2 border-[#121212] bg-[#FDECEC] px-3.5 py-2.5 text-left text-xs font-black uppercase tracking-wider text-[#DC2626] shadow-[2px_2px_0px_0px_#121212] hover:bg-[#FBD5D5] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
                   >
-                    <span>Exit replay</span>
-                    <X className="w-4 h-4" />
+                    <span className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-md border-2 border-[#121212] bg-[#DC2626] flex items-center justify-center text-white shrink-0">
+                        <X className="w-4 h-4" strokeWidth={3} />
+                      </div>
+                      <span>Exit Replay</span>
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-[#DC2626]" />
                   </button>
                 )}
               </div>
@@ -1416,9 +1574,10 @@ export default function Backtest() {
             {mobileSheetKind === 'STATS' && <BacktestStats stats={stats} />}
 
             {mobileSheetKind === 'HISTORY' && <TradeHistory trades={tradeHistory} />}
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Jump dialog reused */}
       <JumpToDateDialog
@@ -1438,27 +1597,7 @@ export default function Backtest() {
   // Adapted from the mobile terminal: same components, but side-by-side.
   // Mobile is the source of truth; desktop reuses it on a wider canvas.
   const desktopWorkspace = (
-    <div className="hidden md:flex h-screen w-screen overflow-hidden bg-slate-900 text-slate-100">
-      <aside className="w-56 flex-shrink-0 border-r border-slate-800 bg-slate-950 h-full overflow-y-auto" aria-label="Backtest sidebar">
-        <div className="flex h-full flex-col gap-3 p-3">
-          <button
-            type="button"
-            onClick={() => {
-              if (window.history.length > 2) {
-                navigate(-1);
-              } else {
-                navigate('/dashboard');
-              }
-            }}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 active:scale-[0.99]"
-            aria-label="Back"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Back
-          </button>
-        </div>
-      </aside>
-
+    <div className="hidden md:flex h-full w-full overflow-hidden bg-slate-900 text-slate-100">
       <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-slate-900">
         <ReplayControls
           appMode={appMode}
@@ -1486,11 +1625,18 @@ export default function Backtest() {
           onOpenDashboard={handleOpenDashboard}
           isSyncingDashboard={isSyncingDashboard}
           isFullscreen={isFullscreen}
-          onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
+          onToggleFullscreen={handleToggleFullscreen}
           isOrderPanelOpen={isOrderPanelOpen}
           onToggleOrderPanel={() => setIsOrderPanelOpen(!isOrderPanelOpen)}
           loading={loading}
           selectionTime={selectionTime}
+          onBack={() => {
+            if (window.history.length > 2) {
+              navigate(-1);
+            } else {
+              navigate('/dashboard');
+            }
+          }}
         />
 
         {error && (
@@ -1522,34 +1668,8 @@ export default function Backtest() {
           />
 
           <div className="relative flex-1 min-w-0 h-full overflow-hidden">
-            <div className="absolute top-2 right-2 z-50 pointer-events-auto flex items-center gap-1.5 bg-white/90 backdrop-blur-md p-1 rounded-lg border border-slate-200 shadow-sm">
-              <button
-                type="button"
-                onClick={() => handleChartOrderOpen('LONG')}
-                disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
-                className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-mono text-[10px] font-bold px-3 py-1.5 rounded-md transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:bg-emerald-300"
-                aria-label={`Buy at ${buyPriceLabel}`}
-              >
-                <span className="flex items-center gap-1">
-                  <span>BUY</span>
-                  <span className="opacity-80">{buyPriceLabel}</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleChartOrderOpen('SHORT')}
-                disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
-                className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-mono text-[10px] font-bold px-3 py-1.5 rounded-md transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:bg-rose-300"
-                aria-label={`Sell at ${sellPriceLabel}`}
-              >
-                <span className="flex items-center gap-1">
-                  <span>SELL</span>
-                  <span className="opacity-80">{sellPriceLabel}</span>
-                </span>
-              </button>
-            </div>
-
-            <CandlestickChart
+            
+        <CandlestickChart
               candles={candles}
               timeframe={timeframe}
               symbol={symbol}
@@ -1588,6 +1708,9 @@ export default function Backtest() {
               onConfirmVisualOrder={handleConfirmVisualOrder}
               onCancelVisualOrder={handleCancelVisualOrder}
             />
+
+
+
           </div>
         </div>
 
@@ -1606,33 +1729,37 @@ export default function Backtest() {
         />
 
         {appMode === 'replay' && (
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm shrink-0 text-slate-800">
-            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-50 border-b border-slate-200 text-xs">
+          <div className="bg-white border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] overflow-hidden shrink-0 text-[#121212]">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-[#F0F0F0] border-b-2 border-[#121212] text-xs">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setBottomDrawerTab(bottomDrawerTab === 'STATS' ? 'NONE' : 'STATS')}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold tracking-wider transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-1 text-xs font-black uppercase tracking-wider border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer ${
                     bottomDrawerTab === 'STATS'
-                      ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                      : 'bg-slate-100 text-slate-600 hover:text-slate-800 hover:bg-slate-200'
+                      ? 'bg-[#1040C0] text-white'
+                      : 'bg-white text-[#121212] hover:bg-[#FFFDEB]'
                   }`}
                 >
-                  <Activity className="w-3.5 h-3.5" />
+                  <Activity className="w-3.5 h-3.5 stroke-[2.5]" />
                   <span>Statistik Sesi</span>
-                  <span className="font-mono text-[11px] opacity-90">
-                    (${stats.currentBalance.toFixed(0)} • {stats.winRate.toFixed(0)}% WR)
+                  <span className={`font-mono text-[11px] font-black px-1.5 py-0.5 border ${
+                    bottomDrawerTab === 'STATS'
+                      ? 'bg-white/20 text-white border-white/40'
+                      : 'bg-[#EBF2FF] text-[#1040C0] border-[#121212]'
+                  }`}>
+                    ${stats.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} • {stats.winRate.toFixed(0)}% WR
                   </span>
                 </button>
 
                 <button
                   onClick={() => setBottomDrawerTab(bottomDrawerTab === 'HISTORY' ? 'NONE' : 'HISTORY')}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold tracking-wider transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-1 text-xs font-black uppercase tracking-wider border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer ${
                     bottomDrawerTab === 'HISTORY'
-                      ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                      : 'bg-slate-100 text-slate-600 hover:text-slate-800 hover:bg-slate-200'
+                      ? 'bg-[#1040C0] text-white'
+                      : 'bg-white text-[#121212] hover:bg-[#FFFDEB]'
                   }`}
                 >
-                  <History className="w-3.5 h-3.5" />
+                  <History className="w-3.5 h-3.5 stroke-[2.5]" />
                   <span>Riwayat Trade ({tradeHistory.length})</span>
                 </button>
               </div>
@@ -1642,18 +1769,18 @@ export default function Backtest() {
                   onClick={handleOpenDashboard}
                   disabled={isSyncingDashboard}
                   title="Buka sesi ini di Dashboard utama"
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-black uppercase bg-[#EBF2FF] hover:bg-[#D6E4FF] text-[#1040C0] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all disabled:opacity-50 cursor-pointer"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  <ExternalLink className="w-3.5 h-3.5 stroke-[2.5]" />
                   <span>{isSyncingDashboard ? 'Sinkronisasi...' : 'Buka di Dashboard'}</span>
                 </button>
 
                 <button
                   onClick={() => setBottomDrawerTab(bottomDrawerTab === 'NONE' ? 'STATS' : 'NONE')}
-                  className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded transition-colors"
+                  className="p-1 text-[#121212] hover:bg-white border border-transparent hover:border-[#121212] transition-colors cursor-pointer"
                   aria-label="Toggle bottom drawer"
                 >
-                  {bottomDrawerTab === 'NONE' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {bottomDrawerTab === 'NONE' ? <ChevronUp className="w-4 h-4 stroke-[2.5]" /> : <ChevronDown className="w-4 h-4 stroke-[2.5]" />}
                 </button>
               </div>
             </div>
@@ -1685,7 +1812,7 @@ export default function Backtest() {
       </main>
 
       {isOrderPanelOpen && (
-        <aside className="w-72 lg:w-80 flex-shrink-0 border-l border-slate-800 bg-slate-950 flex flex-col h-full overflow-y-auto z-20">
+        <aside className="w-72 lg:w-80 flex-shrink-0 border-l-2 border-[#121212] bg-[#F4F4F0] flex flex-col h-full overflow-y-auto z-20">
           <OrderPanel
             ref={orderPanelRef}
             symbol={symbol}
@@ -1712,37 +1839,15 @@ export default function Backtest() {
   );
 
   return (
-    <>
+    <div ref={workspaceRef} className="w-full h-full bg-slate-900 overflow-hidden relative">
       {mobileTerminal}
       {desktopWorkspace}
 
-      {tradeHitToast && (
-        <div className="pointer-events-none fixed inset-x-0 top-5 z-[70] flex justify-center px-4">
-          <div
-            className={`pointer-events-auto w-full max-w-md rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur-sm transition-all duration-300 ${
-              tradeHitToast.kind === 'TP'
-                ? 'border-emerald-300 bg-emerald-500/95 text-white'
-                : 'border-rose-300 bg-rose-500/95 text-white'
-            }`}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">{tradeHitToast.kind === 'TP' ? '🎉' : '🛡️'}</span>
-                <div>
-                  <div className="text-sm font-bold leading-none">
-                    {tradeHitToast.kind === 'TP' ? 'Take Profit Hit!' : 'Stop Loss Hit'}
-                  </div>
-                  <div className="mt-1 text-xs opacity-90">
-                    {tradeHitToast.kind === 'TP'
-                      ? `+$${Math.abs(tradeHitToast.amount).toFixed(2)} (+${Math.abs(tradeHitToast.rr ?? 1).toFixed(1)}R)`
-                      : `-$${Math.abs(tradeHitToast.amount).toFixed(2)} (-${Math.abs(tradeHitToast.rr ?? 1).toFixed(1)}R)`}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+
+      {/* Trade toast notifications — positioned fixed, non-blocking */}
+      <div className="pointer-events-none fixed top-14 right-4 max-w-[calc(100vw-32px)] z-[70] flex flex-col items-end gap-2">
+        <TradeNotificationToast toast={activeToast} onDismiss={dismissToast} />
+      </div>
+    </div>
   );
 }

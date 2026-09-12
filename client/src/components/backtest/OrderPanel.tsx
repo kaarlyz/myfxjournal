@@ -90,7 +90,15 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   const [slPrice, setSlPrice] = useState<string>('');
   const [tpPrice, setTpPrice] = useState<string>('');
   const [selectedRR, setSelectedRR] = useState<number>(2.0);
+  const [rrInputStr, setRrInputStr] = useState<string>('2');
+  const [riskInputStr, setRiskInputStr] = useState<string>(String(riskPercent));
   const [showChartPlannedLines, setShowChartPlannedLines] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (parseFloat(riskInputStr) !== riskPercent) {
+      setRiskInputStr(String(riskPercent));
+    }
+  }, [riskPercent]);
 
   useEffect(() => {
     if (selectedSideOverride) {
@@ -156,9 +164,38 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     resetSlTpForPrice(currentPrice, side, selectedRR);
   };
 
+  // Handle Risk Input & Presets
+  const handleRiskChange = (val: string) => {
+    setRiskInputStr(val);
+    const parsed = parseFloat(val);
+    if (!isNaN(parsed) && parsed > 0 && parsed <= 100) {
+      onRiskPercentChange(parsed);
+    }
+  };
+
+  const handleRiskPreset = (r: number) => {
+    setRiskInputStr(String(r));
+    onRiskPercentChange(r);
+  };
+
+  // Handle Target RR Input & Presets
+  const handleRRInputChange = (val: string) => {
+    setRrInputStr(val);
+    const parsed = parseFloat(val);
+    if (!isNaN(parsed) && parsed > 0) {
+      setSelectedRR(parsed);
+      const numSL = parseFloat(slPrice);
+      if (!isNaN(numSL) && numSL > 0 && currentPrice > 0) {
+        const newTP = calculateTPFromRR(selectedSide, currentPrice, numSL, parsed);
+        setTpPrice(newTP.toFixed(2));
+      }
+    }
+  };
+
   // Handle Quick RR Preset Click
   const handleRRPreset = (rr: number) => {
     setSelectedRR(rr);
+    setRrInputStr(String(rr));
     const numSL = parseFloat(slPrice);
     if (!isNaN(numSL) && numSL > 0 && currentPrice > 0) {
       const newTP = calculateTPFromRR(selectedSide, currentPrice, numSL, rr);
@@ -267,22 +304,25 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   ]);
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-4 text-slate-900 shadow-sm h-full">
+    <div className="bg-white border-2 border-[#121212] rounded-xl p-4 flex flex-col gap-4 text-[#121212] shadow-[4px_4px_0px_0px_#121212] h-full">
       {/* Header: Market Price & Account Balance */}
-      <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-[#717182]">
-            Harga Terakhir {symbol}
+      <div className="grid grid-cols-2 gap-2 pb-3 border-b-2 border-[#121212]">
+        <div className="bg-[#FFFDEB] border-2 border-[#121212] p-2.5 shadow-[2px_2px_0px_0px_#121212]">
+          <div className="text-[9px] font-black uppercase tracking-wider text-[#B45309] flex items-center justify-between">
+            <span>Harga {symbol}</span>
+            <span className="w-2 h-2 rounded-full bg-[#B45309] animate-pulse" />
           </div>
-          <div className="text-xl font-number font-bold text-[#B45309]">
+          <div className="text-xl font-mono font-black text-[#121212] mt-0.5 tracking-tight">
             {currentPrice > 0 ? currentPrice.toFixed(2) : '--.--'}
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-[#717182]">
-            Saldo Akun
+
+        <div className="bg-[#EBF2FF] border-2 border-[#121212] p-2.5 shadow-[2px_2px_0px_0px_#121212]">
+          <div className="text-[9px] font-black uppercase tracking-wider text-[#1040C0] flex items-center justify-between">
+            <span>Saldo Akun</span>
+            <span className="text-[9px] font-mono font-black text-[#1040C0]">USD</span>
           </div>
-          <div className="text-lg font-number font-bold text-[#121212]">
+          <div className="text-xl font-mono font-black text-[#1040C0] mt-0.5 tracking-tight">
             ${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
@@ -290,7 +330,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
 
       {/* Intrabar Ambiguity Warning Banner */}
       {intrabarWarning && (
-        <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[#121212] flex items-start gap-2 text-xs shadow-sm">
+        <div className="p-2.5 bg-[#FFF7D6] border-2 border-[#121212] rounded-lg text-[#121212] flex items-start gap-2 text-xs shadow-[2px_2px_0px_0px_#121212]">
           <AlertTriangle className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
           <div>
             <div className="font-bold text-[11px]">Peringatan Intrabar</div>
@@ -303,19 +343,19 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
       {isTradeOpen ? (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-[#121212] flex items-center gap-1.5">
+            <span className="text-xs font-extrabold text-[#121212] flex items-center gap-1.5 uppercase tracking-wide">
               <span className="w-2 h-2 rounded-full bg-[#059669]" />
               <span>Open position</span>
             </span>
-            <span className="text-[11px] font-number text-[#717182]">
+            <span className="text-[11px] font-mono font-bold text-[#717182]">
               #{activeTrade.id.slice(0, 6)}
             </span>
           </div>
 
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3 shadow-sm">
+          <div className="p-3 bg-[#F0F0F0] border-2 border-[#121212] rounded-lg space-y-3 shadow-[2px_2px_0px_0px_#121212]">
             <div className="flex items-center justify-between">
               <span
-                className={`px-2.5 py-1 text-xs font-bold uppercase tracking-wider rounded border ${
+                className={`px-2.5 py-1 text-xs font-mono font-extrabold uppercase tracking-wider rounded border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212] ${
                   activeTrade.side === 'LONG'
                     ? 'bg-[#E7F9F0] text-[#059669]'
                     : 'bg-[#FDECEC] text-[#DC2626]'
@@ -323,38 +363,38 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
               >
                 {activeTrade.side === 'LONG' ? 'BUY (LONG)' : 'SELL (SHORT)'}
               </span>
-              <span className="font-number text-xs text-[#121212] font-semibold">
+              <span className="font-mono text-xs text-[#121212] font-bold">
                 {activeTrade.volume.toFixed(2)} Lot
               </span>
             </div>
 
             {/* Entry, SL, TP Grid */}
-            <div className="grid grid-cols-3 gap-1.5 text-center font-number text-xs">
-              <div className="bg-white p-1.5 rounded border border-slate-200 shadow-sm">
-                <div className="text-[#4B5563] text-[10px]">Entry</div>
-                <div className="font-bold text-[#121212]">{activeTrade.entryPrice.toFixed(2)}</div>
+            <div className="grid grid-cols-3 gap-1.5 text-center font-mono text-xs">
+              <div className="bg-white p-1.5 rounded border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]">
+                <div className="text-[#717182] text-[10px] font-bold uppercase">Entry</div>
+                <div className="font-extrabold text-[#121212]">{activeTrade.entryPrice.toFixed(2)}</div>
               </div>
-              <div className="bg-white p-1.5 rounded border border-slate-200 shadow-sm">
-                <div className="text-[#4B5563] text-[10px]">SL</div>
-                <div className="font-bold text-[#DC2626]">{activeTrade.slPrice.toFixed(2)}</div>
+              <div className="bg-white p-1.5 rounded border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]">
+                <div className="text-[#717182] text-[10px] font-bold uppercase">SL</div>
+                <div className="font-extrabold text-[#DC2626]">{activeTrade.slPrice.toFixed(2)}</div>
               </div>
-              <div className="bg-white p-1.5 rounded border border-slate-200 shadow-sm">
-                <div className="text-[#4B5563] text-[10px]">TP</div>
-                <div className="font-bold text-[#059669]">{activeTrade.tpPrice.toFixed(2)}</div>
+              <div className="bg-white p-1.5 rounded border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]">
+                <div className="text-[#717182] text-[10px] font-bold uppercase">TP</div>
+                <div className="font-extrabold text-[#059669]">{activeTrade.tpPrice.toFixed(2)}</div>
               </div>
             </div>
 
             {/* Live Floating PnL and RR */}
-            <div className="flex items-center justify-between font-number bg-white px-3 py-2 rounded border border-slate-200 shadow-sm">
+            <div className="flex items-center justify-between font-mono bg-white px-3 py-2 rounded border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212]">
               <div>
-                <div className="text-[#4B5563] text-[10px]">Floating PnL</div>
-                <div className={`text-base font-bold ${livePnl >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
+                <div className="text-[#717182] text-[10px] font-bold uppercase">Floating PnL</div>
+                <div className={`text-base font-extrabold ${livePnl >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
                   {livePnl >= 0 ? `+$${livePnl.toFixed(2)}` : `-$${Math.abs(livePnl).toFixed(2)}`}
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-[#4B5563] text-[10px]">Live R:R</div>
-                <div className={`text-base font-bold ${liveRR >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
+                <div className="text-[#717182] text-[10px] font-bold uppercase">Live R:R</div>
+                <div className={`text-base font-extrabold ${liveRR >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
                   {liveRR >= 0 ? `+${liveRR.toFixed(2)}R` : `${liveRR.toFixed(2)}R`}
                 </div>
               </div>
@@ -365,22 +405,22 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
               type="button"
               onClick={() => onCloseTrade(activeTrade.id)}
               disabled={isSubmitting}
-              className="w-full min-h-[44px] py-2.5 px-4 bg-[#DC2626] hover:bg-[#B91C1C] disabled:opacity-50 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-colors border border-red-300 shadow-sm"
+              className="w-full min-h-[44px] py-2.5 px-4 bg-[#DC2626] hover:bg-[#B91C1C] disabled:opacity-50 text-white font-mono font-black text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-all border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
             >
               <XCircle className="w-4 h-4" />
               <span>{isSubmitting ? 'Menutup Posisi...' : 'Tutup Posisi Sekarang'}</span>
             </button>
           </div>
 
-          <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center gap-2 text-xs text-[#4B5563] shadow-sm">
-            <Lock className="w-4 h-4 text-[#4B5563] shrink-0" />
-            <span>Tutup posisi di atas terlebih dahulu untuk membuka posisi baru.</span>
+          <div className="p-2.5 bg-[#F0F0F0] border-2 border-[#121212] rounded-lg flex items-center gap-2 text-xs text-[#121212] shadow-[2px_2px_0px_0px_#121212]">
+            <Lock className="w-4 h-4 text-[#121212] shrink-0" />
+            <span className="font-semibold">Tutup posisi di atas terlebih dahulu untuk membuka posisi baru.</span>
           </div>
         </div>
       ) : (
         /* ── STATE A: FLAT / NEW ORDER FORM ── */
         <div className="space-y-4">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#717182]">
+          <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#717182]">
             Entry order
           </div>
 
@@ -389,7 +429,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
             <button
               type="button"
               onClick={() => handleSideSwitch('LONG')}
-              className={`min-h-[44px] py-2 px-3 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 rounded-lg border transition-colors shadow-sm ${
+              className={`min-h-[44px] py-2 px-3 text-xs font-mono font-black uppercase tracking-wider flex items-center justify-center gap-1.5 rounded-lg border-2 border-[#121212] transition-all shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
                 selectedSide === 'LONG'
                   ? 'bg-[#059669] text-white'
                   : 'bg-white text-[#121212] hover:bg-[#E7F9F0]'
@@ -401,7 +441,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
             <button
               type="button"
               onClick={() => handleSideSwitch('SHORT')}
-              className={`min-h-[44px] py-2 px-3 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 rounded-lg border transition-colors shadow-sm ${
+              className={`min-h-[44px] py-2 px-3 text-xs font-mono font-black uppercase tracking-wider flex items-center justify-center gap-1.5 rounded-lg border-2 border-[#121212] transition-all shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
                 selectedSide === 'SHORT'
                   ? 'bg-[#DC2626] text-white'
                   : 'bg-white text-[#121212] hover:bg-[#FDECEC]'
@@ -412,27 +452,44 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
             </button>
           </div>
 
-          {/* Risk % Selector */}
+          {/* Risk % Input & Quick Presets */}
           <div>
             <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="text-[#4B5563] font-semibold uppercase text-[10px] tracking-wide flex items-center gap-1">
+              <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide flex items-center gap-1">
                 <ShieldAlert className="w-3.5 h-3.5 text-[#1040C0]" />
                 <span>Risk per Trade:</span>
               </span>
-              <span className="font-number text-[#121212] font-bold text-xs">
-                {riskPercent}% (${riskAmount.toFixed(2)})
+              <span className="font-mono text-[#121212] font-black text-xs">
+                ${riskAmount.toFixed(2)}
               </span>
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="relative flex-1">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.01"
+                  max="100"
+                  value={riskInputStr}
+                  onChange={(e) => handleRiskChange(e.target.value)}
+                  placeholder="e.g. 1.0"
+                  className="w-full min-h-[40px] bg-white border-2 border-[#121212] rounded-lg pl-3 pr-8 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-black text-[#717182] pointer-events-none">
+                  %
+                </span>
+              </div>
             </div>
             <div className="grid grid-cols-4 gap-1.5">
               {[0.5, 1.0, 1.5, 2.0].map((r) => (
                 <button
                   key={r}
                   type="button"
-                  onClick={() => onRiskPercentChange(r)}
-                  className={`min-h-[36px] py-1 text-xs font-mono font-semibold rounded border transition-colors shadow-sm ${
-                    riskPercent === r
+                  onClick={() => handleRiskPreset(r)}
+                  className={`min-h-[32px] py-1 text-xs font-mono font-extrabold rounded border-2 border-[#121212] transition-all shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
+                    riskPercent === r && riskInputStr === String(r)
                       ? 'bg-[#1040C0] text-white'
-                      : 'bg-white text-[#121212] hover:bg-[#EAF2FF]'
+                      : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'
                   }`}
                 >
                   {r}%
@@ -444,10 +501,10 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
           {/* Stop Loss Input */}
           <div>
             <div className="flex items-center justify-between text-xs mb-1">
-              <span className="text-[#4B5563] font-semibold uppercase text-[10px] tracking-wide">
+              <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide">
                 Stop Loss:
               </span>
-              <span className="text-[11px] text-[#DC2626] font-number font-medium">
+              <span className="text-[11px] text-[#DC2626] font-mono font-bold">
                 {rrCalc.isValid ? `Risk: ${rrCalc.risk.toFixed(2)} pts` : ''}
               </span>
             </div>
@@ -457,20 +514,36 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
               value={slPrice}
               onChange={(e) => handleSlChange(e.target.value)}
               placeholder="e.g. 3000.00"
-              className="w-full min-h-[40px] bg-white border border-slate-200 focus:border-blue-400 rounded-lg px-3 py-2 text-[#121212] font-number text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors shadow-sm"
+              className="w-full min-h-[40px] bg-white border-2 border-[#121212] rounded-lg px-3 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
             />
           </div>
 
-          {/* Quick RR Presets */}
+          {/* Target RR Input & Quick Presets */}
           <div>
             <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="text-[#4B5563] font-semibold uppercase text-[10px] tracking-wide flex items-center gap-1">
+              <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide flex items-center gap-1">
                 <Calculator className="w-3.5 h-3.5 text-[#B45309]" />
-                <span>Target RR Preset:</span>
+                <span>Target Risk / Reward (RR):</span>
               </span>
-              <span className="text-[11px] font-number text-[#059669] font-bold">
-                {rrCalc.isValid ? `1 : ${rrCalc.rr}` : ''}
+              <span className="text-[11px] font-mono text-[#059669] font-black">
+                {rrCalc.isValid ? `Actual: 1 : ${rrCalc.rr}` : ''}
               </span>
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-[#717182] pointer-events-none">
+                  1 :
+                </span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  value={rrInputStr}
+                  onChange={(e) => handleRRInputChange(e.target.value)}
+                  placeholder="e.g. 2.0"
+                  className="w-full min-h-[40px] bg-white border-2 border-[#121212] rounded-lg pl-9 pr-3 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-6 gap-1">
               {RR_PRESETS.map((rr) => (
@@ -478,10 +551,10 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
                   key={rr}
                   type="button"
                   onClick={() => handleRRPreset(rr)}
-                  className={`min-h-[36px] py-1 text-xs font-number font-semibold rounded border transition-colors shadow-sm ${
-                    selectedRR === rr
-                      ? 'bg-blue-50 text-blue-700 border border-blue-200 font-bold'
-                      : 'bg-white text-[#121212] hover:bg-slate-50 border border-slate-200'
+                  className={`min-h-[32px] py-1 text-xs font-mono font-extrabold rounded border-2 border-[#121212] transition-all shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
+                    selectedRR === rr && rrInputStr === String(rr)
+                      ? 'bg-[#1040C0] text-white'
+                      : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'
                   }`}
                 >
                   1:{rr}
@@ -493,10 +566,10 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
           {/* Take Profit Input */}
           <div>
             <div className="flex items-center justify-between text-xs mb-1">
-              <span className="text-[#4B5563] font-semibold uppercase text-[10px] tracking-wide">
+              <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide">
                 Take Profit:
               </span>
-              <span className="text-[11px] text-[#059669] font-number font-medium">
+              <span className="text-[11px] text-[#059669] font-mono font-bold">
                 {rrCalc.isValid ? `Reward: ${rrCalc.reward.toFixed(2)} pts` : ''}
               </span>
             </div>
@@ -506,30 +579,30 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
               value={tpPrice}
               onChange={(e) => setTpPrice(e.target.value)}
               placeholder="e.g. 3020.00"
-              className="w-full min-h-[40px] bg-white border border-slate-200 focus:border-blue-400 rounded-lg px-3 py-2 text-[#121212] font-number text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors shadow-sm"
+              className="w-full min-h-[40px] bg-white border-2 border-[#121212] rounded-lg px-3 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
             />
           </div>
 
           {/* Sizing & Calculation Box */}
           {rrCalc.isValid ? (
-            <div className="p-2.5 bg-white border border-slate-200 rounded-lg text-xs font-number space-y-1 text-[#121212] shadow-sm">
+            <div className="p-3 bg-[#F0F0F0] border-2 border-[#121212] rounded-lg text-xs font-mono space-y-1.5 text-[#121212] shadow-[2px_2px_0px_0px_#121212]">
               <div className="flex justify-between">
-                <span className="text-[#4B5563]">
+                <span className="text-[#717182] font-bold">
                   Lot Size ({symbol.toUpperCase().includes('XAU') ? '100 oz' : symbol.toUpperCase().includes('NSX') || symbol.toUpperCase().includes('NAS') ? '1 pt/$' : `${contractSize} units`}):
                 </span>
-                <strong className="text-[#121212]">{lotSize.toFixed(2)} Lot</strong>
+                <strong className="text-[#121212] font-black">{lotSize.toFixed(2)} Lot</strong>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#4B5563]">Max Risk:</span>
-                <strong className="text-[#DC2626]">-${riskAmount.toFixed(2)}</strong>
+                <span className="text-[#717182] font-bold">Max Risk:</span>
+                <strong className="text-[#DC2626] font-black">-${riskAmount.toFixed(2)}</strong>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#4B5563]">Target Profit:</span>
-                <strong className="text-[#059669]">+${(riskAmount * rrCalc.rr).toFixed(2)}</strong>
+                <span className="text-[#717182] font-bold">Target Profit:</span>
+                <strong className="text-[#059669] font-black">+${(riskAmount * rrCalc.rr).toFixed(2)}</strong>
               </div>
             </div>
           ) : (
-            <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-[#7F1D1D] text-xs flex items-center gap-2 shadow-sm">
+            <div className="p-2.5 bg-[#FDECEC] border-2 border-[#121212] rounded-lg text-[#DC2626] text-xs flex items-center gap-2 shadow-[2px_2px_0px_0px_#121212] font-bold">
               <AlertTriangle className="w-4 h-4 shrink-0 text-[#DC2626]" />
               <span>{rrCalc.error || 'Konfigurasi SL/TP tidak valid.'}</span>
             </div>
@@ -539,20 +612,20 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
           <button
             type="button"
             onClick={() => setShowChartPlannedLines(!showChartPlannedLines)}
-            className={`w-full min-h-[38px] py-2 px-3 text-xs font-semibold rounded-lg border transition-all flex items-center justify-center gap-2 shadow-sm ${
+            className={`w-full min-h-[38px] py-2 px-3 text-xs font-mono font-bold uppercase tracking-wider rounded-lg border-2 border-[#121212] transition-all flex items-center justify-center gap-2 shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
               showChartPlannedLines
-                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                : 'bg-white text-[#121212] hover:bg-slate-50 border-slate-200'
+                ? 'bg-[#EAF2FF] text-[#1040C0]'
+                : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'
             }`}
           >
             {showChartPlannedLines ? (
               <>
-                <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className="inline-block w-2 h-2 rounded-full bg-[#F0C020] animate-pulse" />
                 <span>Sembunyikan garis SL dan TP</span>
               </>
             ) : (
               <>
-                <Crosshair className="w-3.5 h-3.5 text-amber-400" />
+                <Crosshair className="w-3.5 h-3.5 text-[#B45309]" />
                 <span>Tampilkan garis SL dan TP</span>
               </>
             )}
@@ -563,10 +636,10 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
             type="button"
             onClick={handleExecute}
             disabled={!rrCalc.isValid || lotSize <= 0 || isSubmitting}
-            className={`w-full min-h-[44px] py-3 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors border shadow-sm ${
+            className={`w-full min-h-[46px] py-3 font-mono font-black text-xs uppercase tracking-wider rounded-lg transition-all border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white ${
               selectedSide === 'LONG'
-                ? 'bg-[#059669] hover:bg-[#047857] text-white disabled:bg-[#CBD5E1] disabled:text-[#475569] disabled:cursor-not-allowed'
-                : 'bg-[#DC2626] hover:bg-[#B91C1C] text-white disabled:bg-[#CBD5E1] disabled:text-[#475569] disabled:cursor-not-allowed'
+                ? 'bg-[#059669] hover:bg-[#047857] disabled:bg-[#CBD5E1] disabled:text-[#475569] disabled:cursor-not-allowed'
+                : 'bg-[#DC2626] hover:bg-[#B91C1C] disabled:bg-[#CBD5E1] disabled:text-[#475569] disabled:cursor-not-allowed'
             }`}
           >
             {isSubmitting
