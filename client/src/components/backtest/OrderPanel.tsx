@@ -7,8 +7,11 @@ import {
   XCircle,
   Calculator,
   Lock,
-  Video,
   Crosshair,
+  Clock,
+  Trash2,
+  Plus,
+  Edit3,
 } from 'lucide-react';
 import {
   calculatePositionSize,
@@ -22,15 +25,46 @@ import {
 } from '../../../../server/src/services/backtestEngine';
 import type { AppMode } from './ReplayControls';
 import type { PlannedOrderPreview } from './CandlestickChart';
+import {
+  OrderCategory,
+  OrderDirection,
+  OrderExecutionType,
+  PendingOrderRecord,
+  resolveOrderType,
+  deconstructOrderType,
+  getOrderTypeLabel,
+  validateOrderPrices,
+} from './OrderTypes';
 
-interface OrderPanelProps {
+export interface OrderPanelProps {
   symbol?: string;
   currentPrice: number;
   balance: number;
   riskPercent: number;
   onRiskPercentChange: (risk: number) => void;
   activeTrade?: BacktestTradeRecord | null;
+  pendingOrders?: PendingOrderRecord[];
+  onCancelPendingOrder?: (id: string) => void;
+  onEditPendingOrder?: (id: string) => void;
   onOpenTrade: (trade: {
+    side: TradeSide;
+    entryPrice: number;
+    slPrice: number;
+    tpPrice: number;
+    volume: number;
+    riskAmount: number;
+  }) => void;
+  onPlaceOrder?: (order: {
+    orderType: OrderExecutionType;
+    side: TradeSide;
+    entryPrice: number;
+    slPrice: number;
+    tpPrice: number;
+    volume: number;
+    riskAmount: number;
+  }) => void;
+  onVisualOrderSubmit?: (trade: {
+    orderType?: OrderExecutionType;
     side: TradeSide;
     entryPrice: number;
     slPrice: number;
@@ -44,17 +78,12 @@ interface OrderPanelProps {
   appMode?: AppMode;
   onActivateReplay?: () => void;
   onPlannedTradeChange?: (planned: PlannedOrderPreview | null) => void;
-  onVisualOrderSubmit?: (trade: {
-    side: TradeSide;
-    entryPrice: number;
-    slPrice: number;
-    tpPrice: number;
-    volume: number;
-    riskAmount: number;
-  }) => void;
+  onPickChartEntry?: (orderType: OrderExecutionType) => void;
+  controlledEntryPrice?: number | null;
   controlledSlPrice?: number | null;
   controlledTpPrice?: number | null;
   selectedSideOverride?: TradeSide;
+  selectedOrderTypeOverride?: OrderExecutionType;
 }
 
 const RR_PRESETS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0];
@@ -72,99 +101,154 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     riskPercent,
     onRiskPercentChange,
     activeTrade,
+    pendingOrders = [],
+    onCancelPendingOrder,
+    onEditPendingOrder,
     onOpenTrade,
+    onPlaceOrder,
     onCloseTrade,
     intrabarWarning,
     isSubmitting = false,
-    appMode = 'replay',
-    onActivateReplay,
     onPlannedTradeChange,
-    onVisualOrderSubmit,
+    onPickChartEntry,
+    controlledEntryPrice,
     controlledSlPrice,
     controlledTpPrice,
     selectedSideOverride,
+    selectedOrderTypeOverride,
+    onVisualOrderSubmit,
   }: OrderPanelProps,
   ref
 ) {
-  const [selectedSide, setSelectedSide] = useState<TradeSide>(selectedSideOverride ?? 'LONG');
-  const [slPrice, setSlPrice] = useState<string>('');
-  const [tpPrice, setTpPrice] = useState<string>('');
+  // Order Type state: Category (MARKET / LIMIT / STOP) and Direction (BUY / SELL)
+  const [orderCategory, setOrderCategory] = useState<OrderCategory>('MARKET');
+  const [orderDirection, setOrderDirection] = useState<OrderDirection>(
+    selectedSideOverride === 'SHORT' ? 'SELL' : 'BUY'
+  );
+
+  const [entryPriceStr, setEntryPriceStr] = useState<string>('');
+  const [slPriceStr, setSlPriceStr] = useState<string>('');
+  const [tpPriceStr, setTpPriceStr] = useState<string>('');
   const [selectedRR, setSelectedRR] = useState<number>(2.0);
   const [rrInputStr, setRrInputStr] = useState<string>('2');
   const [riskInputStr, setRiskInputStr] = useState<string>(String(riskPercent));
   const [showChartPlannedLines, setShowChartPlannedLines] = useState<boolean>(false);
 
+  const currentOrderType = resolveOrderType(orderCategory, orderDirection);
+
+  // Sync risk % prop
   useEffect(() => {
     if (parseFloat(riskInputStr) !== riskPercent) {
       setRiskInputStr(String(riskPercent));
     }
   }, [riskPercent]);
 
+  // Sync external side override
   useEffect(() => {
     if (selectedSideOverride) {
-      setSelectedSide(selectedSideOverride);
-      resetSlTpForPrice(currentPrice, selectedSideOverride, selectedRR);
+      const newDir: OrderDirection = selectedSideOverride === 'LONG' ? 'BUY' : 'SELL';
+      setOrderDirection(newDir);
     }
-  }, [selectedSideOverride, currentPrice, selectedRR]);
+  }, [selectedSideOverride]);
 
-  // Sync external controlled SL/TP from chart drag
+  // Sync external order type override (e.g. from toolbar)
+  useEffect(() => {
+    if (selectedOrderTypeOverride) {
+      const { category, direction } = deconstructOrderType(selectedOrderTypeOverride);
+      setOrderCategory(category);
+      setOrderDirection(direction);
+    }
+  }, [selectedOrderTypeOverride]);
+
+  // Sync external controlled Entry/SL/TP from chart drag
+  useEffect(() => {
+    if (controlledEntryPrice !== undefined && controlledEntryPrice !== null && controlledEntryPrice > 0) {
+      setEntryPriceStr(controlledEntryPrice.toFixed(2));
+    }
+  }, [controlledEntryPrice]);
+
   useEffect(() => {
     if (controlledSlPrice !== undefined && controlledSlPrice !== null && controlledSlPrice > 0) {
-      setSlPrice(controlledSlPrice.toFixed(2));
+      setSlPriceStr(controlledSlPrice.toFixed(2));
+      setShowChartPlannedLines(true);
     }
   }, [controlledSlPrice]);
 
   useEffect(() => {
     if (controlledTpPrice !== undefined && controlledTpPrice !== null && controlledTpPrice > 0) {
-      setTpPrice(controlledTpPrice.toFixed(2));
+      setTpPriceStr(controlledTpPrice.toFixed(2));
+      setShowChartPlannedLines(true);
     }
   }, [controlledTpPrice]);
 
-  // Helper to re-calculate clean SL/TP from price and RR
-  const resetSlTpForPrice = (price: number, side: TradeSide, rr: number) => {
-    if (price <= 0) return;
+  // Helper to re-calculate clean SL/TP from price, direction, and RR
+  const resetLevelsForPrice = (baseEntry: number, direction: OrderDirection, rr: number) => {
+    if (baseEntry <= 0) return;
     const defaultSlDist = getDefaultSlDistance(symbol);
-    if (side === 'LONG') {
-      const sl = Math.round((price - defaultSlDist) * 100) / 100;
-      const tp = calculateTPFromRR('LONG', price, sl, rr);
-      setSlPrice(sl.toFixed(2));
-      setTpPrice(tp.toFixed(2));
+    const side: TradeSide = direction === 'BUY' ? 'LONG' : 'SHORT';
+    if (direction === 'BUY') {
+      const sl = Math.round((baseEntry - defaultSlDist) * 100) / 100;
+      const tp = calculateTPFromRR(side, baseEntry, sl, rr);
+      setSlPriceStr(sl.toFixed(2));
+      setTpPriceStr(tp.toFixed(2));
     } else {
-      const sl = Math.round((price + defaultSlDist) * 100) / 100;
-      const tp = calculateTPFromRR('SHORT', price, sl, rr);
-      setSlPrice(sl.toFixed(2));
-      setTpPrice(tp.toFixed(2));
+      const sl = Math.round((baseEntry + defaultSlDist) * 100) / 100;
+      const tp = calculateTPFromRR(side, baseEntry, sl, rr);
+      setSlPriceStr(sl.toFixed(2));
+      setTpPriceStr(tp.toFixed(2));
     }
   };
 
-  // Reset SL/TP when activeTrade closes (transitions from OPEN to null)
-  useEffect(() => {
-    if (!activeTrade && currentPrice > 0) {
-      resetSlTpForPrice(currentPrice, selectedSide, selectedRR);
+  // Switch Order Category
+  const handleCategorySwitch = (cat: OrderCategory) => {
+    setOrderCategory(cat);
+    const defaultSlDist = getDefaultSlDistance(symbol);
+    if (cat === 'MARKET') {
+      setEntryPriceStr(currentPrice > 0 ? currentPrice.toFixed(2) : '');
+      if (slPriceStr && tpPriceStr) {
+        resetLevelsForPrice(currentPrice, orderDirection, selectedRR);
+      }
+    } else if (cat === 'LIMIT') {
+      // For Limit: Buy Limit < current, Sell Limit > current
+      const limitEntry = orderDirection === 'BUY' ? currentPrice - defaultSlDist : currentPrice + defaultSlDist;
+      setEntryPriceStr(limitEntry.toFixed(2));
+      if (slPriceStr && tpPriceStr) {
+        resetLevelsForPrice(limitEntry, orderDirection, selectedRR);
+      }
+    } else if (cat === 'STOP') {
+      // For Stop: Buy Stop > current, Sell Stop < current
+      const stopEntry = orderDirection === 'BUY' ? currentPrice + defaultSlDist : currentPrice - defaultSlDist;
+      setEntryPriceStr(stopEntry.toFixed(2));
+      if (slPriceStr && tpPriceStr) {
+        resetLevelsForPrice(stopEntry, orderDirection, selectedRR);
+      }
     }
-  }, [activeTrade]);
+  };
+
+  // Switch Direction (BUY / SELL)
+  const handleDirectionSwitch = (dir: OrderDirection) => {
+    setOrderDirection(dir);
+    const effectiveEntry = orderCategory === 'MARKET' ? currentPrice : (parseFloat(entryPriceStr) || currentPrice);
+    if (slPriceStr && tpPriceStr) {
+      resetLevelsForPrice(effectiveEntry, dir, selectedRR);
+    }
+  };
 
   // Initial calculation or when currentPrice appears
   useEffect(() => {
-    if (currentPrice > 0 && (!slPrice || slPrice === '0')) {
-      resetSlTpForPrice(currentPrice, selectedSide, selectedRR);
+    if (currentPrice > 0 && orderCategory === 'MARKET' && (!entryPriceStr || entryPriceStr === '0')) {
+      setEntryPriceStr(currentPrice.toFixed(2));
     }
   }, [currentPrice]);
 
-  // Recalculate default SL/TP when symbol changes
+  // When active trade closes, reset to market price
   useEffect(() => {
-    if (currentPrice > 0) {
-      resetSlTpForPrice(currentPrice, selectedSide, selectedRR);
+    if (!activeTrade && currentPrice > 0 && orderCategory === 'MARKET') {
+      setEntryPriceStr(currentPrice.toFixed(2));
     }
-  }, [symbol]);
+  }, [activeTrade]);
 
-  // Handle Side Switch (BUY / SELL)
-  const handleSideSwitch = (side: TradeSide) => {
-    setSelectedSide(side);
-    resetSlTpForPrice(currentPrice, side, selectedRR);
-  };
-
-  // Handle Risk Input & Presets
+  // Handle Risk Input
   const handleRiskChange = (val: string) => {
     setRiskInputStr(val);
     const parsed = parseFloat(val);
@@ -184,85 +268,234 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     const parsed = parseFloat(val);
     if (!isNaN(parsed) && parsed > 0) {
       setSelectedRR(parsed);
-      const numSL = parseFloat(slPrice);
-      if (!isNaN(numSL) && numSL > 0 && currentPrice > 0) {
-        const newTP = calculateTPFromRR(selectedSide, currentPrice, numSL, parsed);
-        setTpPrice(newTP.toFixed(2));
+      const effectiveEntry = orderCategory === 'MARKET' ? currentPrice : (parseFloat(entryPriceStr) || currentPrice);
+      const numSL = parseFloat(slPriceStr);
+      if (!isNaN(numSL) && numSL > 0 && effectiveEntry > 0) {
+        const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
+        const newTP = calculateTPFromRR(side, effectiveEntry, numSL, parsed);
+        setTpPriceStr(newTP.toFixed(2));
       }
     }
   };
 
-  // Handle Quick RR Preset Click
   const handleRRPreset = (rr: number) => {
     setSelectedRR(rr);
     setRrInputStr(String(rr));
-    const numSL = parseFloat(slPrice);
-    if (!isNaN(numSL) && numSL > 0 && currentPrice > 0) {
-      const newTP = calculateTPFromRR(selectedSide, currentPrice, numSL, rr);
-      setTpPrice(newTP.toFixed(2));
+    const effectiveEntry = orderCategory === 'MARKET' ? currentPrice : (parseFloat(entryPriceStr) || currentPrice);
+    const numSL = parseFloat(slPriceStr);
+    if (!isNaN(numSL) && numSL > 0 && effectiveEntry > 0) {
+      const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
+      const newTP = calculateTPFromRR(side, effectiveEntry, numSL, rr);
+      setTpPriceStr(newTP.toFixed(2));
+    } else if (effectiveEntry > 0) {
+      setShowChartPlannedLines(true);
+      resetLevelsForPrice(effectiveEntry, orderDirection, rr);
     }
   };
 
-  // Manual SL Change
+  // Handle Entry input change (for Limit / Stop)
+  const handleEntryChange = (val: string) => {
+    setEntryPriceStr(val);
+    const parsedEntry = parseFloat(val);
+    const numSL = parseFloat(slPriceStr);
+    if (!isNaN(parsedEntry) && parsedEntry > 0 && !isNaN(numSL) && numSL > 0) {
+      const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
+      const newTP = calculateTPFromRR(side, parsedEntry, numSL, selectedRR);
+      setTpPriceStr(newTP.toFixed(2));
+    }
+  };
+
+  // Handle SL Change
   const handleSlChange = (val: string) => {
-    setSlPrice(val);
+    setSlPriceStr(val);
     const numSL = parseFloat(val);
-    if (!isNaN(numSL) && numSL > 0 && currentPrice > 0) {
-      const newTP = calculateTPFromRR(selectedSide, currentPrice, numSL, selectedRR);
-      setTpPrice(newTP.toFixed(2));
+    const effectiveEntry = orderCategory === 'MARKET' ? currentPrice : (parseFloat(entryPriceStr) || currentPrice);
+    if (!isNaN(numSL) && numSL > 0 && effectiveEntry > 0) {
+      const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
+      const newTP = calculateTPFromRR(side, effectiveEntry, numSL, selectedRR);
+      setTpPriceStr(newTP.toFixed(2));
     }
   };
 
-  const numSL = parseFloat(slPrice) || 0;
-  const numTP = parseFloat(tpPrice) || 0;
+  // Numbers & Metrics
+  const effectiveEntry = orderCategory === 'MARKET' ? currentPrice : (parseFloat(entryPriceStr) || currentPrice);
+  const numSL = parseFloat(slPriceStr) || 0;
+  const numTP = parseFloat(tpPriceStr) || 0;
   const riskAmount = (balance * riskPercent) / 100;
   const contractSize = getSymbolContractSize(symbol);
-  const lotSize = calculatePositionSize(balance, riskPercent, currentPrice, numSL, contractSize);
-  const rrCalc = calculateRR(selectedSide, currentPrice, numSL, numTP);
+  const lotSize = calculatePositionSize(balance, riskPercent, effectiveEntry, numSL, contractSize);
+  const tradeSide: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
+  const rrCalc = calculateRR(tradeSide, effectiveEntry, numSL, numTP);
 
-  const handleExecute = () => {
-    if (!rrCalc.isValid || lotSize <= 0 || isSubmitting || Boolean(activeTrade)) return;
-    setShowChartPlannedLines(false);
-    onVisualOrderSubmit?.({
-      side: selectedSide,
-      entryPrice: currentPrice,
+  // Price validation
+  const validation = validateOrderPrices(currentOrderType, currentPrice, effectiveEntry, numSL, numTP);
+
+  const isExecutionValid = validation.isValid && lotSize > 0 && !isSubmitting;
+  const canSubmitVisualOrder = onVisualOrderSubmit
+    ? (validation.isValid && effectiveEntry > 0 && !isSubmitting)
+    : isExecutionValid;
+
+  // Emit planned trade preview to parent for chart tool synchronization
+  useEffect(() => {
+    if (!onPlannedTradeChange) return;
+    if (!showChartPlannedLines || Boolean(activeTrade) || effectiveEntry <= 0 || numSL <= 0 || numTP <= 0) {
+      onPlannedTradeChange(null);
+      return;
+    }
+    const targetProfit = riskAmount * (rrCalc.isValid ? rrCalc.rr : selectedRR);
+    onPlannedTradeChange({
+      orderType: currentOrderType,
+      side: orderDirection,
+      entryPrice: effectiveEntry,
       slPrice: numSL,
       tpPrice: numTP,
-      volume: lotSize,
+      lotSize,
       riskAmount,
+      targetProfit,
+      rrRatio: rrCalc.isValid ? rrCalc.rr : selectedRR,
+      isValid: validation.isValid,
+      validationError: validation.error,
     });
+  }, [
+    showChartPlannedLines,
+    activeTrade,
+    currentOrderType,
+    orderDirection,
+    effectiveEntry,
+    numSL,
+    numTP,
+    lotSize,
+    riskAmount,
+    rrCalc.isValid,
+    rrCalc.rr,
+    selectedRR,
+    validation.isValid,
+    validation.error,
+    onPlannedTradeChange,
+  ]);
+
+  const handleExecute = () => {
+    if (activeTrade) return;
+
+    if (onVisualOrderSubmit) {
+      if (orderCategory === 'MARKET') {
+        const defaultSlDist = getDefaultSlDistance(symbol);
+        const sl = numSL > 0 ? numSL : (orderDirection === 'BUY' ? effectiveEntry - defaultSlDist : effectiveEntry + defaultSlDist);
+        const tp = numTP > 0 ? numTP : (orderDirection === 'BUY' ? effectiveEntry + defaultSlDist * 2 : effectiveEntry - defaultSlDist * 2);
+        const roundedSL = Math.round(sl * 100) / 100;
+        const roundedTP = Math.round(tp * 100) / 100;
+        const calcLots = calculatePositionSize(balance, riskPercent, effectiveEntry, roundedSL, contractSize);
+        onVisualOrderSubmit({
+          orderType: currentOrderType,
+          side: tradeSide,
+          entryPrice: effectiveEntry,
+          slPrice: roundedSL,
+          tpPrice: roundedTP,
+          volume: calcLots > 0 ? calcLots : 1.0,
+          riskAmount,
+        });
+        return;
+      } else {
+        // Pending order (Limit or Stop): show Entry ONLY, SL & TP added on chart confirm panel!
+        const calcLots = numSL > 0 ? calculatePositionSize(balance, riskPercent, effectiveEntry, numSL, contractSize) : 1.0;
+        onVisualOrderSubmit({
+          orderType: currentOrderType,
+          side: tradeSide,
+          entryPrice: effectiveEntry,
+          slPrice: numSL > 0 ? numSL : 0,
+          tpPrice: numTP > 0 ? numTP : 0,
+          volume: calcLots > 0 ? calcLots : 1.0,
+          riskAmount,
+        });
+        return;
+      }
+    }
+
+    if (!isExecutionValid) return;
+
+    if (orderCategory === 'MARKET') {
+      onOpenTrade({
+        side: tradeSide,
+        entryPrice: effectiveEntry,
+        slPrice: numSL,
+        tpPrice: numTP,
+        volume: lotSize,
+        riskAmount,
+      });
+    } else {
+      if (onPlaceOrder) {
+        onPlaceOrder({
+          orderType: currentOrderType,
+          side: tradeSide,
+          entryPrice: effectiveEntry,
+          slPrice: numSL,
+          tpPrice: numTP,
+          volume: lotSize,
+          riskAmount,
+        });
+      }
+    }
   };
 
-  // Expose executeQuick for the mobile quick-trade bar
-  useImperativeHandle(ref, () => ({
-    executeQuick: (side: TradeSide) => {
-      if (isSubmitting || Boolean(activeTrade)) return;
-      // If side changed, recalculate SL/TP first then execute synchronously
-      if (side !== selectedSide) {
-        setSelectedSide(side);
-        const defaultSlDist = getDefaultSlDistance(symbol);
-        const newSl = side === 'LONG'
-          ? Math.round((currentPrice - defaultSlDist) * 100) / 100
-          : Math.round((currentPrice + defaultSlDist) * 100) / 100;
-        const newTp = calculateTPFromRR(side, currentPrice, newSl, selectedRR);
-        const newLot = calculatePositionSize(balance, riskPercent, currentPrice, newSl, contractSize);
-        const newRisk = (balance * riskPercent) / 100;
-        setSlPrice(newSl.toFixed(2));
-        setTpPrice(newTp.toFixed(2));
-        setShowChartPlannedLines(false);
-        onOpenTrade({ side, entryPrice: currentPrice, slPrice: newSl, tpPrice: newTp, volume: newLot, riskAmount: newRisk });
-      } else {
-        handleExecute();
-      }
-    },
-    getSide: () => selectedSide,
-  }), [selectedSide, isSubmitting, activeTrade, currentPrice, numSL, numTP, lotSize, riskAmount, balance, riskPercent, symbol, selectedRR, contractSize]);
+  // Expose executeQuick for mobile quick action bar
+  useImperativeHandle(
+    ref,
+    () => ({
+      executeQuick: (side: TradeSide) => {
+        if (isSubmitting || Boolean(activeTrade)) return;
+        const dir: OrderDirection = side === 'LONG' ? 'BUY' : 'SELL';
+        if (dir !== orderDirection || orderCategory !== 'MARKET') {
+          setOrderCategory('MARKET');
+          setOrderDirection(dir);
+          const defaultSlDist = getDefaultSlDistance(symbol);
+          const newSl = dir === 'BUY'
+            ? Math.round((currentPrice - defaultSlDist) * 100) / 100
+            : Math.round((currentPrice + defaultSlDist) * 100) / 100;
+          const newTp = calculateTPFromRR(side, currentPrice, newSl, selectedRR);
+          const newLot = calculatePositionSize(balance, riskPercent, currentPrice, newSl, contractSize);
+          const newRisk = (balance * riskPercent) / 100;
+          setEntryPriceStr(currentPrice.toFixed(2));
+          setSlPriceStr(newSl.toFixed(2));
+          setTpPriceStr(newTp.toFixed(2));
+          onOpenTrade({
+            side,
+            entryPrice: currentPrice,
+            slPrice: newSl,
+            tpPrice: newTp,
+            volume: newLot,
+            riskAmount: newRisk,
+          });
+        } else {
+          handleExecute();
+        }
+      },
+      getSide: () => tradeSide,
+    }),
+    [
+      orderCategory,
+      orderDirection,
+      isSubmitting,
+      activeTrade,
+      currentPrice,
+      numSL,
+      numTP,
+      lotSize,
+      riskAmount,
+      balance,
+      riskPercent,
+      symbol,
+      selectedRR,
+      contractSize,
+      tradeSide,
+    ]
+  );
 
   // Active Trade calculations (if OPEN)
   const isTradeOpen = activeTrade && activeTrade.status === 'OPEN';
-  const livePnl = isTradeOpen && currentPrice > 0
-    ? calculatePnL(activeTrade.side, activeTrade.entryPrice, currentPrice, activeTrade.volume, contractSize)
-    : 0;
+  const livePnl =
+    isTradeOpen && currentPrice > 0
+      ? calculatePnL(activeTrade.side, activeTrade.entryPrice, currentPrice, activeTrade.volume, contractSize)
+      : 0;
   const livePriceRisk = isTradeOpen ? Math.abs(activeTrade.entryPrice - activeTrade.slPrice) : 0;
   const livePriceCaptured = isTradeOpen
     ? activeTrade.side === 'LONG'
@@ -271,58 +504,26 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     : 0;
   const liveRR = livePriceRisk > 0 ? Math.round((livePriceCaptured / livePriceRisk) * 100) / 100 : 0;
 
-  // Emit planned trade preview ("Ancang-Ancang") to parent for live chart visualization ONLY when explicitly toggled on
-  useEffect(() => {
-    if (!onPlannedTradeChange) return;
-    if (!showChartPlannedLines || isTradeOpen || currentPrice <= 0 || !numSL || !numTP || !rrCalc.isValid || lotSize <= 0) {
-      onPlannedTradeChange(null);
-      return;
-    }
-    const targetProfit = riskAmount * rrCalc.rr;
-    onPlannedTradeChange({
-      side: selectedSide === 'LONG' ? 'BUY' : 'SELL',
-      entryPrice: currentPrice,
-      slPrice: numSL,
-      tpPrice: numTP,
-      lotSize,
-      riskAmount,
-      targetProfit,
-      rrRatio: rrCalc.rr,
-    });
-  }, [
-    showChartPlannedLines,
-    isTradeOpen,
-    currentPrice,
-    numSL,
-    numTP,
-    selectedSide,
-    lotSize,
-    riskAmount,
-    rrCalc.isValid,
-    rrCalc.rr,
-    onPlannedTradeChange,
-  ]);
-
   return (
-    <div className="bg-white border-2 border-[#121212] rounded-xl p-4 flex flex-col gap-4 text-[#121212] shadow-[4px_4px_0px_0px_#121212] h-full">
+    <div className="bg-white border-2 border-[#121212] rounded-xl p-3.5 sm:p-4 flex flex-col gap-3.5 text-[#121212] shadow-[4px_4px_0px_0px_#121212] h-full overflow-y-auto">
       {/* Header: Market Price & Account Balance */}
-      <div className="grid grid-cols-2 gap-2 pb-3 border-b-2 border-[#121212]">
-        <div className="bg-[#FFFDEB] border-2 border-[#121212] p-2.5 shadow-[2px_2px_0px_0px_#121212]">
+      <div className="grid grid-cols-2 gap-2 pb-2.5 border-b-2 border-[#121212]">
+        <div className="bg-[#FFFDEB] border-2 border-[#121212] p-2 sm:p-2.5 shadow-[2px_2px_0px_0px_#121212]">
           <div className="text-[9px] font-black uppercase tracking-wider text-[#B45309] flex items-center justify-between">
             <span>Harga {symbol}</span>
             <span className="w-2 h-2 rounded-full bg-[#B45309] animate-pulse" />
           </div>
-          <div className="text-xl font-mono font-black text-[#121212] mt-0.5 tracking-tight">
+          <div className="text-lg sm:text-xl font-mono font-black text-[#121212] mt-0.5 tracking-tight">
             {currentPrice > 0 ? currentPrice.toFixed(2) : '--.--'}
           </div>
         </div>
 
-        <div className="bg-[#EBF2FF] border-2 border-[#121212] p-2.5 shadow-[2px_2px_0px_0px_#121212]">
+        <div className="bg-[#EBF2FF] border-2 border-[#121212] p-2 sm:p-2.5 shadow-[2px_2px_0px_0px_#121212]">
           <div className="text-[9px] font-black uppercase tracking-wider text-[#1040C0] flex items-center justify-between">
             <span>Saldo Akun</span>
             <span className="text-[9px] font-mono font-black text-[#1040C0]">USD</span>
           </div>
-          <div className="text-xl font-mono font-black text-[#1040C0] mt-0.5 tracking-tight">
+          <div className="text-lg sm:text-xl font-mono font-black text-[#1040C0] mt-0.5 tracking-tight">
             ${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
@@ -339,13 +540,13 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
         </div>
       )}
 
-      {/* ── STATE B: ACTIVE POSITION VIEW ── */}
+      {/* ── ACTIVE TRADE POSITION VIEW ── */}
       {isTradeOpen ? (
-        <div className="space-y-4">
+        <div className="space-y-3.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-extrabold text-[#121212] flex items-center gap-1.5 uppercase tracking-wide">
               <span className="w-2 h-2 rounded-full bg-[#059669]" />
-              <span>Open position</span>
+              <span>Posisi Terbuka</span>
             </span>
             <span className="text-[11px] font-mono font-bold text-[#717182]">
               #{activeTrade.id.slice(0, 6)}
@@ -405,7 +606,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
               type="button"
               onClick={() => onCloseTrade(activeTrade.id)}
               disabled={isSubmitting}
-              className="w-full min-h-[44px] py-2.5 px-4 bg-[#DC2626] hover:bg-[#B91C1C] disabled:opacity-50 text-white font-mono font-black text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-all border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+              className="w-full min-h-[44px] py-2.5 px-4 bg-[#DC2626] hover:bg-[#B91C1C] disabled:opacity-50 text-white font-mono font-black text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-all border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none cursor-pointer"
             >
               <XCircle className="w-4 h-4" />
               <span>{isSubmitting ? 'Menutup Posisi...' : 'Tutup Posisi Sekarang'}</span>
@@ -414,56 +615,118 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
 
           <div className="p-2.5 bg-[#F0F0F0] border-2 border-[#121212] rounded-lg flex items-center gap-2 text-xs text-[#121212] shadow-[2px_2px_0px_0px_#121212]">
             <Lock className="w-4 h-4 text-[#121212] shrink-0" />
-            <span className="font-semibold">Tutup posisi di atas terlebih dahulu untuk membuka posisi baru.</span>
+            <span className="font-semibold">Tutup posisi di atas untuk membuka posisi baru.</span>
           </div>
         </div>
       ) : (
-        /* ── STATE A: FLAT / NEW ORDER FORM ── */
-        <div className="space-y-4">
-          <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#717182]">
-            Entry order
+        /* ── ORDER ENTRY WORKFLOW (MARKET & PENDING) ── */
+        <div className="space-y-3.5">
+          {/* Order Category Selector: MARKET / LIMIT / STOP */}
+          <div>
+            <div className="text-[9.5px] font-black uppercase tracking-wider text-[#717182] mb-1.5 flex items-center justify-between">
+              <span>Tipe Order</span>
+              <span className="font-mono text-[#1040C0] font-extrabold">{getOrderTypeLabel(currentOrderType)}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-1 p-1 bg-[#F0F0F0] border-2 border-[#121212] rounded-lg shadow-[1px_1px_0px_0px_#121212]">
+              {(['MARKET', 'LIMIT', 'STOP'] as OrderCategory[]).map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => handleCategorySwitch(cat)}
+                  className={`min-h-[34px] py-1 text-[11px] font-mono font-black uppercase tracking-wider rounded transition-all cursor-pointer ${
+                    orderCategory === cat
+                      ? 'bg-[#121212] text-white shadow-[1px_1px_0px_0px_#121212]'
+                      : 'bg-transparent text-[#121212] hover:bg-white/80'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Side Selector (BUY vs SELL) */}
+          {/* Direction Selector (BUY vs SELL) */}
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => handleSideSwitch('LONG')}
-              className={`min-h-[44px] py-2 px-3 text-xs font-mono font-black uppercase tracking-wider flex items-center justify-center gap-1.5 rounded-lg border-2 border-[#121212] transition-all shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
-                selectedSide === 'LONG'
+              onClick={() => handleDirectionSwitch('BUY')}
+              className={`min-h-[42px] py-2 px-3 text-xs font-mono font-black uppercase tracking-wider flex items-center justify-center gap-1.5 rounded-lg border-2 border-[#121212] transition-all shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer ${
+                orderDirection === 'BUY'
                   ? 'bg-[#059669] text-white'
                   : 'bg-white text-[#121212] hover:bg-[#E7F9F0]'
               }`}
             >
               <ArrowUpRight className="w-4 h-4" />
-              <span>BUY (LONG)</span>
+              <span>BUY</span>
             </button>
             <button
               type="button"
-              onClick={() => handleSideSwitch('SHORT')}
-              className={`min-h-[44px] py-2 px-3 text-xs font-mono font-black uppercase tracking-wider flex items-center justify-center gap-1.5 rounded-lg border-2 border-[#121212] transition-all shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
-                selectedSide === 'SHORT'
+              onClick={() => handleDirectionSwitch('SELL')}
+              className={`min-h-[42px] py-2 px-3 text-xs font-mono font-black uppercase tracking-wider flex items-center justify-center gap-1.5 rounded-lg border-2 border-[#121212] transition-all shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer ${
+                orderDirection === 'SELL'
                   ? 'bg-[#DC2626] text-white'
                   : 'bg-white text-[#121212] hover:bg-[#FDECEC]'
               }`}
             >
               <ArrowDownRight className="w-4 h-4" />
-              <span>SELL (SHORT)</span>
+              <span>SELL</span>
             </button>
+          </div>
+
+          {/* Entry Price Input / Market Price indicator */}
+          <div>
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide">
+                Harga Entry:
+              </span>
+              {orderCategory === 'MARKET' ? (
+                <span className="text-[10px] font-mono text-[#059669] font-black uppercase bg-[#E7F9F0] px-1.5 py-0.5 border border-[#121212] rounded">
+                  Market Execution
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onPickChartEntry?.(currentOrderType)}
+                  className="text-[10px] font-mono text-[#1040C0] font-black uppercase flex items-center gap-1 hover:underline cursor-pointer"
+                  title="Klik level pada chart untuk menentukan harga entry"
+                >
+                  <Crosshair className="w-3 h-3 text-[#1040C0]" />
+                  <span>Pilih di Chart</span>
+                </button>
+              )}
+            </div>
+
+            {orderCategory === 'MARKET' ? (
+              <div className="w-full min-h-[38px] bg-[#F8FAFC] border-2 border-[#121212] rounded-lg px-3 py-2 text-[#121212] font-mono font-black text-sm flex items-center justify-between shadow-[2px_2px_0px_0px_#121212]">
+                <span>{currentPrice > 0 ? currentPrice.toFixed(2) : '--.--'}</span>
+                <span className="text-[10px] font-bold text-[#717182]">Terkunci ke Harga Replay</span>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={entryPriceStr}
+                  onChange={(e) => handleEntryChange(e.target.value)}
+                  placeholder="e.g. 3340.00"
+                  className="w-full min-h-[38px] bg-white border-2 border-[#121212] rounded-lg px-3 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
+                />
+              </div>
+            )}
           </div>
 
           {/* Risk % Input & Quick Presets */}
           <div>
-            <div className="flex items-center justify-between text-xs mb-1.5">
+            <div className="flex items-center justify-between text-xs mb-1">
               <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide flex items-center gap-1">
                 <ShieldAlert className="w-3.5 h-3.5 text-[#1040C0]" />
-                <span>Risk per Trade:</span>
+                <span>Risiko per Trade:</span>
               </span>
               <span className="font-mono text-[#121212] font-black text-xs">
                 ${riskAmount.toFixed(2)}
               </span>
             </div>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-1.5">
               <div className="relative flex-1">
                 <input
                   type="number"
@@ -473,20 +736,20 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
                   value={riskInputStr}
                   onChange={(e) => handleRiskChange(e.target.value)}
                   placeholder="e.g. 1.0"
-                  className="w-full min-h-[40px] bg-white border-2 border-[#121212] rounded-lg pl-3 pr-8 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
+                  className="w-full min-h-[38px] bg-white border-2 border-[#121212] rounded-lg pl-3 pr-8 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-black text-[#717182] pointer-events-none">
                   %
                 </span>
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-1.5">
+            <div className="grid grid-cols-4 gap-1">
               {[0.5, 1.0, 1.5, 2.0].map((r) => (
                 <button
                   key={r}
                   type="button"
                   onClick={() => handleRiskPreset(r)}
-                  className={`min-h-[32px] py-1 text-xs font-mono font-extrabold rounded border-2 border-[#121212] transition-all shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
+                  className={`min-h-[28px] py-0.5 text-xs font-mono font-extrabold rounded border-2 border-[#121212] transition-all shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer ${
                     riskPercent === r && riskInputStr === String(r)
                       ? 'bg-[#1040C0] text-white'
                       : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'
@@ -498,154 +761,265 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
             </div>
           </div>
 
-          {/* Stop Loss Input */}
-          <div>
-            <div className="flex items-center justify-between text-xs mb-1">
-              <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide">
-                Stop Loss:
-              </span>
-              <span className="text-[11px] text-[#DC2626] font-mono font-bold">
-                {rrCalc.isValid ? `Risk: ${rrCalc.risk.toFixed(2)} pts` : ''}
-              </span>
+          {/* Stop Loss, Target RR, and Take Profit Controls (Hidden initially until user defines them) */}
+          {!slPriceStr && !tpPriceStr ? (
+            <div className="p-3 bg-[#F8FAFC] border-2 border-dashed border-[#94A3B8] rounded-lg text-center space-y-2">
+              <div className="text-[11px] font-bold text-[#475569]">
+                Stop Loss & Take Profit belum ditentukan
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowChartPlannedLines(true);
+                  resetLevelsForPrice(effectiveEntry, orderDirection, selectedRR);
+                }}
+                className="w-full min-h-[36px] bg-[#1040C0] text-white font-mono font-extrabold text-xs rounded-lg border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:bg-[#1D4ED8]"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Tentukan Level SL & TP (1 : {selectedRR.toFixed(1)})</span>
+              </button>
             </div>
-            <input
-              type="number"
-              step="0.01"
-              value={slPrice}
-              onChange={(e) => handleSlChange(e.target.value)}
-              placeholder="e.g. 3000.00"
-              className="w-full min-h-[40px] bg-white border-2 border-[#121212] rounded-lg px-3 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
-            />
-          </div>
-
-          {/* Target RR Input & Quick Presets */}
-          <div>
-            <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide flex items-center gap-1">
-                <Calculator className="w-3.5 h-3.5 text-[#B45309]" />
-                <span>Target Risk / Reward (RR):</span>
-              </span>
-              <span className="text-[11px] font-mono text-[#059669] font-black">
-                {rrCalc.isValid ? `Actual: 1 : ${rrCalc.rr}` : ''}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="relative flex-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-[#717182] pointer-events-none">
-                  1 :
-                </span>
+          ) : (
+            <>
+              {/* Stop Loss Input */}
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide">
+                    Stop Loss:
+                  </span>
+                  <span className="text-[11px] text-[#DC2626] font-mono font-bold">
+                    {rrCalc.isValid ? `Jarak Risiko: ${rrCalc.risk.toFixed(2)} pts` : ''}
+                  </span>
+                </div>
                 <input
                   type="number"
-                  step="0.1"
-                  min="0.1"
-                  value={rrInputStr}
-                  onChange={(e) => handleRRInputChange(e.target.value)}
-                  placeholder="e.g. 2.0"
-                  className="w-full min-h-[40px] bg-white border-2 border-[#121212] rounded-lg pl-9 pr-3 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
+                  step="0.01"
+                  value={slPriceStr}
+                  onChange={(e) => handleSlChange(e.target.value)}
+                  placeholder="e.g. 3335.00"
+                  className="w-full min-h-[38px] bg-white border-2 border-[#121212] rounded-lg px-3 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
                 />
               </div>
-            </div>
-            <div className="grid grid-cols-6 gap-1">
-              {RR_PRESETS.map((rr) => (
+
+              {/* Target RR Input & Presets */}
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide flex items-center gap-1">
+                    <Calculator className="w-3.5 h-3.5 text-[#B45309]" />
+                    <span>Target Rasio Risk / Reward (RR):</span>
+                  </span>
+                  <span className="text-[11px] font-mono text-[#059669] font-black">
+                    {rrCalc.isValid ? `Aktual: 1 : ${rrCalc.rr.toFixed(2)}` : ''}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-[#717182] pointer-events-none">
+                      1 :
+                    </span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={rrInputStr}
+                      onChange={(e) => handleRRInputChange(e.target.value)}
+                      placeholder="e.g. 2.0"
+                      className="w-full min-h-[38px] bg-white border-2 border-[#121212] rounded-lg pl-9 pr-3 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-6 gap-1">
+                  {RR_PRESETS.map((rr) => (
+                    <button
+                      key={rr}
+                      type="button"
+                      onClick={() => handleRRPreset(rr)}
+                      className={`min-h-[28px] py-0.5 text-xs font-mono font-extrabold rounded border-2 border-[#121212] transition-all shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer ${
+                        selectedRR === rr && rrInputStr === String(rr)
+                          ? 'bg-[#1040C0] text-white'
+                          : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'
+                      }`}
+                    >
+                      1:{rr}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Take Profit Input */}
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide">
+                    Take Profit:
+                  </span>
+                  <span className="text-[11px] text-[#059669] font-mono font-bold">
+                    {rrCalc.isValid ? `Target Reward: ${rrCalc.reward.toFixed(2)} pts` : ''}
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={tpPriceStr}
+                  onChange={(e) => setTpPriceStr(e.target.value)}
+                  placeholder="e.g. 3350.00"
+                  className="w-full min-h-[38px] bg-white border-2 border-[#121212] rounded-lg px-3 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
+                />
+              </div>
+
+              {/* Summary Box & Validation Feedback */}
+              {validation.isValid && lotSize > 0 ? (
+                <div className="p-2.5 bg-[#F8FAFC] border-2 border-[#121212] rounded-lg text-xs font-mono space-y-1 text-[#121212] shadow-[2px_2px_0px_0px_#121212]">
+                  <div className="flex justify-between">
+                    <span className="text-[#717182] font-bold">Ukuran Lot ({symbol}):</span>
+                    <strong className="text-[#121212] font-black">{lotSize.toFixed(2)} Lot</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#717182] font-bold">Max Risk:</span>
+                    <strong className="text-[#DC2626] font-black">-${riskAmount.toFixed(2)}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#717182] font-bold">Target Profit:</span>
+                    <strong className="text-[#059669] font-black">
+                      +${(riskAmount * (rrCalc.isValid ? rrCalc.rr : selectedRR)).toFixed(2)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between border-t border-[#121212]/10 pt-1">
+                    <span className="text-[#717182] font-bold">Rasio R:R:</span>
+                    <strong className="text-[#1040C0] font-black">1 : {rrCalc.rr.toFixed(2)}</strong>
+                  </div>
+                </div>
+              ) : !validation.isValid ? (
+                <div className="p-2.5 bg-[#FDECEC] border-2 border-[#121212] rounded-lg text-[#DC2626] text-xs flex items-start gap-2 shadow-[2px_2px_0px_0px_#121212] font-bold">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
+                  <span>{validation.error || 'Konfigurasi harga tidak valid.'}</span>
+                </div>
+              ) : (
+                <div className="p-2.5 bg-[#F8FAFC] border-2 border-[#121212] rounded-lg text-xs font-mono space-y-1 text-[#121212] shadow-[2px_2px_0px_0px_#121212]">
+                  <div className="flex justify-between">
+                    <span className="text-[#717182] font-bold">Tipe Order:</span>
+                    <strong className="text-[#121212] font-black">{getOrderTypeLabel(currentOrderType)}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#717182] font-bold">Target Entry:</span>
+                    <strong className="text-[#1040C0] font-black">${effectiveEntry.toFixed(2)}</strong>
+                  </div>
+                  <div className="text-[10px] text-[#717182] pt-0.5">
+                    Garis level Entry akan muncul di chart. SL & TP dapat diatur interaktif langsung pada chart.
+                  </div>
+                </div>
+              )}
+
+              {/* Interactive Chart Lines Toggle and Reset Button */}
+              <div className="flex gap-2">
                 <button
-                  key={rr}
                   type="button"
-                  onClick={() => handleRRPreset(rr)}
-                  className={`min-h-[32px] py-1 text-xs font-mono font-extrabold rounded border-2 border-[#121212] transition-all shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
-                    selectedRR === rr && rrInputStr === String(rr)
-                      ? 'bg-[#1040C0] text-white'
+                  onClick={() => setShowChartPlannedLines(!showChartPlannedLines)}
+                  className={`flex-1 min-h-[34px] py-1 px-2 text-[11px] font-mono font-bold uppercase tracking-wider rounded-lg border-2 border-[#121212] transition-all flex items-center justify-center gap-1.5 shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer ${
+                    showChartPlannedLines
+                      ? 'bg-[#EAF2FF] text-[#1040C0]'
                       : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'
                   }`}
                 >
-                  1:{rr}
+                  <Crosshair className="w-3.5 h-3.5 text-[#1040C0]" />
+                  <span>{showChartPlannedLines ? 'Sembunyikan Visual' : 'Tampilkan Visual'}</span>
                 </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Take Profit Input */}
-          <div>
-            <div className="flex items-center justify-between text-xs mb-1">
-              <span className="text-[#121212] font-bold uppercase text-[10px] tracking-wide">
-                Take Profit:
-              </span>
-              <span className="text-[11px] text-[#059669] font-mono font-bold">
-                {rrCalc.isValid ? `Reward: ${rrCalc.reward.toFixed(2)} pts` : ''}
-              </span>
-            </div>
-            <input
-              type="number"
-              step="0.01"
-              value={tpPrice}
-              onChange={(e) => setTpPrice(e.target.value)}
-              placeholder="e.g. 3020.00"
-              className="w-full min-h-[40px] bg-white border-2 border-[#121212] rounded-lg px-3 py-2 text-[#121212] font-mono font-extrabold text-sm shadow-[2px_2px_0px_0px_#121212] focus:outline-none focus:bg-[#FFFDEB] transition-colors"
-            />
-          </div>
-
-          {/* Sizing & Calculation Box */}
-          {rrCalc.isValid ? (
-            <div className="p-3 bg-[#F0F0F0] border-2 border-[#121212] rounded-lg text-xs font-mono space-y-1.5 text-[#121212] shadow-[2px_2px_0px_0px_#121212]">
-              <div className="flex justify-between">
-                <span className="text-[#717182] font-bold">
-                  Lot Size ({symbol.toUpperCase().includes('XAU') ? '100 oz' : symbol.toUpperCase().includes('NSX') || symbol.toUpperCase().includes('NAS') ? '1 pt/$' : `${contractSize} units`}):
-                </span>
-                <strong className="text-[#121212] font-black">{lotSize.toFixed(2)} Lot</strong>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSlPriceStr('');
+                    setTpPriceStr('');
+                    setShowChartPlannedLines(false);
+                  }}
+                  className="min-h-[34px] py-1 px-3 text-[11px] font-mono font-bold uppercase rounded-lg border-2 border-[#121212] bg-white text-[#717182] hover:text-[#DC2626] hover:bg-[#FEE2E2] transition-all shadow-[1px_1px_0px_0px_#121212] cursor-pointer"
+                >
+                  Reset
+                </button>
               </div>
-              <div className="flex justify-between">
-                <span className="text-[#717182] font-bold">Max Risk:</span>
-                <strong className="text-[#DC2626] font-black">-${riskAmount.toFixed(2)}</strong>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#717182] font-bold">Target Profit:</span>
-                <strong className="text-[#059669] font-black">+${(riskAmount * rrCalc.rr).toFixed(2)}</strong>
-              </div>
-            </div>
-          ) : (
-            <div className="p-2.5 bg-[#FDECEC] border-2 border-[#121212] rounded-lg text-[#DC2626] text-xs flex items-center gap-2 shadow-[2px_2px_0px_0px_#121212] font-bold">
-              <AlertTriangle className="w-4 h-4 shrink-0 text-[#DC2626]" />
-              <span>{rrCalc.error || 'Konfigurasi SL/TP tidak valid.'}</span>
-            </div>
+            </>
           )}
 
-          {/* Toggle Interactive SL/TP Lines on Chart */}
-          <button
-            type="button"
-            onClick={() => setShowChartPlannedLines(!showChartPlannedLines)}
-            className={`w-full min-h-[38px] py-2 px-3 text-xs font-mono font-bold uppercase tracking-wider rounded-lg border-2 border-[#121212] transition-all flex items-center justify-center gap-2 shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
-              showChartPlannedLines
-                ? 'bg-[#EAF2FF] text-[#1040C0]'
-                : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'
-            }`}
-          >
-            {showChartPlannedLines ? (
-              <>
-                <span className="inline-block w-2 h-2 rounded-full bg-[#F0C020] animate-pulse" />
-                <span>Sembunyikan garis SL dan TP</span>
-              </>
-            ) : (
-              <>
-                <Crosshair className="w-3.5 h-3.5 text-[#B45309]" />
-                <span>Tampilkan garis SL dan TP</span>
-              </>
-            )}
-          </button>
-
-          {/* Place Trade Button */}
+          {/* Confirm / Place Order Action Button */}
           <button
             type="button"
             onClick={handleExecute}
-            disabled={!rrCalc.isValid || lotSize <= 0 || isSubmitting}
-            className={`w-full min-h-[46px] py-3 font-mono font-black text-xs uppercase tracking-wider rounded-lg transition-all border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white ${
-              selectedSide === 'LONG'
-                ? 'bg-[#059669] hover:bg-[#047857] disabled:bg-[#CBD5E1] disabled:text-[#475569] disabled:cursor-not-allowed'
-                : 'bg-[#DC2626] hover:bg-[#B91C1C] disabled:bg-[#CBD5E1] disabled:text-[#475569] disabled:cursor-not-allowed'
+            disabled={!canSubmitVisualOrder}
+            className={`w-full min-h-[46px] py-2.5 font-mono font-black text-xs uppercase tracking-wider rounded-lg transition-all border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white cursor-pointer ${
+              !canSubmitVisualOrder
+                ? 'bg-[#CBD5E1] text-[#475569] cursor-not-allowed shadow-none'
+                : orderDirection === 'BUY'
+                  ? 'bg-[#059669] hover:bg-[#047857]'
+                  : 'bg-[#DC2626] hover:bg-[#B91C1C]'
             }`}
           >
             {isSubmitting
-              ? 'Membuka Posisi...'
-              : `Buka Posisi ${selectedSide} @ ${currentPrice > 0 ? currentPrice.toFixed(2) : '--'}`}
+              ? 'Memproses Order...'
+              : !validation.isValid
+                ? (validation.error || 'Harga tidak valid')
+                : orderCategory === 'MARKET'
+                  ? `Buka Posisi Market ${orderDirection} (Atur di Chart)`
+                  : `Pasang ${getOrderTypeLabel(currentOrderType)} (Atur di Chart)`}
           </button>
+        </div>
+      )}
+
+      {/* ── ACTIVE PENDING ORDERS LIST (IF ANY) ── */}
+      {pendingOrders.length > 0 && (
+        <div className="mt-2 pt-3 border-t-2 border-[#121212] space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-wider text-[#717182] flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-[#1040C0]" />
+              <span>Pending Orders ({pendingOrders.length})</span>
+            </span>
+          </div>
+
+          <div className="space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+            {pendingOrders.map((po) => (
+              <div
+                key={po.id}
+                className="p-2 bg-[#F8FAFC] border-2 border-[#121212] rounded-lg text-xs font-mono flex items-center justify-between gap-2 shadow-[1px_1px_0px_0px_#121212]"
+              >
+                <div>
+                  <div className="font-black text-[11px] flex items-center gap-1.5">
+                    <span
+                      className={`px-1.5 py-0.2 text-[9px] rounded font-bold border border-[#121212] ${
+                        po.side === 'LONG' ? 'bg-[#E7F9F0] text-[#059669]' : 'bg-[#FDECEC] text-[#DC2626]'
+                      }`}
+                    >
+                      {po.orderType.replace('_', ' ')}
+                    </span>
+                    <span>@{po.entryPrice.toFixed(2)}</span>
+                  </div>
+                  <div className="text-[9px] text-[#717182] mt-0.5">
+                    SL: {po.slPrice.toFixed(2)} | TP: {po.tpPrice.toFixed(2)} | {po.volume.toFixed(2)}L
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  {onEditPendingOrder && (
+                    <button
+                      type="button"
+                      onClick={() => onEditPendingOrder(po.id)}
+                      className="p-1 text-[#1040C0] hover:bg-[#EBF2FF] border border-[#1040C0]/30 rounded cursor-pointer transition-colors"
+                      title="Edit Pending Order di Chart"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  {onCancelPendingOrder && (
+                    <button
+                      type="button"
+                      onClick={() => onCancelPendingOrder(po.id)}
+                      className="p-1 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded cursor-pointer transition-colors"
+                      title="Batalkan Pending Order"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

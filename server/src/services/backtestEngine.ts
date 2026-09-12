@@ -242,8 +242,8 @@ export function evaluateCandleHit(
   const { side, slPrice, tpPrice } = trade;
 
   if (side === 'LONG') {
-    const hitSL = candle.low <= slPrice;
-    const hitTP = candle.high >= tpPrice;
+    const hitSL = slPrice > 0 && candle.low <= slPrice;
+    const hitTP = tpPrice > 0 && candle.high >= tpPrice;
 
     if (hitSL && hitTP) {
       return {
@@ -272,8 +272,8 @@ export function evaluateCandleHit(
     }
   } else {
     // SHORT
-    const hitSL = candle.high >= slPrice;
-    const hitTP = candle.low <= tpPrice;
+    const hitSL = slPrice > 0 && candle.high >= slPrice;
+    const hitTP = tpPrice > 0 && candle.low <= tpPrice;
 
     if (hitSL && hitTP) {
       return {

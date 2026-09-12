@@ -204,87 +204,51 @@ TWILIO_AUTH_TOKEN=your_token
 TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 ```
 
-### 4. Panduan Menyiapkan Data Tick / Parquet untuk ReplayFX
+### 4. Panduan Menyiapkan Data Tick (ReplayFX)
 
-ReplayFX dirancang untuk simulasi backtest dengan presisi tinggi. Engine membaca data tick atau candle historis untuk mengonstruksi candlestick secara real-time ke berbagai timeframe (M1, M5, M15, M30, H1, H4, D1) serta mengeksekusi Stop Loss / Take Profit secara intrabar.
+ReplayFX menggunakan engine DuckDB performa tinggi yang membaca langsung file `.parquet` (mampu membaca 700+ juta tick dalam <100 milidetik).
 
-Tersedia dua metode penyediaan data:
+#### Cara Cepat (3 Langkah Praktis):
 
-#### Metode A: Parquet Tick Data (Direkomendasikan - Ultra Fast)
-
-Metode ini menggunakan **DuckDB + Python Daemon** untuk query ratusan juta tick secara instan tanpa membebani database SQLite.
-
-##### Langkah 1: Download Data Tick
-Anda dapat mengunduh data tick historis secara gratis melalui beberapa pilihan:
-1. **QuantDataManager (Gratis)**: Download tick data Dukascopy untuk pair pilihan (misalnya XAUUSD atau EURUSD) dari tahun 2003 sampai sekarang.
-2. **Tickstory**: Export tick data Dukascopy ke format CSV atau Parquet.
-3. **MetaTrader 5**: Buka `View -> Symbols -> Bar/Ticks` lalu klik `Export Ticks`.
-
-Format kolom tick yang didukung:
-- `DateTime` (format ISO `2024-01-01T00:00:00.000Z` atau `YYYY.MM.DD HH:MM:SS.mmm`)
-- `Bid` (angka harga)
-- `Volume` (angka volume)
-
-##### Langkah 2: Konversi CSV ke Parquet (Jika data Anda berbentuk CSV)
-Jika data tick yang Anda unduh masih berupa file `.csv`, konversikan ke file `.parquet` menggunakan Python DuckDB:
-
-```bash
-# Install dependency DuckDB di komputer Anda
-pip install duckdb
-```
-
-Jalankan perintah konversi cepat berikut di terminal:
-```bash
-python -c "import duckdb; duckdb.query(\"COPY (SELECT DateTime, Bid, Volume FROM read_csv_auto('path/ke/file_tick_anda.csv')) TO 'server/data/market-data/XAUUSD_Tick_Parquet.parquet' (FORMAT PARQUET)\")"
-```
-
-##### Langkah 3: Konfigurasi Path File di `.env`
-Letakkan file `.parquet` di folder project (misalnya di `server/data/market-data/XAUUSD_Tick_Parquet.parquet`), lalu tentukan lokasinya di file `server/.env`:
-
-```env
-# server/.env
-PARQUET_TICK_PATH="server/data/market-data/XAUUSD_Tick_Parquet.parquet"
-```
-*(Path dapat berupa path relatif dari root project ataupun path absolut pada sistem Anda).*
-
-##### Langkah 4: Pastikan Python 3 dan DuckDB Terpasang
-Server Node.js akan otomatis menjalankan background daemon process (`parquetTickService.py`) saat server menyala. Pastikan Python 3 dan DuckDB tersedia:
-```bash
-python3 --version
-pip install duckdb
-```
-
----
-
-#### Metode B: Import CSV ke Database Lokal (SQLite)
-
-Jika Anda memiliki data candle M1 dari Dukascopy atau MT5 dan ingin menyimpannya langsung ke database SQLite:
-
-1. Simpan file CSV ke dalam folder:
+1. **Letakkan File Parquet**:
+   Simpan file data tick Anda di folder berikut:
    ```text
-   server/data/market-data/XAUUSD_M1.csv
+   server/data/market-data/XAUUSD_Tick_Parquet.parquet
    ```
-   Format kolom: `Date,Time,Open,High,Low,Close,Volume`
+   *(Sistem otomatis mendeteksi file `.parquet` di folder ini tanpa perlu setting apapun di `.env`).*
 
-2. Jalankan importer cepat via Python:
+2. **Pastikan Python 3 & DuckDB Terpasang**:
+   ReplayFX menggunakan service background Python DuckDB untuk query instan. Cukup jalankan:
    ```bash
-   python3 server/src/scripts/fastImportCsv.py server/data/market-data/XAUUSD_M1.csv XAUUSD DUKASCOPY M1
-   ```
-   Atau gunakan script importer TypeScript:
-   ```bash
-   cd server && npx ts-node src/scripts/importDukascopy.ts data/market-data/XAUUSD_M1.csv XAUUSD
+   pip install duckdb
    ```
 
----
-
-#### Cara Memverifikasi & Menggunakan di ReplayFX
-1. Jalankan development server:
+3. **Mulai Replay**:
+   Jalankan aplikasi:
    ```bash
    npm run dev
    ```
-2. Buka browser di `http://localhost:3000/backtest`.
-3. Di toolbar atas, pilih instrumen (misalnya `XAUUSD`) dan timeframe (misalnya `M15`).
-4. Klik tombol **Chart Replay** lalu pilih candle titik awal, atau klik tombol **Jump** untuk melompat ke tanggal tertentu. Candle akan langsung termuat dan siap dijalankan (Play / Step Forward / Back).
+   Buka `http://localhost:3000/backtest`, pilih instrumen (misalnya `XAUUSD`), lalu klik tombol **Chart Replay** atau **Jump to Date**.
+
+---
+
+#### 💡 Sumber Data Tick Gratis:
+- **QuantDataManager (Gratis & Direkomendasikan)**: Download histori tick Dukascopy (XAUUSD, EURUSD, GBPUSD, dll.) dari tahun 2003 sampai sekarang.
+- **MetaTrader 5**: Buka menu `View -> Symbols -> Bar/Ticks`, lalu klik tombol `Export Ticks`.
+- **Tickstory**: Export tick data Dukascopy ke format Parquet atau CSV.
+
+#### 💡 Jika Data Anda Masih Berbentuk CSV:
+Cukup konversikan file CSV tick menjadi file Parquet dengan 1 baris perintah terminal:
+```bash
+python -c "import duckdb; duckdb.query(\"COPY (SELECT DateTime, Bid, Volume FROM read_csv_auto('file_tick_anda.csv')) TO 'server/data/market-data/XAUUSD_Tick_Parquet.parquet' (FORMAT PARQUET)\")"
+```
+
+#### 💡 Lokasi File Kustom (Opsional):
+Jika Anda ingin meletakkan file `.parquet` di folder lain di luar project, Anda dapat menentukan lokasinya di file `server/.env`:
+```env
+# server/.env
+PARQUET_TICK_PATH="/path/ke/file_anda.parquet"
+```
 
 ---
 

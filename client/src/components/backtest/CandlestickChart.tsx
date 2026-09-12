@@ -1,13 +1,19 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { format } from 'date-fns';
-import { Settings, Trash2, Plus, X, RotateCcw, Check, Zap } from 'lucide-react';
+import { Settings, Trash2, Plus, X, RotateCcw, Check, Zap, Edit3, XCircle } from 'lucide-react';
 import {
   calculateFibonacciLevels,
   calculatePositionToolGeometry,
   updatePositionToolHandle,
+  getDefaultSlDistance,
   ChartTimeframe,
   TradeSide,
 } from '../../../../server/src/services/backtestEngine';
+import {
+  OrderExecutionType,
+  PendingOrderRecord,
+  getOrderTypeLabel,
+} from './OrderTypes';
 
 export type AppMode = 'analysis' | 'selecting' | 'replay';
 
@@ -80,14 +86,19 @@ export interface ChartIndicators {
 }
 
 export interface PlannedOrderPreview {
+  orderType?: OrderExecutionType;
   side: 'BUY' | 'SELL';
   entryPrice: number;
-  slPrice: number;
-  tpPrice: number;
+  slPrice?: number | null;
+  tpPrice?: number | null;
   lotSize: number;
   riskAmount: number;
-  targetProfit: number;
-  rrRatio: number;
+  targetProfit?: number;
+  rrRatio?: number;
+  isValid?: boolean;
+  validationError?: string;
+  hasSL?: boolean;
+  hasTP?: boolean;
 }
 
 interface CandlestickChartProps {
@@ -96,6 +107,10 @@ interface CandlestickChartProps {
   appMode?: AppMode;
   activeTrade?: ActiveTradeMarker | null;
   activeTrades?: ActiveTradeMarker[];
+  pendingOrders?: PendingOrderRecord[];
+  onCancelPendingOrder?: (id: string) => void;
+  onEditPendingOrder?: (order: PendingOrderRecord) => void;
+  onCloseActiveTrade?: () => void;
   plannedOrder?: PlannedOrderPreview | null;
   onPlannedOrderChange?: (newPlanned: { entryPrice: number; slPrice: number; tpPrice: number }) => void;
   symbol?: string;
@@ -164,6 +179,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   appMode = 'analysis',
   activeTrade,
   activeTrades,
+  pendingOrders = [],
+  onCancelPendingOrder,
+  onEditPendingOrder,
+  onCloseActiveTrade,
   plannedOrder,
   onPlannedOrderChange,
   symbol = 'XAUUSD',
@@ -254,6 +273,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chartTime: number; chartPrice: number } | null>(null);
   const [dblConfirm, setDblConfirm] = useState<{ time: Date; price: number } | null>(null);
   const [fibSettingsOpen, setFibSettingsOpen] = useState<boolean>(false);
+
+  // Selected Placed Order on Chart (for Edit / Delete)
+  const [selectedPendingOrderId, setSelectedPendingOrderId] = useState<string | null>(null);
+  const [isActiveTradeSelected, setIsActiveTradeSelected] = useState<boolean>(false);
+  const selectedPendingOrder = pendingOrders.find((p) => p.id === selectedPendingOrderId) || null;
 
   const candlesRef = useRef<ChartCandle[]>(candles);
   candlesRef.current = candles;
@@ -597,7 +621,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.fillText(format(new Date(vis[i].time), labelFmt), x, cssH - 7);
     }
 
-    // 4. Volume Separator & Bars
+    // 4. Volume Separator & Bars (Clipped strictly to chart viewport)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, chartW, mainH);
+    ctx.clip();
+
     ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, mainH - volH); ctx.lineTo(chartW, mainH - volH); ctx.stroke();
 
@@ -615,7 +644,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     for (let i = 0; i < vis.length; i++) {
       const c = vis[i];
       const x = getX(startIdx + i);
-      if (x < -cw || x > chartW + cw) continue;
+      if (x < -cw || x > chartW) continue;
       const oY = getY(c.open), cY = getY(c.close);
       const hY = getY(c.high), lY = getY(c.low);
       const bull = c.close >= c.open;
@@ -810,8 +839,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         const slY = getY(d.slPrice);
         const tpY = getY(d.tpPrice);
         const px = timeToX(d.startTime);
-        const endX = d.endTime ? timeToX(d.endTime) : px + 180;
-        const boxW = Math.max(120, endX - px);
+        const endX = d.endTime ? timeToX(d.endTime) : px + 150;
+        const boxW = Math.min(240, Math.max(120, endX - px));
 
         const rPts = Math.abs(d.startPrice - d.slPrice);
         const rwPts = Math.abs(d.tpPrice - d.startPrice);
@@ -820,7 +849,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         // 1. Shaded Profit Zone
         const profTop = Math.min(eY, tpY);
         const profH = Math.max(1, Math.abs(tpY - eY));
-        ctx.fillStyle = 'rgba(16, 185, 129, 0.18)';
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.16)';
         ctx.fillRect(px, profTop, boxW, profH);
         ctx.strokeStyle = '#10B981';
         ctx.lineWidth = 1.2;
@@ -829,7 +858,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         // 2. Shaded Risk Zone
         const riskTop = Math.min(eY, slY);
         const riskH = Math.max(1, Math.abs(slY - eY));
-        ctx.fillStyle = 'rgba(239, 68, 68, 0.18)';
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.16)';
         ctx.fillRect(px, riskTop, boxW, riskH);
         ctx.strokeStyle = '#EF4444';
         ctx.lineWidth = 1.2;
@@ -843,71 +872,64 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         ctx.lineTo(px + boxW, eY);
         ctx.stroke();
 
-        // 4. Centered Prominent Risk:Reward Badge
+        // 4. Compact Non-Intrusive Risk:Reward Badge
         const centerX = px + boxW / 2;
         const totalTop = Math.min(tpY, slY, eY);
         const totalBottom = Math.max(tpY, slY, eY);
         const centerY = (totalTop + totalBottom) / 2;
 
-        const badgeW = 92;
-        const badgeH = 26;
+        const badgeW = 74;
+        const badgeH = 20;
         ctx.save();
         ctx.fillStyle = '#0F172A';
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-        ctx.shadowBlur = 8;
         const rx = centerX - badgeW / 2, ry = centerY - badgeH / 2;
         ctx.beginPath();
-        ctx.rect(rx, ry, badgeW, badgeH);
+        ctx.roundRect(rx, ry, badgeW, badgeH, 3);
         ctx.fill();
-        ctx.shadowBlur = 0;
         ctx.strokeStyle = isSel ? '#38BDF8' : '#334155';
-        ctx.lineWidth = isSel ? 1.8 : 1;
+        ctx.lineWidth = isSel ? 1.5 : 1;
         ctx.stroke();
 
-        ctx.fillStyle = '#94A3B8';
-        ctx.font = '8px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('RISK / REWARD', centerX, ry + 9);
-
         ctx.fillStyle = '#F8FAFC';
-        ctx.font = 'bold 12px monospace';
-        ctx.fillText(`1 : ${rr}`, centerX, ry + 21);
+        ctx.font = 'bold 9.5px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`RR 1 : ${rr}`, centerX, ry + 14);
         ctx.restore();
 
         // 5. Profit Area Metrics Tag (inside profit zone)
         const profMidY = (eY + tpY) / 2;
-        if (profH > 24) {
+        if (profH > 22) {
           ctx.save();
-          ctx.font = 'bold 10px monospace';
+          ctx.font = 'bold 9.5px monospace';
           ctx.fillStyle = '#34D399';
           ctx.textAlign = 'left';
-          ctx.fillText(`Target: +${rwPts.toFixed(2)} pts (+${((rwPts / d.startPrice) * 100).toFixed(2)}%)`, px + 8, profMidY);
+          ctx.fillText(`Target: +${rwPts.toFixed(2)} pts`, px + 8, profMidY + 3);
           ctx.restore();
         }
 
         // 6. Risk Area Metrics Tag (inside risk zone)
         const riskMidY = (eY + slY) / 2;
-        if (riskH > 24) {
+        if (riskH > 22) {
           ctx.save();
-          ctx.font = 'bold 10px monospace';
+          ctx.font = 'bold 9.5px monospace';
           ctx.fillStyle = '#F87171';
           ctx.textAlign = 'left';
-          ctx.fillText(`Stop: -${rPts.toFixed(2)} pts (-${((rPts / d.startPrice) * 100).toFixed(2)}%)`, px + 8, riskMidY);
+          ctx.fillText(`Stop: -${rPts.toFixed(2)} pts`, px + 8, riskMidY + 3);
           ctx.restore();
         }
 
-        // 7. Right-Edge Price Pills
+        // 7. Right-Edge Price Pills with Intelligent Collision Avoidance
         const drawPricePill = (yPos: number, text: string, bgColor: string, textColor: string) => {
           ctx.save();
           ctx.font = 'bold 9px monospace';
           const txtW = ctx.measureText(text).width;
-          const pW = txtW + 12;
-          const pH = 18;
+          const pW = txtW + 10;
+          const pH = 17;
           const pillX = px + boxW - pW - 4;
           const pillY = yPos - pH / 2;
           ctx.fillStyle = bgColor;
           ctx.beginPath();
-          ctx.rect(pillX, pillY, pW, pH);
+          ctx.roundRect(pillX, pillY, pW, pH, 3);
           ctx.fill();
           ctx.strokeStyle = '#FFFFFF';
           ctx.lineWidth = 0.8;
@@ -918,9 +940,23 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           ctx.restore();
         };
 
-        drawPricePill(tpY, `TP ${d.tpPrice.toFixed(2)}`, '#065F46', '#34D399');
-        drawPricePill(eY, `ENTRY ${d.startPrice.toFixed(2)}`, '#0369A1', '#7DD3FC');
-        drawPricePill(slY, `SL ${d.slPrice.toFixed(2)}`, '#881337', '#FDA4AF');
+        // Calculate anti-collision Y offsets
+        let tpPillY = tpY;
+        let entryPillY = eY;
+        let slPillY = slY;
+        const minGap = 20;
+
+        if (isLong) {
+          if (entryPillY - tpPillY < minGap) tpPillY = entryPillY - minGap;
+          if (slPillY - entryPillY < minGap) slPillY = entryPillY + minGap;
+        } else {
+          if (entryPillY - slPillY < minGap) slPillY = entryPillY - minGap;
+          if (tpPillY - entryPillY < minGap) tpPillY = entryPillY + minGap;
+        }
+
+        drawPricePill(tpPillY, `TP ${d.tpPrice.toFixed(2)}`, '#065F46', '#34D399');
+        drawPricePill(entryPillY, `ENTRY ${d.startPrice.toFixed(2)}`, '#0369A1', '#7DD3FC');
+        drawPricePill(slPillY, `SL ${d.slPrice.toFixed(2)}`, '#881337', '#FDA4AF');
 
         // 8. Draggable Handles when Selected
         if (isSel) {
@@ -955,6 +991,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         }
       }
     }
+    ctx.restore();
 
     // 8. Active Trades Overlay with Risk/Reward Zones
     if (tradesList.length > 0) {
@@ -989,48 +1026,163 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       });
     }
 
+    // 8a. Pending Orders Overlay (Distinct dashed lines with Order Type badge)
+    if (pendingOrders.length > 0) {
+      pendingOrders.forEach((po) => {
+        const isSelected = po.id === selectedPendingOrderId;
+        const eY = getY(po.entryPrice);
+        const hasSL = po.slPrice > 0;
+        const hasTP = po.tpPrice > 0;
+        const slY = hasSL ? getY(po.slPrice) : null;
+        const tpY = hasTP ? getY(po.tpPrice) : null;
+
+        const isLong = po.side === 'LONG';
+        const entryColor = isLong ? '#0284C7' : '#E11D48';
+
+        // Shaded pending zones
+        if (tpY !== null) {
+          ctx.fillStyle = isLong ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)';
+          ctx.fillRect(0, Math.min(eY, tpY), chartW, Math.abs(tpY - eY));
+        }
+
+        if (slY !== null) {
+          ctx.fillStyle = isLong ? 'rgba(239,68,68,0.06)' : 'rgba(16,185,129,0.06)';
+          ctx.fillRect(0, Math.min(eY, slY), chartW, Math.abs(slY - eY));
+        }
+
+        // Dashed entry line
+        ctx.save();
+        if (isSelected) {
+          ctx.shadowColor = entryColor;
+          ctx.shadowBlur = 8;
+        }
+        ctx.setLineDash([8, 5]);
+        ctx.strokeStyle = entryColor;
+        ctx.lineWidth = isSelected ? 2.8 : 1.8;
+        ctx.beginPath();
+        ctx.moveTo(0, eY);
+        ctx.lineTo(chartW, eY);
+        ctx.stroke();
+
+        // Dotted SL & TP lines
+        if (slY !== null) {
+          ctx.setLineDash([3, 4]);
+          ctx.strokeStyle = '#EF4444';
+          ctx.lineWidth = isSelected ? 2.0 : 1.2;
+          ctx.beginPath();
+          ctx.moveTo(0, slY);
+          ctx.lineTo(chartW, slY);
+          ctx.stroke();
+        }
+
+        if (tpY !== null) {
+          ctx.setLineDash([3, 4]);
+          ctx.strokeStyle = '#10B981';
+          ctx.lineWidth = isSelected ? 2.0 : 1.2;
+          ctx.beginPath();
+          ctx.moveTo(0, tpY);
+          ctx.lineTo(chartW, tpY);
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        // Badge on left
+        const badgeText = `${po.orderType.replace('_', ' ')} @ ${po.entryPrice.toFixed(2)} (${po.volume.toFixed(2)}L)${isSelected ? ' • DIPILIH' : ''}`;
+        ctx.save();
+        ctx.font = 'bold 9px monospace';
+        const bW = ctx.measureText(badgeText).width + 12;
+        const bH = 18;
+        ctx.fillStyle = isSelected ? '#121212' : entryColor;
+        ctx.beginPath();
+        ctx.roundRect(8, eY - bH / 2, bW, bH, 3);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.fillText(badgeText, 8 + bW / 2, eY + 3.5);
+
+        // SL & TP labels on right
+        if (slY !== null) {
+          ctx.fillStyle = '#EF4444';
+          ctx.textAlign = 'right';
+          ctx.fillText(`SL ${po.slPrice.toFixed(2)}`, chartW - 8, slY - 3);
+        }
+
+        if (tpY !== null) {
+          ctx.fillStyle = '#10B981';
+          ctx.textAlign = 'right';
+          ctx.fillText(`TP ${po.tpPrice.toFixed(2)} (1:${po.rrRatio.toFixed(1)})`, chartW - 8, tpY - 3);
+        }
+        ctx.restore();
+      });
+    }
+
     // 8b. Planned Order Live Preview ("Ancang-Ancang" before entry)
-    if (tradesList.length === 0 && plannedOrder && plannedOrder.entryPrice > 0 && plannedOrder.slPrice > 0 && plannedOrder.tpPrice > 0) {
+    if (tradesList.length === 0 && plannedOrder && plannedOrder.entryPrice > 0) {
       const eY = getY(plannedOrder.entryPrice);
-      const slY = getY(plannedOrder.slPrice);
-      const tpY = getY(plannedOrder.tpPrice);
+      const hasSL = Boolean(plannedOrder.slPrice && plannedOrder.slPrice > 0);
+      const hasTP = Boolean(plannedOrder.tpPrice && plannedOrder.tpPrice > 0);
+      const slY = hasSL ? getY(plannedOrder.slPrice!) : null;
+      const tpY = hasTP ? getY(plannedOrder.tpPrice!) : null;
 
-      // Shaded Profit Zone
-      ctx.fillStyle = 'rgba(16,185,129,0.12)';
-      ctx.fillRect(0, Math.min(eY, tpY), chartW, Math.abs(tpY - eY));
+      // Shaded Profit Zone (only when TP exists)
+      if (tpY !== null) {
+        ctx.fillStyle = 'rgba(16,185,129,0.12)';
+        ctx.fillRect(0, Math.min(eY, tpY), chartW, Math.abs(tpY - eY));
+      }
 
-      // Shaded Risk Zone
-      ctx.fillStyle = 'rgba(239,68,68,0.12)';
-      ctx.fillRect(0, Math.min(eY, slY), chartW, Math.abs(slY - eY));
+      // Shaded Risk Zone (only when SL exists)
+      if (slY !== null) {
+        ctx.fillStyle = 'rgba(239,68,68,0.12)';
+        ctx.fillRect(0, Math.min(eY, slY), chartW, Math.abs(slY - eY));
+      }
 
       // Setup lines
+      const orderTypeBadge = plannedOrder.orderType
+        ? getOrderTypeLabel(plannedOrder.orderType).toUpperCase()
+        : plannedOrder.side;
+
       ctx.setLineDash([5, 4]);
-      const pLines = [
+      const pLines: Array<{
+        type: 'ENTRY' | 'SL' | 'TP';
+        p: number;
+        c: string;
+        l: string;
+        pillText: string;
+        badgeBg: string;
+      }> = [
         {
           type: 'ENTRY',
           p: plannedOrder.entryPrice,
           c: '#06B6D4',
-          l: `ANCANG-ANCANG ${plannedOrder.side} (${plannedOrder.lotSize.toFixed(2)}L)`,
+          l: `${orderTypeBadge} (${plannedOrder.lotSize.toFixed(2)}L)`,
           pillText: '↕ GESER ENTRY',
           badgeBg: '#0891B2',
         },
-        {
+      ];
+
+      if (hasSL) {
+        pLines.push({
           type: 'SL',
-          p: plannedOrder.slPrice,
+          p: plannedOrder.slPrice!,
           c: '#EF4444',
-          l: `TARGET SL ${plannedOrder.slPrice.toFixed(2)} (-$${plannedOrder.riskAmount.toFixed(0)})`,
+          l: `TARGET SL ${plannedOrder.slPrice!.toFixed(2)} (-$${plannedOrder.riskAmount.toFixed(0)})`,
           pillText: '↕ GESER SL',
           badgeBg: '#DC2626',
-        },
-        {
+        });
+      }
+
+      if (hasTP) {
+        const rewardText = plannedOrder.targetProfit ? `+$${plannedOrder.targetProfit.toFixed(0)}` : '';
+        const rrText = plannedOrder.rrRatio ? ` • 1:${plannedOrder.rrRatio.toFixed(1)}` : '';
+        pLines.push({
           type: 'TP',
-          p: plannedOrder.tpPrice,
+          p: plannedOrder.tpPrice!,
           c: '#10B981',
-          l: `TARGET TP ${plannedOrder.tpPrice.toFixed(2)} (+$${plannedOrder.targetProfit.toFixed(0)} • 1:${plannedOrder.rrRatio.toFixed(1)})`,
+          l: `TARGET TP ${plannedOrder.tpPrice!.toFixed(2)} (${rewardText}${rrText})`,
           pillText: '↕ GESER TP',
           badgeBg: '#059669',
-        },
-      ];
+        });
+      }
 
       pLines.forEach(({ p, c, l, pillText, badgeBg }) => {
         const y = getY(p);
@@ -1079,17 +1231,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         }
       });
       ctx.setLineDash([]);
-    }
-
-    // 9. Replay Frontier Boundary (only in replay mode)
-    if (appMode === 'replay') {
-      const fx = getX(candles.length - 1);
-      if (fx > 0 && fx < chartW) {
-        ctx.strokeStyle = '#F59E0B'; ctx.lineWidth = 1.5;
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath(); ctx.moveTo(fx, 0); ctx.lineTo(fx, mainH); ctx.stroke();
-        ctx.setLineDash([]);
-      }
     }
 
     // 9b. Current / Latest Price Line
@@ -1265,14 +1406,73 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     if (x > vp.chartW + 15 || x < 0 || y < 0 || y > vp.mainH) return null;
 
     const eY = vp.getY(plannedOrder.entryPrice);
-    const slY = vp.getY(plannedOrder.slPrice);
-    const tpY = vp.getY(plannedOrder.tpPrice);
+    const hasSL = Boolean(plannedOrder.slPrice && plannedOrder.slPrice > 0);
+    const hasTP = Boolean(plannedOrder.tpPrice && plannedOrder.tpPrice > 0);
+    const slY = hasSL ? vp.getY(plannedOrder.slPrice!) : -99999;
+    const tpY = hasTP ? vp.getY(plannedOrder.tpPrice!) : -99999;
 
-    const THRESH = 14;
-    if (Math.abs(y - tpY) <= THRESH) return 'TP';
-    if (Math.abs(y - slY) <= THRESH) return 'SL';
-    if (Math.abs(y - eY) <= THRESH) return 'ENTRY';
+    let closest: 'ENTRY' | 'SL' | 'TP' | null = null;
+    let minDist = 18;
+
+    if (hasTP && Math.abs(y - tpY) < minDist) {
+      minDist = Math.abs(y - tpY);
+      closest = 'TP';
+    }
+    if (hasSL && Math.abs(y - slY) < minDist) {
+      minDist = Math.abs(y - slY);
+      closest = 'SL';
+    }
+    if (Math.abs(y - eY) < minDist) {
+      minDist = Math.abs(y - eY);
+      closest = 'ENTRY';
+    }
+    return closest;
+  };
+
+  // ── Hit-Testing Placed Pending Orders (Click to Edit / Delete) ──
+  const hitTestPendingOrder = (clientX: number, clientY: number): PendingOrderRecord | null => {
+    if (pendingOrders.length === 0) return null;
+    const vp = vpRef.current;
+    if (!vp) return null;
+    const { x, y } = clientToCanvas(clientX, clientY);
+    if (x > vp.chartW + 20 || x < 0 || y < 0 || y > vp.mainH) return null;
+
+    for (const po of pendingOrders) {
+      const eY = vp.getY(po.entryPrice);
+      if (Math.abs(y - eY) <= 15) return po;
+      if (po.slPrice && po.slPrice > 0) {
+        const slY = vp.getY(po.slPrice);
+        if (Math.abs(y - slY) <= 15) return po;
+      }
+      if (po.tpPrice && po.tpPrice > 0) {
+        const tpY = vp.getY(po.tpPrice);
+        if (Math.abs(y - tpY) <= 15) return po;
+      }
+    }
     return null;
+  };
+
+  // ── Hit-Testing Active Trade Lines (Click to Close / Manage) ──
+  const hitTestActiveTrade = (clientX: number, clientY: number): boolean => {
+    if (tradesList.length === 0) return false;
+    const vp = vpRef.current;
+    if (!vp) return false;
+    const { x, y } = clientToCanvas(clientX, clientY);
+    if (x > vp.chartW + 20 || x < 0 || y < 0 || y > vp.mainH) return false;
+
+    for (const tr of tradesList) {
+      const eY = vp.getY(tr.entryPrice);
+      if (Math.abs(y - eY) <= 15) return true;
+      if (tr.slPrice && tr.slPrice > 0) {
+        const slY = vp.getY(tr.slPrice);
+        if (Math.abs(y - slY) <= 15) return true;
+      }
+      if (tr.tpPrice && tr.tpPrice > 0) {
+        const tpY = vp.getY(tr.tpPrice);
+        if (Math.abs(y - tpY) <= 15) return true;
+      }
+    }
+    return false;
   };
 
   // ── Hit-Testing Handles for Dragging ──
@@ -1493,15 +1693,34 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           type: plannedHit,
           startMousePrice: price,
           startEntry: plannedOrder.entryPrice,
-          startSL: plannedOrder.slPrice,
-          startTP: plannedOrder.tpPrice,
+          startSL: plannedOrder.slPrice || 0,
+          startTP: plannedOrder.tpPrice || 0,
         };
+        return;
+      }
+
+      // Check if user clicked on a placed Pending Order on chart
+      const poHit = hitTestPendingOrder(e.clientX, e.clientY);
+      if (poHit) {
+        setSelectedPendingOrderId(poHit.id);
+        setIsActiveTradeSelected(false);
+        onSelectDrawing?.(null);
+        return;
+      }
+
+      // Check if user clicked on Active Trade lines on chart
+      if (hitTestActiveTrade(e.clientX, e.clientY)) {
+        setIsActiveTradeSelected(true);
+        setSelectedPendingOrderId(null);
+        onSelectDrawing?.(null);
         return;
       }
 
       const hit = hitTestDrawing(e.clientX, e.clientY);
       if (hit) {
         onSelectDrawing?.(hit.drawing.id);
+        setSelectedPendingOrderId(null);
+        setIsActiveTradeSelected(false);
         dragModeRef.current = 'DRAWING_HANDLE';
         draggingHandleRef.current = {
           drawingId: hit.drawing.id,
@@ -1515,6 +1734,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       // Empty chart clicked -> deselect and initiate pan (X and Y)
       onSelectDrawing?.(null);
+      setSelectedPendingOrderId(null);
+      setIsActiveTradeSelected(false);
       dragModeRef.current = 'PAN_CHART';
       panStartRef.current = { startX: x, startY: y, startPanX: panXRef.current, startPanY: poRef.current };
       return;
@@ -1538,13 +1759,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
 
     if (activeTool === 'long_position') {
+      const defaultDist = 5.0;
       const nd: DrawingItem = {
         id: `d-${Date.now()}`,
         type: 'long_position',
         startTime: time,
         startPrice: price,
-        slPrice: Math.round((price - 10) * 1000) / 1000,
-        tpPrice: Math.round((price + 20) * 1000) / 1000,
+        slPrice: Math.round((price - defaultDist) * 100) / 100,
+        tpPrice: Math.round((price + defaultDist * 2) * 100) / 100,
         lockRR,
       };
       onDrawingsChange?.([...drawingsRef.current, nd]);
@@ -1554,13 +1776,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
 
     if (activeTool === 'short_position') {
+      const defaultDist = 5.0;
       const nd: DrawingItem = {
         id: `d-${Date.now()}`,
         type: 'short_position',
         startTime: time,
         startPrice: price,
-        slPrice: Math.round((price + 10) * 1000) / 1000,
-        tpPrice: Math.round((price - 20) * 1000) / 1000,
+        slPrice: Math.round((price + defaultDist) * 100) / 100,
+        tpPrice: Math.round((price - defaultDist * 2) * 100) / 100,
         lockRR,
       };
       onDrawingsChange?.([...drawingsRef.current, nd]);
@@ -1792,37 +2015,30 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       return;
     }
 
-    // 3b. Planned Order Handle Dragging (Pre-entry SL / TP dragging)
+    // 3b. Planned Order Handle Dragging (100% Independent Dragging: Entry moves Entry, SL moves SL, TP moves TP)
     const ph = plannedDragHandleRef.current;
     if (dragModeRef.current === 'PLANNED_ORDER_HANDLE' && ph && plannedOrder) {
-      const isLong = plannedOrder.side === 'BUY';
       if (ph.type === 'ENTRY') {
-        const dPrice = price - ph.startMousePrice;
-        const newEntry = Math.round((ph.startEntry + dPrice) * 1000) / 1000;
-        const newSL = Math.round((ph.startSL + dPrice) * 1000) / 1000;
-        const newTP = Math.round((ph.startTP + dPrice) * 1000) / 1000;
-        onPlannedOrderChange?.({ entryPrice: newEntry, slPrice: newSL, tpPrice: newTP });
+        const newEntry = Math.round(price * 100) / 100;
+        onPlannedOrderChange?.({
+          entryPrice: newEntry,
+          slPrice: plannedOrder.slPrice || 0,
+          tpPrice: plannedOrder.tpPrice || 0,
+        });
       } else if (ph.type === 'SL') {
-        const clampedSL = isLong
-          ? Math.min(plannedOrder.entryPrice - 0.1, price)
-          : Math.max(plannedOrder.entryPrice + 0.1, price);
-        const newSL = Math.round(clampedSL * 1000) / 1000;
-        let newTP = plannedOrder.tpPrice;
-        if (lockRR) {
-          const initRisk = isLong ? (ph.startEntry - ph.startSL) : (ph.startSL - ph.startEntry);
-          const initReward = isLong ? (ph.startTP - ph.startEntry) : (ph.startEntry - ph.startTP);
-          const initRR = initRisk > 0 ? initReward / initRisk : 2.0;
-          const newRisk = isLong ? (plannedOrder.entryPrice - newSL) : (newSL - plannedOrder.entryPrice);
-          const newReward = newRisk * initRR;
-          newTP = Math.round((isLong ? (plannedOrder.entryPrice + newReward) : (plannedOrder.entryPrice - newReward)) * 1000) / 1000;
-        }
-        onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: newSL, tpPrice: newTP });
+        const newSL = Math.round(price * 100) / 100;
+        onPlannedOrderChange?.({
+          entryPrice: plannedOrder.entryPrice,
+          slPrice: newSL,
+          tpPrice: plannedOrder.tpPrice || 0,
+        });
       } else if (ph.type === 'TP') {
-        const clampedTP = isLong
-          ? Math.max(plannedOrder.entryPrice + 0.1, price)
-          : Math.min(plannedOrder.entryPrice - 0.1, price);
-        const newTP = Math.round(clampedTP * 1000) / 1000;
-        onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: plannedOrder.slPrice, tpPrice: newTP });
+        const newTP = Math.round(price * 100) / 100;
+        onPlannedOrderChange?.({
+          entryPrice: plannedOrder.entryPrice,
+          slPrice: plannedOrder.slPrice || 0,
+          tpPrice: newTP,
+        });
       }
       return;
     }
@@ -2209,51 +2425,277 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       {/* Visual Order Confirmation Overlay */}
       {isVisualOrderActive && plannedOrder && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 w-[min(94%,360px)] rounded-xl border border-slate-200 bg-white/95 shadow-xl backdrop-blur-sm p-3">
-          <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 w-[min(94%,350px)] rounded-xl border border-slate-200 bg-white/95 shadow-xl backdrop-blur-sm p-3">
+          <div className="flex items-center justify-between gap-3 mb-2 pb-2 border-b border-slate-100">
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Pending Order</div>
-              <div className="text-sm font-bold text-slate-900">{plannedOrder.side} • {plannedOrder.entryPrice.toFixed(2)}</div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                {plannedOrder.orderType ? getOrderTypeLabel(plannedOrder.orderType) : 'Pending Order'}
+              </div>
+              <div className="text-sm font-bold text-slate-900">
+                {plannedOrder.side} • ${plannedOrder.entryPrice.toFixed(2)}
+              </div>
             </div>
             <div className="text-right">
               <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">R:R</div>
-              <div className="text-sm font-bold text-[#1040C0]">1 : {plannedOrder.rrRatio.toFixed(2)}</div>
+              <div className="text-sm font-bold text-[#1040C0]">
+                {plannedOrder.rrRatio && plannedOrder.rrRatio > 0 ? `1 : ${plannedOrder.rrRatio.toFixed(2)}` : '-'}
+              </div>
             </div>
+          </div>
+
+          {/* Quick +SL and +TP action buttons */}
+          <div className="flex items-center gap-2 mb-2">
+            {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? (
+              <div className="flex-1 flex items-center justify-between bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1 text-xs">
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-rose-600 block">SL</span>
+                  <span className="font-mono font-bold text-rose-700">${plannedOrder.slPrice.toFixed(2)}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onPlannedOrderChange?.({
+                    entryPrice: plannedOrder.entryPrice,
+                    slPrice: 0,
+                    tpPrice: plannedOrder.tpPrice || 0,
+                  })}
+                  title="Hapus SL"
+                  className="w-4 h-4 rounded-full bg-rose-200 hover:bg-rose-300 text-rose-800 flex items-center justify-center font-bold text-[10px] cursor-pointer transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  const isLong = plannedOrder.side === 'BUY';
+                  const dist = getDefaultSlDistance(symbol);
+                  const newSL = Math.round((isLong ? plannedOrder.entryPrice - dist : plannedOrder.entryPrice + dist) * 100) / 100;
+                  onPlannedOrderChange?.({
+                    entryPrice: plannedOrder.entryPrice,
+                    slPrice: newSL,
+                    tpPrice: plannedOrder.tpPrice || 0,
+                  });
+                }}
+                className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-rose-400 text-rose-600 bg-rose-50/70 hover:bg-rose-100 font-bold text-[10px] rounded-lg flex items-center justify-center gap-1 cursor-pointer transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ SL</span>
+              </button>
+            )}
+
+            {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? (
+              <div className="flex-1 flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1 text-xs">
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-emerald-600 block">TP</span>
+                  <span className="font-mono font-bold text-emerald-700">${plannedOrder.tpPrice.toFixed(2)}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onPlannedOrderChange?.({
+                    entryPrice: plannedOrder.entryPrice,
+                    slPrice: plannedOrder.slPrice || 0,
+                    tpPrice: 0,
+                  })}
+                  title="Hapus TP"
+                  className="w-4 h-4 rounded-full bg-emerald-200 hover:bg-emerald-300 text-emerald-800 flex items-center justify-center font-bold text-[10px] cursor-pointer transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  const isLong = plannedOrder.side === 'BUY';
+                  const dist = getDefaultSlDistance(symbol) * 2;
+                  const newTP = Math.round((isLong ? plannedOrder.entryPrice + dist : plannedOrder.entryPrice - dist) * 100) / 100;
+                  onPlannedOrderChange?.({
+                    entryPrice: plannedOrder.entryPrice,
+                    slPrice: plannedOrder.slPrice || 0,
+                    tpPrice: newTP,
+                  });
+                }}
+                className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-emerald-400 text-emerald-600 bg-emerald-50/70 hover:bg-emerald-100 font-bold text-[10px] rounded-lg flex items-center justify-center gap-1 cursor-pointer transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ TP</span>
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700">
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
               <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Risk</div>
-              <div className="mt-1 font-number font-bold text-rose-600">-${plannedOrder.riskAmount.toFixed(2)}</div>
+              <div className="mt-1 font-mono font-bold text-rose-600">
+                {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? `-$${plannedOrder.riskAmount.toFixed(2)}` : 'Tanpa SL'}
+              </div>
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
               <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Target Profit</div>
-              <div className="mt-1 font-number font-bold text-emerald-600">+${plannedOrder.targetProfit.toFixed(2)}</div>
+              <div className="mt-1 font-mono font-bold text-emerald-600">
+                {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? `+$${(plannedOrder.targetProfit || 0).toFixed(2)}` : 'Tanpa TP'}
+              </div>
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
               <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Lot Size</div>
-              <div className="mt-1 font-number font-bold text-slate-900">{plannedOrder.lotSize.toFixed(2)} Lot</div>
+              <div className="mt-1 font-mono font-bold text-slate-900">{plannedOrder.lotSize.toFixed(2)} Lot</div>
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
               <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">SL / TP</div>
-              <div className="mt-1 font-number font-bold text-slate-900">{plannedOrder.slPrice.toFixed(2)} / {plannedOrder.tpPrice.toFixed(2)}</div>
+              <div className="mt-1 font-mono font-bold text-slate-900">
+                {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? plannedOrder.slPrice.toFixed(2) : '-'} / {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? plannedOrder.tpPrice.toFixed(2) : '-'}
+              </div>
             </div>
           </div>
+
+          {/* Inline Validation Warning if invalid */}
+          {plannedOrder.isValid === false && (
+            <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-600 font-medium leading-tight">
+              {plannedOrder.validationError || 'Level harga tidak valid untuk tipe order ini.'}
+            </div>
+          )}
 
           <div className="flex items-center gap-2 mt-3">
             <button
               type="button"
               onClick={onCancelVisualOrder}
-              className="flex-1 min-h-[38px] rounded-lg border border-slate-200 bg-slate-100 text-slate-700 font-bold text-[11px] uppercase tracking-wider"
+              className="flex-1 min-h-[38px] rounded-lg border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] uppercase tracking-wider cursor-pointer transition-colors"
             >
               Cancel
             </button>
             <button
               type="button"
+              disabled={plannedOrder.isValid === false}
               onClick={onConfirmVisualOrder}
-              className="flex-1 min-h-[38px] rounded-lg border border-emerald-300 bg-emerald-600 text-white font-bold text-[11px] uppercase tracking-wider shadow-sm"
+              className={`flex-1 min-h-[38px] rounded-lg border font-bold text-[11px] uppercase tracking-wider shadow-sm transition-colors cursor-pointer ${
+                plannedOrder.isValid === false
+                  ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
+                  : 'border-emerald-300 bg-emerald-600 hover:bg-emerald-700 text-white'
+              }`}
             >
               Confirm Order
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Bar for Selected Pending Order on Chart (Edit or Delete) */}
+      {selectedPendingOrder && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm">
+          <div className="flex items-center gap-2 pr-3 border-r border-[#121212]/15">
+            <span
+              className={`px-2 py-0.5 text-[10px] rounded font-black font-mono border border-[#121212] ${
+                selectedPendingOrder.side === 'LONG'
+                  ? 'bg-[#E7F9F0] text-[#059669]'
+                  : 'bg-[#FDECEC] text-[#DC2626]'
+              }`}
+            >
+              {selectedPendingOrder.orderType.replace('_', ' ')}
+            </span>
+            <span className="font-mono font-black text-xs text-[#121212]">
+              @{selectedPendingOrder.entryPrice.toFixed(2)}
+            </span>
+          </div>
+
+          <div className="text-[10px] font-mono text-[#717182] hidden sm:flex items-center gap-2">
+            <span>SL: {selectedPendingOrder.slPrice > 0 ? `$${selectedPendingOrder.slPrice.toFixed(2)}` : 'None'}</span>
+            <span>•</span>
+            <span>TP: {selectedPendingOrder.tpPrice > 0 ? `$${selectedPendingOrder.tpPrice.toFixed(2)}` : 'None'}</span>
+            <span>•</span>
+            <span>{selectedPendingOrder.volume.toFixed(2)}L</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 ml-auto">
+            {onEditPendingOrder && (
+              <button
+                type="button"
+                onClick={() => {
+                  onEditPendingOrder(selectedPendingOrder);
+                  setSelectedPendingOrderId(null);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 bg-[#1040C0] hover:bg-[#0D3399] text-white font-bold text-xs rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                title="Edit Entry, SL, atau TP pada Chart"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit</span>
+              </button>
+            )}
+
+            {onCancelPendingOrder && (
+              <button
+                type="button"
+                onClick={() => {
+                  onCancelPendingOrder(selectedPendingOrder.id);
+                  setSelectedPendingOrderId(null);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 bg-[#FEE2E2] hover:bg-[#FCA5A5] text-[#DC2626] font-bold text-xs rounded border border-[#DC2626] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                title="Hapus / Batalkan Pending Order Ini"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Hapus</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setSelectedPendingOrderId(null)}
+              className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded cursor-pointer transition-colors"
+              title="Tutup Menu"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Bar for Selected Active Position on Chart */}
+      {isActiveTradeSelected && activeTrade && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm">
+          <div className="flex items-center gap-2 pr-3 border-r border-[#121212]/15">
+            <span
+              className={`px-2 py-0.5 text-[10px] rounded font-black font-mono border border-[#121212] ${
+                activeTrade.side === 'LONG'
+                  ? 'bg-[#E7F9F0] text-[#059669]'
+                  : 'bg-[#FDECEC] text-[#DC2626]'
+              }`}
+            >
+              POSISI {activeTrade.side === 'LONG' ? 'BUY' : 'SELL'}
+            </span>
+            <span className="font-mono font-black text-xs text-[#121212]">
+              @{activeTrade.entryPrice.toFixed(2)} ({activeTrade.volume.toFixed(2)}L)
+            </span>
+          </div>
+
+          <div className="text-[10px] font-mono text-[#717182] hidden sm:flex items-center gap-2">
+            <span>SL: {activeTrade.slPrice > 0 ? `$${activeTrade.slPrice.toFixed(2)}` : 'None'}</span>
+            <span>•</span>
+            <span>TP: {activeTrade.tpPrice > 0 ? `$${activeTrade.tpPrice.toFixed(2)}` : 'None'}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 ml-auto">
+            {onCloseActiveTrade && (
+              <button
+                type="button"
+                onClick={() => {
+                  onCloseActiveTrade();
+                  setIsActiveTradeSelected(false);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                title="Tutup Posisi Ini Sekarang"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>Tutup Posisi</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsActiveTradeSelected(false)}
+              className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded cursor-pointer transition-colors"
+              title="Tutup Menu"
+            >
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>

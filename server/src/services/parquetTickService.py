@@ -6,7 +6,55 @@ import datetime
 import math
 import duckdb
 
-PARQUET_FILE = os.environ.get('PARQUET_TICK_PATH', r'C:\Users\ekare\Documents\XAUUSD_Tick_Parquet.parquet').replace('\\', '/')
+def resolve_parquet_file():
+    raw = os.environ.get('PARQUET_TICK_PATH')
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    server_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+    project_root = os.path.abspath(os.path.join(server_root, '..'))
+
+    candidates = []
+    if raw:
+        clean = raw.strip().strip('"').strip("'").replace('\\', '/')
+        candidates.extend([
+            clean,
+            os.path.abspath(clean),
+            os.path.join(server_root, clean),
+            os.path.join(project_root, clean),
+            os.path.join(server_root, clean.replace('server/', '', 1)) if clean.startswith('server/') else None,
+            os.path.join(project_root, 'server', clean),
+        ])
+
+    # Auto-detect default directories
+    market_dirs = [
+        os.path.join(server_root, 'data', 'market-data'),
+        os.path.join(project_root, 'server', 'data', 'market-data'),
+        os.path.join(project_root, 'data', 'market-data'),
+    ]
+
+    for mdir in market_dirs:
+        if os.path.isdir(mdir):
+            candidates.append(os.path.join(mdir, 'XAUUSD_Tick_Parquet.parquet'))
+            candidates.append(os.path.join(mdir, 'xauusd_tick_parquet.parquet'))
+            try:
+                for fname in os.listdir(mdir):
+                    if fname.lower().endswith('.parquet'):
+                        candidates.append(os.path.join(mdir, fname))
+            except Exception:
+                pass
+
+    for c in candidates:
+        if c and os.path.isfile(c):
+            resolved = os.path.abspath(c).replace('\\', '/')
+            sys.stderr.write(f"[parquetTickService] Using parquet file: {resolved}\n")
+            sys.stderr.flush()
+            return resolved
+
+    fallback = (raw or r'C:\Users\ekare\Documents\XAUUSD_Tick_Parquet.parquet').replace('\\', '/')
+    sys.stderr.write(f"[parquetTickService] Parquet file not found in candidates, falling back to: {fallback}\n")
+    sys.stderr.flush()
+    return fallback
+
+PARQUET_FILE = resolve_parquet_file()
 
 con = duckdb.connect()
 

@@ -36,6 +36,12 @@ import { BacktestStats } from '../components/backtest/BacktestStats';
 import { TradeHistory } from '../components/backtest/TradeHistory';
 import { TradeNotificationToast, type TradeToastItem } from '../components/backtest/TradeNotificationToast';
 import {
+  PendingOrderRecord,
+  OrderExecutionType,
+  getOrderTypeLabel,
+  validateOrderPrices,
+} from '../components/backtest/OrderTypes';
+import {
   calculatePositionSize,
   evaluateCandleHit,
   calculateBacktestStats,
@@ -91,8 +97,13 @@ export default function Backtest() {
   const [intrabarWarning, setIntrabarWarning] = useState<string | null>(null);
   const [isSubmittingTrade, setIsSubmittingTrade] = useState<boolean>(false);
   const [plannedTrade, setPlannedTrade] = useState<PlannedOrderPreview | null>(null);
+  const [controlledEntryPrice, setControlledEntryPrice] = useState<number | null>(null);
   const [controlledSlPrice, setControlledSlPrice] = useState<number | null>(null);
   const [controlledTpPrice, setControlledTpPrice] = useState<number | null>(null);
+  const [pendingOrders, setPendingOrders] = useState<PendingOrderRecord[]>([]);
+  const pendingOrdersRef = useRef<PendingOrderRecord[]>(pendingOrders);
+  pendingOrdersRef.current = pendingOrders;
+  const handleOpenTradeRef = useRef<any>(null);
   const [isSyncingDashboard, setIsSyncingDashboard] = useState<boolean>(false);
   const [symbol, setSymbol] = useState<string>('XAUUSD');
   const [availableSymbols, setAvailableSymbols] = useState<Array<{ symbol: string; provider: string; candleCount: number }>>([]);
@@ -165,25 +176,44 @@ export default function Backtest() {
   }, []);
 
   const handlePlannedOrderChange = useCallback((newPlanned: { entryPrice: number; slPrice: number; tpPrice: number }) => {
+    setControlledEntryPrice(newPlanned.entryPrice);
     setControlledSlPrice(newPlanned.slPrice);
     setControlledTpPrice(newPlanned.tpPrice);
 
     setPlannedTrade((prev) => {
       if (!prev) return prev;
 
-      const rr = calculateRR(
-        prev.side === 'BUY' ? 'LONG' : 'SHORT',
+      const hasSL = newPlanned.slPrice > 0;
+      const hasTP = newPlanned.tpPrice > 0;
+
+      const rr = hasSL && hasTP
+        ? calculateRR(
+            prev.side === 'BUY' ? 'LONG' : 'SHORT',
+            newPlanned.entryPrice,
+            newPlanned.slPrice,
+            newPlanned.tpPrice
+          )
+        : { isValid: true, rr: 0 };
+
+      const riskAmount = (balance * riskPercent) / 100;
+      const lotSize = hasSL
+        ? calculatePositionSize(
+            balance,
+            riskPercent,
+            newPlanned.entryPrice,
+            newPlanned.slPrice,
+            getSymbolContractSize(symbol)
+          )
+        : 1.0;
+
+      const currentP = candles[candles.length - 1]?.close || 0;
+      const orderType = prev.orderType || (prev.side === 'BUY' ? 'MARKET_BUY' : 'MARKET_SELL');
+      const validation = validateOrderPrices(
+        orderType,
+        currentP,
         newPlanned.entryPrice,
         newPlanned.slPrice,
         newPlanned.tpPrice
-      );
-      const riskAmount = (balance * riskPercent) / 100;
-      const lotSize = calculatePositionSize(
-        balance,
-        riskPercent,
-        newPlanned.entryPrice,
-        newPlanned.slPrice,
-        getSymbolContractSize(symbol)
       );
 
       return {
@@ -193,11 +223,13 @@ export default function Backtest() {
         tpPrice: newPlanned.tpPrice,
         lotSize,
         riskAmount,
-        targetProfit: rr.isValid ? riskAmount * rr.rr : 0,
-        rrRatio: rr.isValid ? rr.rr : 0,
+        targetProfit: rr.isValid && hasSL && hasTP ? riskAmount * rr.rr : 0,
+        rrRatio: rr.isValid && hasSL && hasTP ? rr.rr : 0,
+        isValid: validation.isValid,
+        validationError: validation.error,
       };
     });
-  }, [balance, riskPercent, symbol]);
+  }, [balance, candles, riskPercent, symbol]);
 
   const buildPlannedTrade = useCallback((side: TradeSide, entryPrice: number): PlannedOrderPreview | null => {
     if (entryPrice <= 0) return null;
@@ -247,6 +279,8 @@ export default function Backtest() {
   const isFetchingNewerRef = useRef<boolean>(false);
   const orderPanelRef = useRef<OrderPanelHandle | null>(null);
   const mobileOrderPanelRef = useRef<OrderPanelHandle | null>(null);
+  const editingPendingOrderIdRef = useRef<string | null>(null);
+  const originalPendingOrderRef = useRef<PendingOrderRecord | null>(null);
 
   // ── 1. Fetch Timeline Bounds & Available Symbols ──
   useEffect(() => {
@@ -569,6 +603,49 @@ export default function Backtest() {
       });
       setReplayTime(nextTime);
 
+      // 9a. Evaluate Pending Orders against incoming candle
+      const curPending = pendingOrdersRef.current;
+      if (curPending.length > 0 && !activeTradeRef.current) {
+        const remaining: PendingOrderRecord[] = [];
+        let triggered: PendingOrderRecord | null = null;
+        for (const po of curPending) {
+          if (triggered) {
+            remaining.push(po);
+            continue;
+          }
+          let isHit = false;
+          if (po.orderType === 'BUY_LIMIT' && nextCandle.low <= po.entryPrice) isHit = true;
+          else if (po.orderType === 'BUY_STOP' && nextCandle.high >= po.entryPrice) isHit = true;
+          else if (po.orderType === 'SELL_LIMIT' && nextCandle.high >= po.entryPrice) isHit = true;
+          else if (po.orderType === 'SELL_STOP' && nextCandle.low <= po.entryPrice) isHit = true;
+
+          if (isHit) {
+            triggered = po;
+          } else {
+            remaining.push(po);
+          }
+        }
+
+        if (triggered) {
+          setPendingOrders(remaining);
+          void handleOpenTradeRef.current?.({
+            side: triggered.side,
+            entryPrice: triggered.entryPrice,
+            slPrice: triggered.slPrice,
+            tpPrice: triggered.tpPrice,
+            volume: triggered.volume,
+            riskAmount: triggered.riskAmount,
+            tradeTime: nextTime,
+          });
+          showToast({
+            kind: 'ENTRY',
+            symbol,
+            title: `${triggered.orderType.replace('_', ' ')} TERPICU`,
+            message: `Order ${triggered.orderType.replace('_', ' ')} di harga $${triggered.entryPrice.toFixed(2)} dieksekusi.`,
+          });
+        }
+      }
+
       // Evaluate active position if open
       const curTrade = activeTradeRef.current;
       if (curTrade && curTrade.status === 'OPEN' && sessionId) {
@@ -662,6 +739,7 @@ export default function Backtest() {
     tpPrice: number;
     volume: number;
     riskAmount: number;
+    tradeTime?: Date;
   }) => {
     if (activeTrade) {
       showToast({
@@ -677,7 +755,7 @@ export default function Backtest() {
       let curSessionId = sessionId;
       // Auto-initialize session if not created yet
       if (!curSessionId) {
-        const startTime = replayTime || (candles.length > 0 ? new Date(candles[candles.length - 1].time) : new Date());
+        const startTime = tradeParams.tradeTime || replayTime || (candles.length > 0 ? new Date(candles[candles.length - 1].time) : new Date());
         const resSession = await fetch(`${API_BASE}/sessions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -702,7 +780,7 @@ export default function Backtest() {
         setAppMode('replay');
       }
 
-      const tradeTime = replayTime || (candles.length > 0 ? new Date(candles[candles.length - 1].time) : new Date());
+      const tradeTime = tradeParams.tradeTime || replayTime || (candles.length > 0 ? new Date(candles[candles.length - 1].time) : new Date());
 
       // Ensure backend session replayTime is strictly synced to tradeTime before placing trade
       await fetch(`${API_BASE}/sessions/${curSessionId}`, {
@@ -714,7 +792,15 @@ export default function Backtest() {
       const res = await fetch(`${API_BASE}/sessions/${curSessionId}/trades`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...tradeParams, entryTime: tradeTime.toISOString() }),
+        body: JSON.stringify({
+          side: tradeParams.side,
+          entryPrice: tradeParams.entryPrice,
+          slPrice: tradeParams.slPrice,
+          tpPrice: tradeParams.tpPrice,
+          volume: tradeParams.volume,
+          riskAmount: tradeParams.riskAmount,
+          entryTime: tradeTime.toISOString(),
+        }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || 'Failed to open trade');
@@ -737,6 +823,7 @@ export default function Backtest() {
       setIsSubmittingTrade(false);
     }
   };
+  handleOpenTradeRef.current = handleOpenTrade;
 
   // Quick-trade from mobile bar: delegate to whichever OrderPanel instance is mounted
   const handleQuickTrade = useCallback((side: TradeSide) => {
@@ -974,6 +1061,7 @@ export default function Backtest() {
   };
 
   const handleSubmitVisualOrder = useCallback((tradeParams: {
+    orderType?: OrderExecutionType;
     side: TradeSide;
     entryPrice: number;
     slPrice: number;
@@ -990,27 +1078,176 @@ export default function Backtest() {
       return;
     }
 
-    const rrCalc = calculateRR(tradeParams.side, tradeParams.entryPrice, tradeParams.slPrice, tradeParams.tpPrice);
+    const hasSL = tradeParams.slPrice > 0;
+    const hasTP = tradeParams.tpPrice > 0;
+    const rrCalc = hasSL && hasTP
+      ? calculateRR(tradeParams.side, tradeParams.entryPrice, tradeParams.slPrice, tradeParams.tpPrice)
+      : { isValid: true, rr: 0 };
+
+    const resolvedType = tradeParams.orderType || (tradeParams.side === 'LONG' ? 'MARKET_BUY' : 'MARKET_SELL');
+    const currentP = candles[candles.length - 1]?.close || 0;
+    const validation = validateOrderPrices(
+      resolvedType,
+      currentP,
+      tradeParams.entryPrice,
+      tradeParams.slPrice,
+      tradeParams.tpPrice
+    );
+
     const nextPlannedTrade: PlannedOrderPreview = {
+      orderType: resolvedType,
       side: tradeParams.side === 'LONG' ? 'BUY' : 'SELL',
       entryPrice: tradeParams.entryPrice,
       slPrice: tradeParams.slPrice,
       tpPrice: tradeParams.tpPrice,
       lotSize: tradeParams.volume,
       riskAmount: tradeParams.riskAmount,
-      targetProfit: rrCalc.isValid ? tradeParams.riskAmount * rrCalc.rr : 0,
-      rrRatio: rrCalc.isValid ? rrCalc.rr : 0,
+      targetProfit: rrCalc.isValid && hasSL && hasTP ? tradeParams.riskAmount * rrCalc.rr : 0,
+      rrRatio: rrCalc.isValid && hasSL && hasTP ? rrCalc.rr : 0,
+      isValid: validation.isValid,
+      validationError: validation.error,
     };
 
     setTradeSide(tradeParams.side);
     setPlannedTrade(nextPlannedTrade);
+    setControlledEntryPrice(tradeParams.entryPrice);
+    setControlledSlPrice(tradeParams.slPrice);
+    setControlledTpPrice(tradeParams.tpPrice);
     setIsVisualOrderActive(true);
     setIsOrderPanelOpen(false);
     setMobileSheetOpen(false);
-  }, [activeTrade, showToast]);
+  }, [activeTrade, candles, showToast]);
+
+  const handleCancelPendingOrder = useCallback((id: string) => {
+    setPendingOrders((prev) => prev.filter((o) => o.id !== id));
+    showToast({
+      kind: 'INFO',
+      symbol,
+      title: 'ORDER DIBATALKAN',
+      message: 'Pending order berhasil dibatalkan.',
+    });
+  }, [showToast, symbol]);
+
+  const handleEditPendingOrder = useCallback((orderOrId: PendingOrderRecord | string) => {
+    const po = typeof orderOrId === 'string'
+      ? pendingOrdersRef.current.find((p) => p.id === orderOrId)
+      : orderOrId;
+    if (!po) return;
+
+    editingPendingOrderIdRef.current = po.id;
+    originalPendingOrderRef.current = { ...po };
+
+    // Remove from active list while editing
+    setPendingOrders((prev) => prev.filter((p) => p.id !== po.id));
+
+    const currentP = candles[candles.length - 1]?.close || 0;
+    const validation = validateOrderPrices(
+      po.orderType,
+      currentP,
+      po.entryPrice,
+      po.slPrice,
+      po.tpPrice
+    );
+
+    const editPreview: PlannedOrderPreview = {
+      orderType: po.orderType,
+      side: po.side === 'LONG' ? 'BUY' : 'SELL',
+      entryPrice: po.entryPrice,
+      slPrice: po.slPrice,
+      tpPrice: po.tpPrice,
+      lotSize: po.volume,
+      riskAmount: po.riskAmount,
+      targetProfit: po.targetProfit,
+      rrRatio: po.rrRatio,
+      isValid: validation.isValid,
+      validationError: validation.error,
+    };
+
+    setTradeSide(po.side);
+    setPlannedTrade(editPreview);
+    setControlledEntryPrice(po.entryPrice);
+    setControlledSlPrice(po.slPrice);
+    setControlledTpPrice(po.tpPrice);
+    setIsVisualOrderActive(true);
+    setIsOrderPanelOpen(false);
+    setMobileSheetOpen(false);
+
+    showToast({
+      kind: 'INFO',
+      symbol,
+      title: 'EDIT PENDING ORDER',
+      message: `Atur level ${po.orderType.replace('_', ' ')} pada chart lalu tekan Confirm Order untuk menyimpan.`,
+    });
+  }, [candles, showToast, symbol]);
+
+  const handlePlaceOrder = useCallback((order: {
+    orderType: OrderExecutionType;
+    side: TradeSide;
+    entryPrice: number;
+    slPrice: number;
+    tpPrice: number;
+    volume: number;
+    riskAmount: number;
+  }) => {
+    if (order.orderType === 'MARKET_BUY' || order.orderType === 'MARKET_SELL') {
+      void handleOpenTrade({
+        side: order.side,
+        entryPrice: order.entryPrice,
+        slPrice: order.slPrice,
+        tpPrice: order.tpPrice,
+        volume: order.volume,
+        riskAmount: order.riskAmount,
+      });
+      return;
+    }
+
+    const isEdit = Boolean(editingPendingOrderIdRef.current);
+    const pendingId = editingPendingOrderIdRef.current || `po-${Date.now()}`;
+    editingPendingOrderIdRef.current = null;
+    originalPendingOrderRef.current = null;
+
+    const newPending: PendingOrderRecord = {
+      id: pendingId,
+      orderType: order.orderType as 'BUY_LIMIT' | 'SELL_LIMIT' | 'BUY_STOP' | 'SELL_STOP',
+      side: order.side,
+      entryPrice: order.entryPrice,
+      slPrice: order.slPrice,
+      tpPrice: order.tpPrice,
+      volume: order.volume,
+      riskAmount: order.riskAmount,
+      targetProfit: order.riskAmount * 2,
+      rrRatio: 2.0,
+      placedTime: new Date(),
+    };
+    setPendingOrders((prev) => [...prev, newPending]);
+    setIsVisualOrderActive(false);
+    setPlannedTrade(null);
+    setControlledEntryPrice(null);
+    setControlledSlPrice(null);
+    setControlledTpPrice(null);
+    showToast({
+      kind: 'ENTRY',
+      symbol,
+      title: isEdit ? 'ORDER DIPERBARUI' : 'PENDING ORDER DITEMPATKAN',
+      message: `${order.orderType.replace('_', ' ')} @ $${order.entryPrice.toFixed(2)} ${isEdit ? 'berhasil diperbarui' : 'ditempatkan pada chart'}.`,
+    });
+  }, [handleOpenTrade, showToast, symbol]);
 
   const handleConfirmVisualOrder = useCallback(async () => {
     if (!plannedTrade) return;
+
+    if (plannedTrade.orderType && plannedTrade.orderType !== 'MARKET_BUY' && plannedTrade.orderType !== 'MARKET_SELL') {
+      handlePlaceOrder({
+        orderType: plannedTrade.orderType,
+        side: plannedTrade.side === 'BUY' ? 'LONG' : 'SHORT',
+        entryPrice: plannedTrade.entryPrice,
+        slPrice: plannedTrade.slPrice || 0,
+        tpPrice: plannedTrade.tpPrice || 0,
+        volume: plannedTrade.lotSize,
+        riskAmount: plannedTrade.riskAmount,
+      });
+      return;
+    }
 
     if (activeTrade) {
       showToast({
@@ -1024,21 +1261,29 @@ export default function Backtest() {
     await handleOpenTrade({
       side: plannedTrade.side === 'BUY' ? 'LONG' : 'SHORT',
       entryPrice: plannedTrade.entryPrice,
-      slPrice: plannedTrade.slPrice,
-      tpPrice: plannedTrade.tpPrice,
+      slPrice: plannedTrade.slPrice || 0,
+      tpPrice: plannedTrade.tpPrice || 0,
       volume: plannedTrade.lotSize,
       riskAmount: plannedTrade.riskAmount,
     });
 
     setIsVisualOrderActive(false);
     setPlannedTrade(null);
+    setControlledEntryPrice(null);
     setControlledSlPrice(null);
     setControlledTpPrice(null);
-  }, [activeTrade, handleOpenTrade, plannedTrade, showToast]);
+  }, [activeTrade, handleOpenTrade, handlePlaceOrder, plannedTrade, showToast]);
 
   const handleCancelVisualOrder = useCallback(() => {
+    if (editingPendingOrderIdRef.current && originalPendingOrderRef.current) {
+      const orig = originalPendingOrderRef.current;
+      setPendingOrders((prev) => [...prev.filter((p) => p.id !== orig.id), orig]);
+      editingPendingOrderIdRef.current = null;
+      originalPendingOrderRef.current = null;
+    }
     setIsVisualOrderActive(false);
     setPlannedTrade(null);
+    setControlledEntryPrice(null);
     setControlledSlPrice(null);
     setControlledTpPrice(null);
   }, []);
@@ -1084,9 +1329,6 @@ export default function Backtest() {
           {appMode === 'analysis' && <span className="mobile-tag mobile-tag-profit shrink-0">ANALYSIS</span>}
           {appMode === 'selecting' && <span className="mobile-tag mobile-tag-warn shrink-0">PICK START</span>}
           {appMode === 'replay' && <span className="mobile-tag mobile-tag-accent shrink-0">REPLAY</span>}
-          {appMode === 'replay' && replayTime && (
-            <span className="mobile-tag bg-[#F0F0F0] text-[#121212] border-2 border-[#121212] font-mono font-bold shrink-0">{format(replayTime, 'MM-dd HH:mm')}</span>
-          )}
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
@@ -1160,6 +1402,10 @@ export default function Backtest() {
           onDisableFollowReplay={() => setFollowReplay(false)}
           lockRR={lockRR}
           isFullscreen={isFullscreen}
+          pendingOrders={pendingOrders}
+          onCancelPendingOrder={handleCancelPendingOrder}
+          onEditPendingOrder={handleEditPendingOrder}
+          onCloseActiveTrade={handleManualClose}
           plannedOrder={plannedTrade}
           onPlannedOrderChange={handlePlannedOrderChange}
           onExecutePlannedTrade={handleExecutePlannedTrade}
@@ -1171,7 +1417,7 @@ export default function Backtest() {
         {/* Floating Quick Actions (Mobile) - Centered flex container */}
         <AnimatePresence>
           {appMode !== 'selecting' && !isSubmittingTrade && !activeTrade && (
-            <div className="pointer-events-none absolute bottom-5 inset-x-0 z-40 flex justify-center">
+            <div className="pointer-events-none absolute bottom-[68px] inset-x-0 z-40 flex justify-center">
               <motion.div
                 initial={{ opacity: 0, y: 16, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1182,14 +1428,14 @@ export default function Backtest() {
                 <button
                   type="button"
                   onClick={() => handleChartOrderOpen('LONG')}
-                  className="bg-[#059669] hover:bg-[#047857] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white font-mono font-black text-xs px-7 py-2.5 rounded-lg border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] transition-all cursor-pointer"
+                  className="bg-[#059669] hover:bg-[#047857] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white font-mono font-black text-xs px-5 py-2 rounded-lg border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] transition-all cursor-pointer"
                 >
                   BUY
                 </button>
                 <button
                   type="button"
                   onClick={() => handleChartOrderOpen('SHORT')}
-                  className="bg-[#DC2626] hover:bg-[#B91C1C] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white font-mono font-black text-xs px-7 py-2.5 rounded-lg border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] transition-all cursor-pointer"
+                  className="bg-[#DC2626] hover:bg-[#B91C1C] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white font-mono font-black text-xs px-5 py-2 rounded-lg border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] transition-all cursor-pointer"
                 >
                   SELL
                 </button>
@@ -1210,6 +1456,13 @@ export default function Backtest() {
           <span className="text-[9px] font-black uppercase tracking-wider text-[#1040C0]">Balance</span>
           <span className="text-xs font-number font-black text-[#1040C0]">${balance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
         </div>
+
+        {appMode === 'replay' && replayTime && (
+          <div className="flex items-center gap-1 bg-[#F0F0F0] border-2 border-[#121212] px-2 py-0.5 shadow-[1px_1px_0px_0px_#121212] shrink-0">
+            <span className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Time</span>
+            <span className="text-xs font-mono font-bold text-[#121212]">{format(replayTime, 'MM-dd HH:mm')}</span>
+          </div>
+        )}
 
         <div className="flex-1" />
 
@@ -1310,35 +1563,32 @@ export default function Backtest() {
               <ChevronRight className="w-5 h-5" />
             </button>
 
-            <div className="flex-1" />
+            {/* Replay Speed Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                const speeds: ReplaySpeed[] = [1, 2, 5, 10];
+                const next = speeds[(speeds.indexOf(speed) + 1) % speeds.length];
+                setSpeed(next);
+              }}
+              className="mobile-icon-btn font-mono font-black text-xs min-w-[36px] bg-white border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer"
+              aria-label={`Kecepatan replay: ${speed}x`}
+              title="Ganti Kecepatan Replay (1x, 2x, 5x, 10x)"
+            >
+              {speed}x
+            </button>
 
-            <div className="flex items-center gap-1.5 overflow-hidden">
-              <button
-                type="button"
-                onClick={() => handleChartOrderOpen('LONG')}
-                disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-mono text-[11px] font-bold px-2 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50 min-w-0"
-              >
-                BUY
-              </button>
-              <button
-                type="button"
-                onClick={() => handleChartOrderOpen('SHORT')}
-                disabled={loading || isSubmittingTrade || Boolean(activeTrade)}
-                className="flex-1 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-mono text-[11px] font-bold px-2 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50 min-w-0"
-              >
-                SELL
-              </button>
-            </div>
+            <div className="flex-1" />
 
             <button
               type="button"
-              onClick={() => openMobileSheet('ORDER')}
+              onClick={() => openMobileSheet('TOOLS')}
               className="mobile-icon-btn shrink-0"
-              aria-label="Order settings"
-              title="SL / TP / Risk"
+              data-active={activeTool !== 'cursor'}
+              aria-label="Drawing tools"
+              title="Drawing tools"
             >
-              <SlidersHorizontal className="w-4 h-4" />
+              <MousePointer2 className="w-4 h-4" />
             </button>
           </>
         )}
@@ -1542,7 +1792,11 @@ export default function Backtest() {
                 riskPercent={riskPercent}
                 onRiskPercentChange={setRiskPercent}
                 activeTrade={activeTrade}
+                pendingOrders={pendingOrders}
+                onCancelPendingOrder={handleCancelPendingOrder}
+                onEditPendingOrder={handleEditPendingOrder}
                 onOpenTrade={handleOpenTrade}
+                onPlaceOrder={handlePlaceOrder}
                 onCloseTrade={handleManualClose}
                 selectedSideOverride={tradeSide}
                 intrabarWarning={intrabarWarning}
@@ -1551,6 +1805,7 @@ export default function Backtest() {
                 onActivateReplay={handleActivateBarReplay}
                 onPlannedTradeChange={setPlannedTrade}
                 onVisualOrderSubmit={handleSubmitVisualOrder}
+                controlledEntryPrice={controlledEntryPrice}
                 controlledSlPrice={controlledSlPrice}
                 controlledTpPrice={controlledTpPrice}
               />
@@ -1560,9 +1815,18 @@ export default function Backtest() {
               <div className="mobile-tool-row">
                 <DrawingToolbar
                   activeTool={activeTool}
-                  onToolChange={setActiveTool}
-                  onDeleteSelected={handleDeleteSelectedDrawing}
-                  onDeleteAll={handleDeleteAllDrawings}
+                  onToolChange={(tool) => {
+                    setActiveTool(tool);
+                    setMobileSheetOpen(false);
+                  }}
+                  onDeleteSelected={() => {
+                    handleDeleteSelectedDrawing();
+                    setMobileSheetOpen(false);
+                  }}
+                  onDeleteAll={() => {
+                    handleDeleteAllDrawings();
+                    setMobileSheetOpen(false);
+                  }}
                   hasSelectedDrawing={Boolean(selectedDrawingId)}
                   hasDrawings={drawings.length > 0}
                   lockRR={lockRR}
@@ -1701,6 +1965,10 @@ export default function Backtest() {
               onDisableFollowReplay={() => setFollowReplay(false)}
               lockRR={lockRR}
               isFullscreen={isFullscreen}
+              pendingOrders={pendingOrders}
+              onCancelPendingOrder={handleCancelPendingOrder}
+              onEditPendingOrder={handleEditPendingOrder}
+              onCloseActiveTrade={handleManualClose}
               plannedOrder={plannedTrade}
               onPlannedOrderChange={handlePlannedOrderChange}
               onExecutePlannedTrade={handleExecutePlannedTrade}
@@ -1821,7 +2089,11 @@ export default function Backtest() {
             riskPercent={riskPercent}
             onRiskPercentChange={setRiskPercent}
             activeTrade={activeTrade}
+            pendingOrders={pendingOrders}
+            onCancelPendingOrder={handleCancelPendingOrder}
+            onEditPendingOrder={handleEditPendingOrder}
             onOpenTrade={handleOpenTrade}
+            onPlaceOrder={handlePlaceOrder}
             onCloseTrade={handleManualClose}
             selectedSideOverride={tradeSide}
             intrabarWarning={intrabarWarning}
@@ -1830,6 +2102,7 @@ export default function Backtest() {
             onActivateReplay={handleActivateBarReplay}
             onPlannedTradeChange={setPlannedTrade}
             onVisualOrderSubmit={handleSubmitVisualOrder}
+            controlledEntryPrice={controlledEntryPrice}
             controlledSlPrice={controlledSlPrice}
             controlledTpPrice={controlledTpPrice}
           />
