@@ -114,7 +114,7 @@ interface CandlestickChartProps {
   onEditPendingOrder?: (order: PendingOrderRecord) => void;
   onCloseActiveTrade?: () => void;
   plannedOrder?: PlannedOrderPreview | null;
-  onPlannedOrderChange?: (newPlanned: { entryPrice: number; slPrice: number; tpPrice: number }) => void;
+  onPlannedOrderChange?: (newPlanned: { entryPrice: number; slPrice: number; tpPrice: number; lotSize?: number }) => void;
   symbol?: string;
   indicators?: ChartIndicators;
   onIndicatorsChange?: (indicators: ChartIndicators) => void;
@@ -137,6 +137,11 @@ interface CandlestickChartProps {
   onConfirmVisualOrder?: () => void;
   onCancelVisualOrder?: () => void;
   isTimeframeLoading?: boolean;
+  balance?: number;
+  equity?: number;
+  floatingPnL?: number;
+  floatingR?: number;
+  hasOpenPositions?: boolean;
 }
 
 interface DraggingHandleState {
@@ -213,6 +218,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   onConfirmVisualOrder,
   onCancelVisualOrder,
   isTimeframeLoading = false,
+  balance,
+  equity,
+  floatingPnL,
+  floatingR,
+  hasOpenPositions,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
@@ -282,8 +292,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const [fibSettingsOpen, setFibSettingsOpen] = useState<boolean>(false);
 
   // Long-press Touch Support for Mobile
-  const touchStartPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLongPressTriggeredRef = useRef<boolean>(false);
+  const menuOpenedAtRef = useRef<number>(0);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -308,6 +320,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // Draggable order overlay state
   const [overlayPos, setOverlayPos] = useState<{ x: number; y: number } | null>(null);
   const [overlayCollapsed, setOverlayCollapsed] = useState<boolean>(false);
+  const [lotInputStr, setLotInputStr] = useState<string>('0.01');
+  useEffect(() => {
+    if (plannedOrder) {
+      setLotInputStr(plannedOrder.lotSize.toFixed(2));
+    }
+  }, [plannedOrder?.lotSize]);
   const overlayDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const overlayContainerRef = useRef<HTMLDivElement>(null);
 
@@ -1864,13 +1882,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     // Touch Long-Press detection for Mobile
     if (e.pointerType === 'touch' && activePointersRef.current.size === 1) {
-      touchStartPosRef.current = { clientX: e.clientX, clientY: e.clientY };
+      touchStartPosRef.current = { x: e.clientX, y: e.clientY };
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = setTimeout(() => {
         if (!touchStartPosRef.current) return;
+        isLongPressTriggeredRef.current = true;
+        menuOpenedAtRef.current = Date.now();
         dragModeRef.current = 'NONE';
         panStartRef.current = null;
-        triggerContextMenu(touchStartPosRef.current.clientX, touchStartPosRef.current.clientY);
+        triggerContextMenu(touchStartPosRef.current.x, touchStartPosRef.current.y);
         if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
           try { navigator.vibrate(40); } catch (_) {}
         }
@@ -2051,8 +2071,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     // Cancel long-press timer if movement exceeds threshold (> 8px) or multiple pointers
     if (touchStartPosRef.current) {
       if (activePointersRef.current.size === 1) {
-        const dx = e.clientX - touchStartPosRef.current.clientX;
-        const dy = e.clientY - touchStartPosRef.current.clientY;
+        const dx = e.clientX - touchStartPosRef.current.x;
+        const dy = e.clientY - touchStartPosRef.current.y;
         if (Math.hypot(dx, dy) > 8) {
           if (longPressTimerRef.current) {
             clearTimeout(longPressTimerRef.current);
@@ -2264,10 +2284,17 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         });
       } else if (ph.type === 'SL') {
         const newSL = Math.round(price * 100) / 100;
+        let newTP = plannedOrder.tpPrice || 0;
+        if (lockRR) {
+          const isBuy = plannedOrder.side === 'BUY';
+          const targetRR = (plannedOrder.rrRatio && plannedOrder.rrRatio > 0) ? plannedOrder.rrRatio : 2.0;
+          const riskDist = Math.abs(plannedOrder.entryPrice - newSL);
+          newTP = Math.round((plannedOrder.entryPrice + (isBuy ? 1 : -1) * riskDist * targetRR) * 100) / 100;
+        }
         onPlannedOrderChange?.({
           entryPrice: plannedOrder.entryPrice,
           slPrice: newSL,
-          tpPrice: plannedOrder.tpPrice || 0,
+          tpPrice: newTP,
         });
       } else if (ph.type === 'TP') {
         const newTP = Math.round(price * 100) / 100;
@@ -2409,7 +2436,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   };
 
   // ── Context Menu (Right Click & Mobile Long-Press Clamping) ──
-  const triggerContextMenu = useCallback((clientX: number, clientY: number) => {
+  const triggerContextMenu = useCallback((clientX: number, clientY: number, customTime?: number, customPrice?: number) => {
     const { x, y } = clientToCanvas(clientX, clientY);
     const vp = vpRef.current;
     if (!vp) return;
@@ -2420,10 +2447,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const clampedY = Math.min(Math.max(50, clientY), (window.innerHeight || 640) - menuHeight - 12);
 
     const safeCandle = hoveredCandle || candles[candles.length - 1];
-    const chartTime = (x >= 0 && x <= vp.chartW)
+    const chartTime = customTime !== undefined
+      ? customTime
+      : (x >= 0 && x <= vp.chartW && y >= 0 && y <= vp.mainH)
       ? vp.xToTime(x)
       : (safeCandle ? new Date(safeCandle.time).getTime() : Date.now());
-    const chartPrice = (y >= 0 && y <= vp.mainH)
+    const chartPrice = customPrice !== undefined
+      ? customPrice
+      : (x >= 0 && x <= vp.chartW && y >= 0 && y <= vp.mainH)
       ? Math.round(vp.yToPrice(y) * 1000) / 1000
       : (safeCandle ? safeCandle.close : 0);
 
@@ -2435,6 +2466,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     });
   }, [clientToCanvas, hoveredCandle, candles]);
 
+  const openContextMenuAt = (clientX: number, clientY: number, customTime?: number, customPrice?: number) => {
+    triggerContextMenu(clientX, clientY, customTime, customPrice);
+  };
+
   const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     triggerContextMenu(e.clientX, e.clientY);
@@ -2442,17 +2477,28 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (e.touches.length === 1) {
-      const t = e.touches[0];
-      touchStartPosRef.current = { clientX: t.clientX, clientY: t.clientY };
+      const touch = e.touches[0];
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+
+      // Start 500ms timer:
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = setTimeout(() => {
-        if (!touchStartPosRef.current) return;
+        isLongPressTriggeredRef.current = true;
+        menuOpenedAtRef.current = Date.now();
         dragModeRef.current = 'NONE';
         panStartRef.current = null;
-        triggerContextMenu(touchStartPosRef.current.clientX, touchStartPosRef.current.clientY);
+
+        // Trigger haptic feedback if available:
         if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-          try { navigator.vibrate(40); } catch (_) {}
+          try {
+            navigator.vibrate(40);
+          } catch (_) {}
         }
+        // Open chart options menu at touch coordinates (clamped within screen):
+        openContextMenuAt(touch.clientX, touch.clientY);
       }, 500);
     } else {
       if (longPressTimerRef.current) {
@@ -2464,29 +2510,34 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (touchStartPosRef.current && e.touches.length === 1) {
-      const dx = e.touches[0].clientX - touchStartPosRef.current.clientX;
-      const dy = e.touches[0].clientY - touchStartPosRef.current.clientY;
-      if (Math.hypot(dx, dy) > 8) {
-        if (longPressTimerRef.current) {
-          clearTimeout(longPressTimerRef.current);
-          longPressTimerRef.current = null;
-        }
-      }
-    } else {
-      if (longPressTimerRef.current) {
+    // If finger moves more than 8px (scrolling/panning), cancel long-press:
+    if (touchStartPosRef.current && e.touches.length > 0) {
+      const touch = e.touches[0];
+      const dist = Math.hypot(
+        touch.clientX - touchStartPosRef.current.x,
+        touch.clientY - touchStartPosRef.current.y
+      );
+      if (dist > 8 && longPressTimerRef.current) {
         clearTimeout(longPressTimerRef.current);
         longPressTimerRef.current = null;
       }
     }
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
     touchStartPosRef.current = null;
+    if (isLongPressTriggeredRef.current) {
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+      setTimeout(() => {
+        isLongPressTriggeredRef.current = false;
+      }, 150);
+    }
   };
 
   const latestC = candles[candles.length - 1];
@@ -2505,36 +2556,76 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   })() : null;
 
   const selectedDrawing = drawings.find((d) => d.id === selectedDrawingId);
+  const hasAccountInfo = balance !== undefined || equity !== undefined;
+  const effectiveEquity = equity ?? balance ?? 0;
+  const isPositionOpen = hasOpenPositions ?? Boolean(activeTrade);
 
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full min-w-0 min-h-0 flex-1 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden select-none touch-none overscroll-contain shadow-sm"
+      className="relative w-full h-full min-w-0 min-h-0 flex-1 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden select-none touch-none overscroll-none shadow-sm"
     >
-      {/* Top HUD: Asset, Timeframe, OHLC Values & SMA Toggles */}
-      <div className="flex flex-wrap items-center justify-between px-3 py-1.5 pr-28 bg-slate-50 border-b border-slate-200 text-xs z-10 gap-2 shrink-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5">
-            <span className="font-bold text-[#121212] bg-white px-2 py-0.5 border border-slate-200 rounded-lg text-xs font-mono tracking-tight shadow-sm">
-              XAUUSD • {timeframe}
+      {/* Top Chart Header Overlay / Dock */}
+      <div className="w-full px-2 pt-2 pb-1.5 flex items-center justify-between pointer-events-none z-20 box-border bg-slate-50 border-b border-slate-200">
+        {/* Left: Symbol & Options triggers */}
+        <div className="flex items-center gap-1.5 pointer-events-auto">
+          <span className="font-bold text-[#121212] bg-white px-2 py-0.5 border border-slate-200 rounded-lg text-xs font-mono tracking-tight shadow-sm">
+            XAUUSD • {timeframe}
+          </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (contextMenu) {
+                setContextMenu(null);
+                return;
+              }
+              const rect = e.currentTarget.getBoundingClientRect();
+              const latest = candles[candles.length - 1];
+              triggerContextMenu(
+                rect.left,
+                rect.bottom + 6,
+                latest ? new Date(latest.time).getTime() : undefined,
+                latest ? latest.close : undefined
+              );
+            }}
+            title="Menu Opsi Chart (Set Replay, Reset View, Alat Gambar)"
+            aria-label="Menu Opsi Chart"
+            className="flex items-center gap-1 px-2 py-0.5 text-xs font-bold font-mono bg-white text-[#121212] border-2 border-[#121212] rounded-lg shadow-[2px_2px_0px_0px_#121212] hover:bg-[#EAF2FF] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+          >
+            <Settings className="w-3.5 h-3.5 text-[#1040C0]" />
+            <span className="text-[10px] font-black uppercase tracking-wider">OPSI</span>
+            <ChevronDown className="w-3 h-3 text-[#121212]" />
+          </button>
+        </div>
+
+        {/* Right: Inner metric card nested safely inside parent */}
+        {hasAccountInfo && (
+          <div className="pointer-events-auto flex items-center gap-2 bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] px-3 py-1 rounded-md shrink-0">
+            <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+              {isPositionOpen ? 'EQUITY' : 'BALANCE'}
             </span>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const rect = e.currentTarget.getBoundingClientRect();
-                triggerContextMenu(rect.left, rect.bottom + 6);
-              }}
-              title="Menu Opsi Chart (Set Replay, Reset View, Alat Gambar)"
-              aria-label="Menu Opsi Chart"
-              className="flex items-center gap-1 px-2 py-0.5 text-xs font-bold font-mono bg-white text-[#121212] border-2 border-[#121212] rounded-lg shadow-[2px_2px_0px_0px_#121212] hover:bg-[#EAF2FF] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-            >
-              <Settings className="w-3.5 h-3.5 text-[#1040C0]" />
-              <span className="text-[10px] font-black uppercase tracking-wider">OPSI</span>
-              <ChevronDown className="w-3 h-3 text-[#121212]" />
-            </button>
+            <span className="text-sm sm:text-base font-black font-mono text-slate-900 leading-none">
+              ${effectiveEquity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            {isPositionOpen && floatingPnL !== undefined && (
+              <span className={`px-1.5 py-0.5 rounded text-[11px] font-black border ${
+                floatingPnL >= 0 
+                  ? 'bg-[#E7F9F0] text-[#059669] border-[#059669]' 
+                  : 'bg-[#FDECEC] text-[#DC2626] border-[#DC2626]'
+              }`}>
+                {floatingPnL >= 0 ? `+$${floatingPnL.toFixed(2)}` : `-$${Math.abs(floatingPnL).toFixed(2)}`}
+                {floatingR !== undefined && ` (${floatingR >= 0 ? '+' : ''}${floatingR.toFixed(1)}R)`}
+              </span>
+            )}
           </div>
+        )}
+      </div>
+
+      {/* Lower Indicator & OHLC Info Row (AUTO Row) */}
+      <div className="w-full px-2 py-1 flex flex-wrap items-center justify-between bg-slate-50/80 border-b border-slate-200 text-xs z-10 gap-2 shrink-0 box-border">
+        <div className="flex items-center gap-2 flex-wrap">
           {activeC && m && (
             <span className="flex items-center gap-2 font-mono text-[11px] text-[#121212] flex-wrap">
               <span>
@@ -2569,7 +2660,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
           {(['sma20', 'sma50', 'sma200'] as const).map((k) => {
             const labels: Record<string, string> = { sma20: 'SMA 20', sma50: 'SMA 50', sma200: 'SMA 200' };
             const on = indicators[k];
@@ -2602,10 +2693,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       </div>
 
       {/* Main Interactive Canvas Wrapper */}
-      <div ref={canvasWrapperRef} className="w-full flex-1 relative min-w-0 min-h-0 overflow-hidden">
+      <div ref={canvasWrapperRef} className="w-full flex-1 relative min-w-0 min-h-0 overflow-hidden touch-none overscroll-none select-none">
         <canvas
           ref={canvasRef}
-          className="w-full h-full touch-none overscroll-none block min-w-0 min-h-0"
+          className="w-full h-full touch-none overscroll-none block min-w-0 min-h-0 select-none"
           style={{
             cursor: dragModeRef.current === 'SCALE_PRICE'
               ? 'ns-resize'
@@ -2748,7 +2839,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               exit={{ opacity: 0 }}
               transition={{ duration: 0.12 }}
               className="fixed inset-0 z-50 bg-black/20"
-              onClick={() => setContextMenu(null)}
+              onClick={() => {
+                if (Date.now() - menuOpenedAtRef.current < 250) return;
+                setContextMenu(null);
+              }}
               aria-hidden="true"
             />
             <motion.div
@@ -2946,7 +3040,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -12, scale: 0.95 }}
               transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-              className="z-50 w-[min(92vw,340px)] max-w-[340px] bg-white/95 backdrop-blur-md border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl overflow-hidden pointer-events-auto select-none"
+              className={`z-50 bg-white/95 backdrop-blur-md border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl overflow-hidden pointer-events-auto select-none transition-all ${
+                overlayCollapsed ? 'w-auto max-w-[min(96vw,460px)]' : 'w-[min(92vw,340px)] max-w-[340px]'
+              }`}
               style={posStyle}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -2954,195 +3050,270 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
           >
-            {/* Drag handle — the only interactive-drag area */}
-            <div
-              className="flex items-center justify-between px-2.5 py-1.5 bg-[#F0F0F0] border-b-2 border-[#121212] cursor-grab active:cursor-grabbing select-none touch-none"
-              onPointerDown={handlePointerDown}
-            >
-              <div className="flex items-center gap-1.5">
-                <GripHorizontal className="w-3.5 h-3.5 text-[#717182]" />
+            {/* Collapsed single-row horizontal pill: [ ⠿ BUY | {lot}L | SL {sl} | TP {tp} | BATAL | KONFIRMASI | ⌵ ] */}
+            {overlayCollapsed ? (
+              <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/95">
+                {/* Drag Grip */}
+                <div
+                  className="cursor-grab active:cursor-grabbing p-1 text-[#717182] hover:text-[#121212] select-none touch-none"
+                  onPointerDown={handlePointerDown}
+                  title="Geser posisi bar"
+                >
+                  <GripHorizontal className="w-3.5 h-3.5" />
+                </div>
+
+                {/* Side badge */}
                 <span
-                  className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 border border-[#121212] rounded"
+                  className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 border border-[#121212] rounded font-mono shrink-0"
                   style={{ background: sideBg, color: sideColor }}
                 >
                   {plannedOrder.side}
                 </span>
-                <span className="text-[10px] font-black uppercase tracking-wider text-[#717182]">
-                  {plannedOrder.orderType ? getOrderTypeLabel(plannedOrder.orderType) : 'Order'}
+
+                {/* Lot size */}
+                <span className="text-[11px] font-mono text-[#1040C0] font-black shrink-0">
+                  {plannedOrder.lotSize.toFixed(2)}L
                 </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setOverlayCollapsed((c) => !c); }}
-                  className="p-1 text-[#717182] hover:text-[#121212] hover:bg-white/60 rounded transition-colors cursor-pointer"
-                  aria-label={overlayCollapsed ? 'Perluas panel' : 'Ciutkan panel'}
-                >
-                  {overlayCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-                </button>
+
+                {/* SL / TP Badges */}
+                <div className="hidden xs:flex items-center gap-1.5 text-[10px] font-mono font-bold shrink-0">
+                  <span className="text-[#DC2626]">
+                    SL {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? plannedOrder.slPrice.toFixed(1) : '-'}
+                  </span>
+                  <span className="text-slate-300">•</span>
+                  <span className="text-[#059669]">
+                    TP {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? plannedOrder.tpPrice.toFixed(1) : '-'}
+                  </span>
+                </div>
+
+                <div className="flex-1 min-w-0" />
+
+                {/* Action: Batal */}
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
-                  className="p-1 text-[#717182] hover:text-[#DC2626] hover:bg-red-50 rounded transition-colors cursor-pointer"
-                  aria-label="Batal"
+                  className="px-2 py-0.5 border border-slate-300 hover:border-[#121212] text-slate-600 hover:text-[#121212] font-black text-[10px] uppercase rounded transition-all cursor-pointer shrink-0"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  Batal
                 </button>
-              </div>
-            </div>
 
-            {/* Collapsed pill — side, entry, RR, confirm */}
-            {overlayCollapsed ? (
-              <div className="flex items-center gap-2 px-2.5 py-2">
-                <span className="font-mono font-black text-xs text-[#121212]">
-                  @{plannedOrder.entryPrice.toFixed(2)}
-                </span>
-                <span className="text-[10px] font-mono text-[#1040C0] font-bold">
-                  {plannedOrder.lotSize.toFixed(2)}L
-                </span>
-                {plannedOrder.rrRatio && plannedOrder.rrRatio > 0 && (
-                  <span className="text-[10px] font-mono font-bold text-[#717182]">
-                    1:{plannedOrder.rrRatio.toFixed(1)}
-                  </span>
-                )}
-                <div className="flex-1" />
+                {/* Action: Konfirmasi */}
                 <button
                   type="button"
                   disabled={plannedOrder.isValid === false}
                   onClick={(e) => { e.stopPropagation(); onConfirmVisualOrder?.(); }}
-                  className={`px-3 py-1 border-2 border-[#121212] font-black text-[10px] uppercase tracking-wider rounded transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 border-2 border-[#121212] font-black text-[10px] uppercase tracking-wider rounded transition-all cursor-pointer shrink-0 ${
                     plannedOrder.isValid === false
                       ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                      : 'bg-[#121212] text-white hover:bg-[#2a2a2a] shadow-[2px_2px_0px_0px_#717182] active:shadow-none active:translate-y-[1px]'
+                      : 'bg-[#121212] text-white hover:bg-[#2a2a2a] shadow-[1.5px_1.5px_0px_0px_#717182] active:shadow-none active:translate-y-[1px]'
                   }`}
                 >
                   Konfirmasi
                 </button>
+
+                {/* Expand Chevron ⌵ */}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setOverlayCollapsed(false); }}
+                  className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded transition-colors cursor-pointer shrink-0"
+                  title="Perluas panel"
+                  aria-label="Perluas panel"
+                >
+                  <ChevronDown className="w-3.5 h-3.5 stroke-[2.5]" />
+                </button>
               </div>
             ) : (
-              /* Expanded — full details */
-              <div className="p-2.5 sm:p-3 space-y-2">
-                {/* Entry + RR row */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-[10px] font-black uppercase tracking-wider text-[#717182]">Entry</div>
-                    <div className="font-mono font-black text-sm text-[#121212]">{plannedOrder.entryPrice.toFixed(2)}</div>
+              <>
+                {/* Drag handle — the only interactive-drag area */}
+                <div
+                  className="flex items-center justify-between px-2.5 py-1.5 bg-[#F0F0F0] border-b-2 border-[#121212] cursor-grab active:cursor-grabbing select-none touch-none"
+                  onPointerDown={handlePointerDown}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <GripHorizontal className="w-3.5 h-3.5 text-[#717182]" />
+                    <span
+                      className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 border border-[#121212] rounded"
+                      style={{ background: sideBg, color: sideColor }}
+                    >
+                      {plannedOrder.side}
+                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-[#717182]">
+                      {plannedOrder.orderType ? getOrderTypeLabel(plannedOrder.orderType) : 'Order'}
+                    </span>
                   </div>
-                  <div className="text-right">
-                    <div className="text-[10px] font-black uppercase tracking-wider text-[#717182]">R:R</div>
-                    <div className="font-mono font-black text-sm text-[#1040C0]">
-                      {plannedOrder.rrRatio && plannedOrder.rrRatio > 0 ? `1:${plannedOrder.rrRatio.toFixed(2)}` : '-'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* SL / TP row */}
-                <div className="flex items-center gap-2">
-                  {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? (
-                    <div className="flex-1 flex items-center justify-between bg-[#FFF0F0] border border-[#DC2626] rounded px-2 py-1 text-xs">
-                      <div>
-                        <span className="text-[9px] uppercase font-black text-[#DC2626] block">SL</span>
-                        <span className="font-mono font-bold text-[#121212]">{plannedOrder.slPrice.toFixed(2)}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: 0, tpPrice: plannedOrder.tpPrice || 0 }); }}
-                        className="w-4 h-4 flex items-center justify-center text-[#DC2626] hover:bg-red-100 rounded-full cursor-pointer font-black text-[10px]"
-                      >✕</button>
-                    </div>
-                  ) : (
+                  <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const dist = calculateAdaptiveSlDistance(candles, plannedOrder.entryPrice, symbol);
-                        const newSL = Math.round((isBuy ? plannedOrder.entryPrice - dist : plannedOrder.entryPrice + dist) * 100) / 100;
-                        onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: newSL, tpPrice: plannedOrder.tpPrice || 0 });
-                      }}
-                      className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-[#DC2626] text-[#DC2626] font-bold text-[10px] rounded flex items-center justify-center gap-1 cursor-pointer hover:bg-red-50 transition-colors"
+                      onClick={(e) => { e.stopPropagation(); setOverlayCollapsed(true); }}
+                      className="p-1 text-[#717182] hover:text-[#121212] hover:bg-white/60 rounded transition-colors cursor-pointer"
+                      aria-label="Ciutkan panel"
+                      title="Ciutkan panel (Minimize)"
                     >
-                      <Plus className="w-3.5 h-3.5" /><span>+ SL</span>
+                      <ChevronUp className="w-3.5 h-3.5" />
                     </button>
-                  )}
-
-                  {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? (
-                    <div className="flex-1 flex items-center justify-between bg-[#F0FFF8] border border-[#059669] rounded px-2 py-1 text-xs">
-                      <div>
-                        <span className="text-[9px] uppercase font-black text-[#059669] block">TP</span>
-                        <span className="font-mono font-bold text-[#121212]">{plannedOrder.tpPrice.toFixed(2)}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: plannedOrder.slPrice || 0, tpPrice: 0 }); }}
-                        className="w-4 h-4 flex items-center justify-center text-[#059669] hover:bg-green-100 rounded-full cursor-pointer font-black text-[10px]"
-                      >✕</button>
-                    </div>
-                  ) : (
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const dist = calculateAdaptiveSlDistance(candles, plannedOrder.entryPrice, symbol) * 2;
-                        const newTP = Math.round((isBuy ? plannedOrder.entryPrice + dist : plannedOrder.entryPrice - dist) * 100) / 100;
-                        onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: plannedOrder.slPrice || 0, tpPrice: newTP });
-                      }}
-                      className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-[#059669] text-[#059669] font-bold text-[10px] rounded flex items-center justify-center gap-1 cursor-pointer hover:bg-green-50 transition-colors"
+                      onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
+                      className="p-1 text-[#717182] hover:text-[#DC2626] hover:bg-red-50 rounded transition-colors cursor-pointer"
+                      aria-label="Batal"
                     >
-                      <Plus className="w-3.5 h-3.5" /><span>+ TP</span>
+                      <X className="w-3.5 h-3.5" />
                     </button>
+                  </div>
+                </div>
+
+                {/* Expanded — full details */}
+                <div className="p-2.5 sm:p-3 space-y-2">
+                  {/* Entry + RR row */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-wider text-[#717182]">Entry</div>
+                      <div className="font-mono font-black text-sm text-[#121212]">{plannedOrder.entryPrice.toFixed(2)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-[#717182]">R:R</div>
+                      <div className="font-mono font-black text-sm text-[#1040C0]">
+                        {plannedOrder.rrRatio && plannedOrder.rrRatio > 0 ? `1:${plannedOrder.rrRatio.toFixed(2)}` : '-'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SL / TP row */}
+                  <div className="flex items-center gap-2">
+                    {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? (
+                      <div className="flex-1 flex items-center justify-between bg-[#FFF0F0] border border-[#DC2626] rounded px-2 py-1 text-xs">
+                        <div>
+                          <span className="text-[9px] uppercase font-black text-[#DC2626] block">SL</span>
+                          <span className="font-mono font-bold text-[#121212]">{plannedOrder.slPrice.toFixed(2)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: 0, tpPrice: plannedOrder.tpPrice || 0 }); }}
+                          className="w-4 h-4 flex items-center justify-center text-[#DC2626] hover:bg-red-100 rounded-full cursor-pointer font-black text-[10px]"
+                        >✕</button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const dist = calculateAdaptiveSlDistance(candles, plannedOrder.entryPrice, symbol);
+                          const newSL = Math.round((isBuy ? plannedOrder.entryPrice - dist : plannedOrder.entryPrice + dist) * 100) / 100;
+                          onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: newSL, tpPrice: plannedOrder.tpPrice || 0 });
+                        }}
+                        className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-[#DC2626] text-[#DC2626] font-bold text-[10px] rounded flex items-center justify-center gap-1 cursor-pointer hover:bg-red-50 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" /><span>+ SL</span>
+                      </button>
+                    )}
+
+                    {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? (
+                      <div className="flex-1 flex items-center justify-between bg-[#F0FFF8] border border-[#059669] rounded px-2 py-1 text-xs">
+                        <div>
+                          <span className="text-[9px] uppercase font-black text-[#059669] block">TP</span>
+                          <span className="font-mono font-bold text-[#121212]">{plannedOrder.tpPrice.toFixed(2)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: plannedOrder.slPrice || 0, tpPrice: 0 }); }}
+                          className="w-4 h-4 flex items-center justify-center text-[#059669] hover:bg-green-100 rounded-full cursor-pointer font-black text-[10px]"
+                        >✕</button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const dist = calculateAdaptiveSlDistance(candles, plannedOrder.entryPrice, symbol) * 2;
+                          const newTP = Math.round((isBuy ? plannedOrder.entryPrice + dist : plannedOrder.entryPrice - dist) * 100) / 100;
+                          onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: plannedOrder.slPrice || 0, tpPrice: newTP });
+                        }}
+                        className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-[#059669] text-[#059669] font-bold text-[10px] rounded flex items-center justify-center gap-1 cursor-pointer hover:bg-green-50 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" /><span>+ TP</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Risk / Target grid */}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="border border-[#121212] bg-slate-50 rounded px-2 py-1.5">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Risk</div>
+                      <div className="font-mono font-bold text-xs text-[#DC2626] mt-0.5">
+                        {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? `-$${plannedOrder.riskAmount.toFixed(2)}` : 'Tanpa SL'}
+                      </div>
+                    </div>
+                    <div className="border border-[#121212] bg-slate-50 rounded px-2 py-1.5">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Target</div>
+                      <div className="font-mono font-bold text-xs text-[#059669] mt-0.5">
+                        {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? `+$${(plannedOrder.targetProfit || 0).toFixed(2)}` : 'Tanpa TP'}
+                      </div>
+                    </div>
+
+                    {/* Interactive Lot Input with Two-Way Risk Sync */}
+                    <div className="border border-[#121212] bg-white rounded px-2 py-1.5 col-span-2 shadow-[1px_1px_0px_0px_#121212]">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-[#121212]">Ukuran Lot</span>
+                        <span className="text-[9px] font-mono text-slate-400">Step 0.01</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          value={lotInputStr}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setLotInputStr(val);
+                            const num = parseFloat(val);
+                            if (!isNaN(num) && num > 0) {
+                              onPlannedOrderChange?.({
+                                entryPrice: plannedOrder.entryPrice,
+                                slPrice: plannedOrder.slPrice || 0,
+                                tpPrice: plannedOrder.tpPrice || 0,
+                                lotSize: Math.round(num * 100) / 100,
+                              });
+                            }
+                          }}
+                          className="flex-1 bg-slate-50 border border-slate-300 focus:border-[#121212] rounded px-2 py-0.5 text-xs font-mono font-black text-[#121212] outline-none"
+                          placeholder="0.01"
+                        />
+                        <span className="text-xs font-mono font-bold text-[#717182]">Lot</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Validation error */}
+                  {plannedOrder.isValid === false && (
+                    <div className="p-2 bg-[#FFF0F0] border border-[#DC2626] rounded text-[10px] text-[#DC2626] font-medium leading-tight">
+                      {plannedOrder.validationError || 'Level harga tidak valid untuk tipe order ini.'}
+                    </div>
                   )}
-                </div>
 
-                {/* Risk / Target grid */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  <div className="border border-[#121212] bg-slate-50 rounded px-2 py-1.5">
-                    <div className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Risk</div>
-                    <div className="font-mono font-bold text-xs text-[#DC2626] mt-0.5">
-                      {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? `-$${plannedOrder.riskAmount.toFixed(2)}` : 'Tanpa SL'}
-                    </div>
-                  </div>
-                  <div className="border border-[#121212] bg-slate-50 rounded px-2 py-1.5">
-                    <div className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Target</div>
-                    <div className="font-mono font-bold text-xs text-[#059669] mt-0.5">
-                      {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? `+$${(plannedOrder.targetProfit || 0).toFixed(2)}` : 'Tanpa TP'}
-                    </div>
-                  </div>
-                  <div className="border border-[#121212] bg-slate-50 rounded px-2 py-1.5 col-span-2">
-                    <div className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Lot</div>
-                    <div className="font-mono font-bold text-xs text-[#121212] mt-0.5">{plannedOrder.lotSize.toFixed(2)} Lot</div>
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
+                      className="flex-1 min-h-[36px] border-2 border-[#121212] bg-white text-[#121212] font-bold text-[11px] uppercase tracking-wider rounded hover:bg-slate-50 active:translate-y-[1px] transition-transform cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="button"
+                      disabled={plannedOrder.isValid === false}
+                      onClick={(e) => { e.stopPropagation(); onConfirmVisualOrder?.(); }}
+                      className={`flex-1 min-h-[36px] border-2 border-[#121212] font-black text-[11px] uppercase tracking-wider rounded shadow-[2px_2px_0px_0px_#717182] active:shadow-none active:translate-y-[1px] transition-all cursor-pointer ${
+                        plannedOrder.isValid === false
+                          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed shadow-none'
+                          : 'bg-[#121212] text-white hover:bg-[#2a2a2a]'
+                      }`}
+                    >
+                      Konfirmasi
+                    </button>
                   </div>
                 </div>
-
-                {/* Validation error */}
-                {plannedOrder.isValid === false && (
-                  <div className="p-2 bg-[#FFF0F0] border border-[#DC2626] rounded text-[10px] text-[#DC2626] font-medium leading-tight">
-                    {plannedOrder.validationError || 'Level harga tidak valid untuk tipe order ini.'}
-                  </div>
-                )}
-
-                {/* Action buttons */}
-                <div className="flex items-center gap-2 pt-0.5">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
-                    className="flex-1 min-h-[36px] border-2 border-[#121212] bg-white text-[#121212] font-bold text-[11px] uppercase tracking-wider rounded hover:bg-slate-50 active:translate-y-[1px] transition-transform cursor-pointer"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="button"
-                    disabled={plannedOrder.isValid === false}
-                    onClick={(e) => { e.stopPropagation(); onConfirmVisualOrder?.(); }}
-                    className={`flex-1 min-h-[36px] border-2 border-[#121212] font-black text-[11px] uppercase tracking-wider rounded shadow-[2px_2px_0px_0px_#717182] active:shadow-none active:translate-y-[1px] transition-all cursor-pointer ${
-                      plannedOrder.isValid === false
-                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed shadow-none'
-                        : 'bg-[#121212] text-white hover:bg-[#2a2a2a]'
-                    }`}
-                  >
-                    Konfirmasi
-                  </button>
-                </div>
-              </div>
+              </>
             )}
           </motion.div>
         );

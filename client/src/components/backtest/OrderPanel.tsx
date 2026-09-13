@@ -89,6 +89,8 @@ export interface OrderPanelProps {
   controlledTpPrice?: number | null;
   selectedSideOverride?: TradeSide;
   selectedOrderTypeOverride?: OrderExecutionType;
+  lockRR?: boolean;
+  onToggleLockRR?: () => void;
 }
 
 const RR_PRESETS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0];
@@ -123,9 +125,18 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     selectedSideOverride,
     selectedOrderTypeOverride,
     onVisualOrderSubmit,
+    lockRR,
+    onToggleLockRR,
   }: OrderPanelProps,
   ref
 ) {
+  const [internalLockRR, setInternalLockRR] = useState<boolean>(false);
+  const isRRLocked = lockRR !== undefined ? lockRR : internalLockRR;
+  const toggleRRLock = () => {
+    if (onToggleLockRR) onToggleLockRR();
+    else setInternalLockRR((v) => !v);
+  };
+
   // Order Type state: Category (MARKET / LIMIT / STOP) and Direction (BUY / SELL)
   const [orderCategory, setOrderCategory] = useState<OrderCategory>('MARKET');
   const [orderDirection, setOrderDirection] = useState<OrderDirection>(
@@ -349,7 +360,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   const handleSlChange = (val: string) => {
     setSlPriceStr(val);
     const numSL = parseFloat(val);
-    if (!isNaN(numSL) && numSL > 0 && effectiveEntry > 0) {
+    if (isRRLocked && !isNaN(numSL) && numSL > 0 && effectiveEntry > 0) {
       const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
       const newTP = calculateTPFromRR(side, effectiveEntry, numSL, selectedRR);
       setTpPriceStr(newTP.toFixed(2));
@@ -881,6 +892,22 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
                       1:{rr}
                     </button>
                   ))}
+                </div>
+
+                {/* Lock Fixed R:R Checkbox Toggle */}
+                <div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-[#121212]">
+                    <input
+                      type="checkbox"
+                      checked={isRRLocked}
+                      onChange={toggleRRLock}
+                      className="w-4 h-4 rounded border-2 border-[#121212] text-[#1040C0] focus:ring-0 cursor-pointer accent-[#1040C0]"
+                    />
+                    <span>Kunci Rasio R:R (Lock Fixed R:R)</span>
+                  </label>
+                  <span className="text-[10px] font-mono font-bold text-[#717182]">
+                    {isRRLocked ? 'Terkunci' : 'Bebas'}
+                  </span>
                 </div>
               </div>
 

@@ -74,6 +74,7 @@
 html {
   scroll-behavior: smooth;
   font-size: 16px;
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -83,6 +84,11 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none;
+}
+
+#root {
+  overscroll-behavior-y: none;
 }
 
 /* ── Scrollbar ── */
@@ -980,12 +986,16 @@ textarea:focus-visible {
 .mobile-terminal {
   height: 100dvh;
   min-height: 100dvh;
+  max-height: 100dvh;
   background: #F8FAFC;
   color: #0F172A;
   flex-direction: column;
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  user-select: none;
 }
 
 /* Only show as flex on screens below md (768px).
@@ -1036,6 +1046,8 @@ textarea:focus-visible {
   flex: 1 1 auto;
   min-height: 0;
   background: #F8FAFC;
+  touch-action: none;
+  overscroll-behavior: none;
 }
 
 .mobile-terminal-context {

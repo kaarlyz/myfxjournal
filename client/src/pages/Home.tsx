@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Plus, Upload, Activity, BookOpen, Trash2,
   BarChart3, MoreVertical, FileUp, Copy, Edit3, FileText,
-  FileSearch, Wallet, Link2, Zap
+  FileSearch, Wallet, Link2, Zap, Play
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useJournalStore } from '../store/useJournalStore';
@@ -137,6 +137,33 @@ export default function Home() {
   const [editError, setEditError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const [manualSessions, setManualSessions] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/backtest/sessions')
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (json?.ok && Array.isArray(json.data)) {
+          setManualSessions(json.data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const activeManualSession = useMemo(() => {
+    return manualSessions.find(s => s.status === 'ACTIVE') || (manualSessions.length > 0 ? manualSessions[0] : null);
+  }, [manualSessions]);
+
+  const getManualReplayId = (session: any): string | null => {
+    if (session.notes) {
+      const match = session.notes.match(/\[MANUAL_REPLAY_ID:([^\]]+)\]/);
+      if (match) return match[1];
+    }
+    const found = manualSessions.find(m => m.id === session.id || m.name === session.name);
+    if (found) return found.id;
+    return null;
+  };
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
@@ -290,6 +317,32 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* ── Active Replay Session Bauhaus Banner ── */}
+      {activeManualSession && (
+        <div className="border-2 border-[#121212] bg-[#EAF2FF] p-4 shadow-[4px_4px_0px_0px_#121212] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded border-2 border-[#121212] bg-[#1040C0] flex items-center justify-center text-white shrink-0 shadow-[2px_2px_0px_0px_#121212]">
+              <Zap className="w-5 h-5 fill-white" />
+            </div>
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-wider text-[#1040C0]">
+                Sesi Replay Aktif Terdeteksi
+              </div>
+              <div className="text-sm font-bold text-[#121212]">
+                {activeManualSession.name} ({activeManualSession.symbol} · Saldo ${activeManualSession.currentBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+              </div>
+            </div>
+          </div>
+          <Link
+            to={`/backtest?sessionId=${activeManualSession.id}`}
+            className="w-full sm:w-auto px-4 py-2 bg-[#1040C0] hover:bg-[#0D3399] text-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer no-underline"
+          >
+            <Play className="w-3.5 h-3.5 fill-white" />
+            <span>Lanjutkan di Chart</span>
+          </Link>
+        </div>
+      )}
 
       {/* ── Page Header ── */}
       <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
@@ -708,6 +761,8 @@ export default function Home() {
                 onDelete={async () => {
                   if (confirm(t('delete_confirm', { name: s.name }))) await deleteSession(s.id);
                 }}
+                manualReplayId={getManualReplayId(s)}
+                onOpenChart={(id) => navigate(`/backtest?sessionId=${id}`)}
               />
             ))}
           </div>
@@ -727,6 +782,8 @@ interface SessionCardProps {
   onStartEdit: (field: 'name' | 'notes') => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  manualReplayId?: string | null;
+  onOpenChart?: (id: string) => void;
 }
 
 function SessionCard({
@@ -738,6 +795,8 @@ function SessionCard({
   onStartEdit,
   onDuplicate,
   onDelete,
+  manualReplayId,
+  onOpenChart,
   editingSessionId,
   editingField,
   editingValue,
@@ -833,6 +892,7 @@ function SessionCard({
             >
               {[
                 { icon: BarChart3, label: t('open_dashboard'),    action: onOpenDashboard,              danger: false },
+                ...(manualReplayId ? [{ icon: Play, label: 'Lanjutkan di Chart', action: () => onOpenChart?.(manualReplayId), danger: false }] : []),
                 { icon: FileUp,    label: t('common:update') + ' CSV', action: () => onImportCsv('SMART_MERGE'), danger: false },
                 { icon: Upload,    label: t('import_csv_append'), action: () => onImportCsv('APPEND'),  danger: false },
                 { icon: Activity,  label: t('import_csv_smart_merge'), action: () => onImportCsv('SMART_MERGE'), danger: false },
@@ -1025,14 +1085,25 @@ function SessionCard({
           <BarChart3 className="w-3.5 h-3.5" aria-hidden="true" />
           {t('open_dashboard')}
         </button>
-        <button
-          onClick={() => onImportCsv('SMART_MERGE')}
-          className="btn btn-secondary flex items-center justify-center gap-1.5"
-          aria-label={`Update CSV for ${s.name}`}
-        >
-          <FileUp className="w-3.5 h-3.5" aria-hidden="true" />
-          {t('dashboard:update_csv')}
-        </button>
+        {manualReplayId ? (
+          <button
+            onClick={() => onOpenChart?.(manualReplayId)}
+            className="btn btn-primary flex items-center justify-center gap-1.5 text-xs bg-[#1040C0] hover:bg-[#0D3399] text-white"
+            aria-label={`Lanjutkan di chart untuk ${s.name}`}
+          >
+            <Play className="w-3.5 h-3.5 fill-white" aria-hidden="true" />
+            Lanjutkan di Chart
+          </button>
+        ) : (
+          <button
+            onClick={() => onImportCsv('SMART_MERGE')}
+            className="btn btn-secondary flex items-center justify-center gap-1.5"
+            aria-label={`Update CSV for ${s.name}`}
+          >
+            <FileUp className="w-3.5 h-3.5" aria-hidden="true" />
+            {t('dashboard:update_csv')}
+          </button>
+        )}
       </div>
     </article>
   );
