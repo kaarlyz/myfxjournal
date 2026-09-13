@@ -1,8 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Target, AlertCircle, BarChart3, Zap, CheckCircle2, Database, Info, CalendarX, Download, ShieldAlert, Check, X, HelpCircle, ArrowRight } from 'lucide-react';
+import { Target, AlertCircle, BarChart3, Zap, CheckCircle2, Database, Info, X, HelpCircle, ArrowRight, ArrowUpRight, Activity, Sliders } from 'lucide-react';
 import { formatNumber, formatPercent } from '../../utils/formatters';
-import { SectionLabel } from '../ui/SectionLabel';
 import { ContextualLoading, ProgressStage } from '../ui/ContextualLoading';
 import { ActionFeedback } from '../ui/ActionFeedback';
 
@@ -98,11 +97,14 @@ interface ReplayValidationSummary {
   engineVersion: string;
 }
 
+type TabSection = 'OVERVIEW' | 'REPLAY' | 'MATRIX';
+
 export default function RRLabTab({ metrics, trades, sessionId }: Props) {
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<TabSection>('OVERVIEW');
   const [customRR, setCustomRR] = useState<number>(2.5);
   const [backtestRR, setBacktestRR] = useState<number>(0.75);
-  const [marketDataSource, setMarketDataSource] = useState<string>('DUKASCOPY');
+  const [marketDataSource, setMarketDataSource] = useState<string>('PARQUET');
   const [timeframe, setTimeframe] = useState<string>('M1');
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState<number>(0);
@@ -111,8 +113,7 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
   const [validationSummary, setValidationSummary] = useState<ReplayValidationSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
-  const [showTerminologyHelp, setShowTerminologyHelp] = useState(false);
-  const [showCustomRRInput, setShowCustomRRInput] = useState(false);
+  const [showMethodologyModal, setShowMethodologyModal] = useState(false);
   const [showRRModal, setShowRRModal] = useState(false);
   const [replayProgress, setReplayProgress] = useState<{
     current: number;
@@ -331,923 +332,897 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
   ];
 
 
+  const avgRealized = metrics?.avgRealizedRR;
+  const isAvgPositive = avgRealized !== null && avgRealized >= 0;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
 
-      {/* ── Mode Guide Banner & Terminology Helper ── */}
-      <div className="bg-gradient-to-r from-[#121212] to-[#1E293B] text-white p-4 md:p-5 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#1040C0]">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* ── Compact Workstation Header ── */}
+      <div className="bg-white border-2 border-[#121212] p-3.5 sm:p-5 shadow-[4px_4px_0px_0px_#121212] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-[#121212] text-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#1040C0] shrink-0">
+            <Activity className="w-5 h-5 text-[#F0C020]" />
+          </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 bg-[#D02020] text-white text-[10px] font-black uppercase tracking-wider">
-                RR Lab Pro
-              </span>
-              <h2 className="font-black text-base sm:text-lg font-display tracking-tight text-white">
-                Analisa Tiga Mode: Broker, Replay & What-If
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base sm:text-lg font-black text-[#121212] uppercase tracking-wider font-display">
+                Risk-to-Reward Analytics & Replay Lab
               </h2>
+              <span className="px-2 py-0.5 bg-[#1040C0] text-white text-[10px] font-black uppercase tracking-wider">
+                {trades.length} Trades
+              </span>
             </div>
-            <p className="text-xs text-white/75 font-medium mt-1 leading-relaxed max-w-2xl">
-              Memisahkan secara ketat performa historis broker riil (Mode A), validasi pergerakan candle M1 (Mode B), dan eksplorasi target RR alternatif (Mode C).
+            <p className="text-xs text-[#717182] font-semibold mt-0.5">
+              Multi-mode trade evaluation: broker ground truth, canonical tick replay, and what-if simulation matrix.
             </p>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setShowTerminologyHelp(!showTerminologyHelp)}
-            className="self-start sm:self-center flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold text-white transition-colors rounded-sm"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>{showTerminologyHelp ? 'Tutup Panduan' : 'Panduan Istilah'}</span>
-          </button>
         </div>
 
-        {/* Expandable Terminology Explanation */}
-        {showTerminologyHelp && (
-          <div className="mt-4 pt-4 border-t border-white/15 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            <div className="p-3 bg-white/5 border border-white/10 rounded">
-              <p className="font-extrabold text-[#F0C020] uppercase tracking-wider text-[10px] mb-1">
-                Mode A — Broker Ground Truth
-              </p>
-              <p className="text-white/80 leading-snug">
-                Data murni dari laporan broker MT5. Menampilkan hasil riil tanpa ada simulasi candle eksternal.
-              </p>
-            </div>
-
-            <div className="p-3 bg-white/5 border border-white/10 rounded">
-              <p className="font-extrabold text-[#60A5FA] uppercase tracking-wider text-[10px] mb-1">
-                Mode B — Replay Validation
-              </p>
-              <p className="text-white/80 leading-snug">
-                Menguji apakah data candle independen (Dukascopy M1) mereproduksi exit SL/TP broker dengan persis.
-              </p>
-            </div>
-
-            <div className="p-3 bg-white/5 border border-white/10 rounded">
-              <p className="font-extrabold text-[#34D399] uppercase tracking-wider text-[10px] mb-1">
-                Mode C — What-If RR Matrix
-              </p>
-              <p className="text-white/80 leading-snug">
-                Simulasi "bagaimana jika TP diubah". Target diuji berdasarkan MFE maksimal sebelum menyentuh batas Actual SL.
-              </p>
-            </div>
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={() => setShowMethodologyModal(true)}
+          className="self-start sm:self-center flex items-center gap-1.5 px-3 py-2 bg-[#F0F0F0] hover:bg-[#E0E0E0] border-2 border-[#121212] text-xs font-black uppercase tracking-wider text-[#121212] shadow-[2px_2px_0px_0px_#121212] active:translate-y-0.5 active:shadow-none transition-all rounded-none min-h-[40px]"
+        >
+          <HelpCircle className="w-4 h-4 text-[#1040C0]" />
+          <span>Panduan & Metodologi</span>
+        </button>
       </div>
 
-      {/* ── 1. BROKER GROUND TRUTH: Realized & Planned R cards ── */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <span className="px-2 py-0.5 bg-[#121212] text-white text-[11px] font-black uppercase tracking-wider">
-            Mode A
-          </span>
-          <h3 className="font-extrabold text-[15px] text-[#121212] font-display">
-            1. Broker Ground Truth (Performa Strategi Riil)
-          </h3>
-        </div>
+      {/* ── Segmented Navigation Bar ── */}
+      <div className="flex items-center gap-1 sm:gap-2 p-1 bg-[#F0F0F0] border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setActiveTab('OVERVIEW')}
+          className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-2 text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap flex-1 min-h-[42px] ${
+            activeTab === 'OVERVIEW'
+              ? 'bg-[#121212] text-white shadow-[2px_2px_0px_0px_#1040C0]'
+              : 'bg-white text-[#121212] hover:bg-[#E5E5E5] border border-[#121212]'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4 text-[#F0C020]" />
+          <span>Overview & Realized R</span>
+        </button>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-          <div className="bg-white border-2 border-[#121212] p-4 sm:p-5 shadow-[4px_4px_0px_0px_#121212]">
-            <SectionLabel label="Realized R Distribution" shape="diamond" color="yellow" icon={<BarChart3 className="w-4 h-4" />} className="mb-4" />
-            <div className="space-y-2 font-[Outfit]">
-              <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-[#717182] border-b-2 border-dashed border-[#121212]/20 pb-2">
-                <span>Metrik Broker</span>
-                <span>Nilai Riil</span>
-              </div>
-              <div className="flex justify-between text-[13px] font-semibold text-[#121212] py-2 border-b-2 border-dashed border-[#121212]/20">
-                <span>Average Realized R</span>
-                <span className="font-extrabold font-number text-[14px]">
-                  {metrics.avgRealizedRR !== null ? formatNumber(metrics.avgRealizedRR, 2) + 'R' : 'N/A'}
-                </span>
-              </div>
-              <div className="flex justify-between text-[13px] font-semibold text-[#121212] py-2 border-b-2 border-dashed border-[#121212]/20">
-                <span>Median Realized R</span>
-                <span className="font-extrabold font-number text-[14px]">
-                  {metrics.medianRR !== null ? formatNumber(metrics.medianRR, 2) + 'R' : 'N/A'}
-                </span>
-              </div>
-              <div className="flex justify-between text-[13px] font-semibold text-[#121212] py-2">
-                <span>Broker Win Rate (Ground Truth)</span>
-                <span className="font-extrabold font-number text-[14px] text-[var(--profit)]">
-                  {formatPercent(metrics.winrate || 0)}
-                </span>
-              </div>
-            </div>
-          </div>
+        <button
+          type="button"
+          onClick={() => setActiveTab('REPLAY')}
+          className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-2 text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap flex-1 min-h-[42px] ${
+            activeTab === 'REPLAY'
+              ? 'bg-[#121212] text-white shadow-[2px_2px_0px_0px_#1040C0]'
+              : 'bg-white text-[#121212] hover:bg-[#E5E5E5] border border-[#121212]'
+          }`}
+        >
+          <Zap className="w-4 h-4 text-[#10B981]" />
+          <span>Replay Engine & Validation</span>
+          {validationSummary && (
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+          )}
+        </button>
 
-          <div className="bg-white border-2 border-[#121212] p-4 sm:p-5 shadow-[4px_4px_0px_0px_#121212]">
-            <SectionLabel label="Planned R Distribution" shape="circle" color="blue" icon={<Target className="w-4 h-4" />} className="mb-4" />
-            <div className="space-y-2 font-[Outfit]">
-              <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-[#717182] border-b-2 border-dashed border-[#121212]/20 pb-2">
-                <span>Rencana Trade Order</span>
-                <span>Rasio Target</span>
-              </div>
-              <div className="flex justify-between text-[13px] font-semibold text-[#121212] py-2 border-b-2 border-dashed border-[#121212]/20">
-                <span>Average Planned RR</span>
-                <span className="font-extrabold font-number text-[14px]">
-                  {metrics.avgPlannedRR !== null ? `1 : ${formatNumber(metrics.avgPlannedRR, 3)}` : 'N/A'}
-                </span>
-              </div>
-              <div className="flex justify-between text-[13px] font-semibold text-[#121212] py-2 border-b-2 border-dashed border-[#121212]/20">
-                <span>Profil Strategi</span>
-                <span className="font-extrabold text-[12px] text-blue-700">
-                  {metrics.avgPlannedRR !== null && metrics.avgPlannedRR < 1.0 ? 'Fixed Sub-1.0 RR Bracket (~1:0.75)' : 'Standard / Dynamic RR'}
-                </span>
-              </div>
-              {metrics.avgPlannedRR === null && (
-                <p className="text-[10px] font-bold text-[#717182] uppercase tracking-wider mt-2 italic bg-[#F0F0F0] p-2 text-center">
-                  Planned R data tidak tersedia pada trade yang diimpor.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setActiveTab('MATRIX')}
+          className={`flex items-center justify-center gap-2 px-3 sm:px-4 py-2 text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap flex-1 min-h-[42px] ${
+            activeTab === 'MATRIX'
+              ? 'bg-[#121212] text-white shadow-[2px_2px_0px_0px_#1040C0]'
+              : 'bg-white text-[#121212] hover:bg-[#E5E5E5] border border-[#121212]'
+          }`}
+        >
+          <Target className="w-4 h-4 text-[#3B82F6]" />
+          <span>What-If Simulation Matrix</span>
+          {rrSimData && rrSimData.length > 0 && (
+            <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
+          )}
+        </button>
       </div>
 
-      {/* ── 2. REPLAY VALIDATION & 3. WHAT-IF SIMULATION ── */}
-      <div className="bg-white border-2 border-[#121212] p-4 sm:p-5 shadow-[4px_4px_0px_0px_#121212] space-y-5">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2 py-0.5 bg-blue-600 text-white text-[11px] font-black uppercase tracking-wider">
-              Mode B & C
-            </span>
-            <SectionLabel label="Replay Validation & What-If Simulation" shape="square" color="dark" icon={<Database className="w-4 h-4" />} />
-          </div>
-          <p className="text-xs text-[#717182] font-medium mt-1 leading-relaxed">
-            Jalankan engine pergerakan candle pasar riil ({marketDataSource}) untuk menguji kecocokan strategi asli dan mensimulasikan target RR alternatif (0.25 s/d 10.0).
-          </p>
-        </div>
-
-        {/* ── 2a. Pre-Check Data Completeness Banner ── */}
-        {slTpStats.hasFullActual ? (
-          <div className="bg-emerald-50 border-2 border-[#121212] p-3.5 flex items-start gap-3 shadow-[2px_2px_0px_0px_#059669]">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <span className="text-xs font-black text-emerald-950 uppercase tracking-wide font-[Outfit]">
-                  Data SL & TP Asli Terdeteksi ({slTpStats.withBoth} / {slTpStats.total} Trade — 100%)
-                </span>
-                <span className="px-2 py-0.5 bg-emerald-200 text-emerald-900 text-[10px] font-black uppercase tracking-wider self-start sm:self-auto">
-                  Ground Truth Ready
+      {/* ── SECTION 1: OVERVIEW & REALIZED R STAT CARDS (MODE A) ── */}
+      {activeTab === 'OVERVIEW' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+            {/* Stat Card 1: Realized RR */}
+            <div className="bg-white border-2 border-[#121212] p-3.5 sm:p-4 shadow-[3px_3px_0px_0px_#121212] flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-[#717182]">
+                <span>Realized RR</span>
+                <span className="w-2 h-2 rounded-full bg-[#1040C0]" />
+              </div>
+              <div className="my-2 sm:my-3">
+                <div className={`text-xl sm:text-2xl md:text-3xl font-black font-number truncate ${isAvgPositive ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
+                  {avgRealized !== null ? `${avgRealized >= 0 ? '+' : ''}${formatNumber(avgRealized, 2)}R` : 'N/A'}
+                </div>
+              </div>
+              <div className="text-[10px] sm:text-xs font-bold text-[#717182] pt-1.5 border-t border-[#121212]/15 flex items-center justify-between">
+                <span>Median</span>
+                <span className="font-extrabold text-[#121212]">
+                  {metrics?.medianRR !== null ? `${formatNumber(metrics.medianRR, 2)}R` : 'N/A'}
                 </span>
               </div>
-              <p className="text-[11px] text-emerald-800 font-medium mt-1 leading-relaxed">
-                Setiap trade memiliki level Stop Loss & Take Profit riil dari broker. Replay engine akan memvalidasi pergerakan candle tanpa memerlukan asumsi RR manual.
-              </p>
             </div>
-          </div>
-        ) : slTpStats.hasNoSLTP ? (
-          <div className="bg-amber-50 border-2 border-[#121212] p-3.5 flex items-start gap-3 shadow-[2px_2px_0px_0px_#D97706]">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <span className="text-xs font-black text-amber-950 uppercase tracking-wide font-[Outfit]">
-                  Data SL & TP Asli Tidak Ditemukan pada Sesi Ini
-                </span>
-                <span className="px-2 py-0.5 bg-amber-200 text-amber-900 text-[10px] font-black uppercase tracking-wider self-start sm:self-auto">
-                  Target RR Diperlukan
+
+            {/* Stat Card 2: Planned RR */}
+            <div className="bg-white border-2 border-[#121212] p-3.5 sm:p-4 shadow-[3px_3px_0px_0px_#121212] flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-[#717182]">
+                <span>Planned RR</span>
+                <span className="w-2 h-2 rounded-full bg-[#F0C020]" />
+              </div>
+              <div className="my-2 sm:my-3">
+                <div className="text-xl sm:text-2xl md:text-3xl font-black font-number text-[#121212] truncate">
+                  {metrics?.avgPlannedRR !== null ? `1 : ${formatNumber(metrics.avgPlannedRR, 2)}` : 'N/A'}
+                </div>
+              </div>
+              <div className="text-[10px] sm:text-xs font-bold text-[#717182] pt-1.5 border-t border-[#121212]/15 flex items-center justify-between">
+                <span>Target Plan</span>
+                <span className="font-extrabold text-[#1040C0]">
+                  {metrics?.avgPlannedRR !== null ? `1:${formatNumber(metrics.avgPlannedRR, 3)}` : 'No data'}
                 </span>
               </div>
-              <p className="text-[11px] text-amber-800 font-medium mt-1 leading-relaxed">
-                Data trade sesi ini tidak memiliki kolom SL/TP riil. Tentukan target <strong>Rasio RR (Risk-to-Reward)</strong> strategi di bawah agar engine dapat merekonstruksi batas risiko & reward setiap trade.
-              </p>
             </div>
-          </div>
-        ) : (
-          <div className="bg-blue-50 border-2 border-[#121212] p-3.5 flex items-start gap-3 shadow-[2px_2px_0px_0px_#1040C0]">
-            <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <span className="text-xs font-black text-blue-950 uppercase tracking-wide font-[Outfit]">
-                  Sebagian Trade Memiliki Data SL/TP ({slTpStats.withAny} / {slTpStats.total} Trade)
-                </span>
-                <span className="px-2 py-0.5 bg-blue-200 text-blue-900 text-[10px] font-black uppercase tracking-wider self-start sm:self-auto">
-                  Hybrid Mode
+
+            {/* Stat Card 3: Win Rate */}
+            <div className="bg-white border-2 border-[#121212] p-3.5 sm:p-4 shadow-[3px_3px_0px_0px_#121212] flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-[#717182]">
+                <span>Broker Win Rate</span>
+                <span className="w-2 h-2 rounded-full bg-[var(--profit)]" />
+              </div>
+              <div className="my-2 sm:my-3">
+                <div className="text-xl sm:text-2xl md:text-3xl font-black font-number text-[var(--profit)] truncate">
+                  {formatPercent(metrics?.winrate || 0)}
+                </div>
+                <div className="w-full bg-[#E5E5E5] h-1.5 rounded-full overflow-hidden mt-1.5">
+                  <div
+                    className="h-full bg-[var(--profit)] rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, Math.max(0, metrics?.winrate || 0))}%` }}
+                  />
+                </div>
+              </div>
+              <div className="text-[10px] sm:text-xs font-bold text-[#717182] pt-1.5 border-t border-[#121212]/15 flex items-center justify-between">
+                <span>Total Closed</span>
+                <span className="font-extrabold text-[#121212]">{trades.length} Trades</span>
+              </div>
+            </div>
+
+            {/* Stat Card 4: Strategy Profile */}
+            <div className="bg-white border-2 border-[#121212] p-3.5 sm:p-4 shadow-[3px_3px_0px_0px_#121212] flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-[#717182]">
+                <span>Strategy Profile</span>
+                <span className="w-2 h-2 rounded-full bg-[#121212]" />
+              </div>
+              <div className="my-2 sm:my-3">
+                <span className="inline-block px-2 py-1 bg-[#F0F0F0] border border-[#121212] text-xs font-black uppercase tracking-wider text-[#121212] truncate max-w-full">
+                  {metrics?.avgPlannedRR !== null && metrics.avgPlannedRR < 1.0 ? 'Fixed Sub-1.0 RR' : 'Standard / Dynamic RR'}
                 </span>
               </div>
-              <p className="text-[11px] text-blue-800 font-medium mt-1 leading-relaxed">
-                Trade dengan data asli akan menggunakan SL/TP riil, sedangkan trade tanpa SL/TP akan direkonstruksi menggunakan rasio RR target.
+              <div className="text-[10px] sm:text-xs font-bold text-[#717182] pt-1.5 border-t border-[#121212]/15 flex items-center justify-between">
+                <span>SL / TP Ground Truth</span>
+                <span className={`font-extrabold ${slTpStats.hasFullActual ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  {slTpStats.hasFullActual ? '100% Detected' : `${slTpStats.withBoth}/${slTpStats.total}`}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick CTA to Replay */}
+          <div className="bg-white border-2 border-[#121212] p-4 sm:p-5 shadow-[4px_4px_0px_0px_#121212] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-black text-sm sm:text-base text-[#121212] uppercase tracking-wider">
+                Siap Memvalidasi Terhadap Data Pasar Riil?
+              </h3>
+              <p className="text-xs text-[#717182] font-semibold mt-0.5">
+                Uji apakah exit strategi Anda sesuai pergerakan tick/candle canonical dan eksplorasi simulasi target RR.
               </p>
             </div>
-          </div>
-        )}
-
-        {/* ── Mobile-First Controls Card ── */}
-        <div className="bg-[#F9F9F9] border-2 border-[#121212] p-4 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            {/* Market Data Source */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-extrabold uppercase tracking-wider text-[#717182]">
-                Sumber Data Pasar
-              </label>
-              <select
-                value={marketDataSource}
-                onChange={e => setMarketDataSource(e.target.value)}
-                disabled={analyzing}
-                className="w-full bg-white border-2 border-[#121212] py-2 px-2.5 text-xs font-bold text-[#121212] outline-none cursor-pointer"
-              >
-                <option value="DUKASCOPY">Dukascopy (M1 CSV)</option>
-                <option value="MT5">MT5 (Historical/Live)</option>
-              </select>
-              <p className="text-[10px] text-[#717182] font-medium">Data feed independen</p>
-            </div>
-
-            {/* Timeframe */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-extrabold uppercase tracking-wider text-[#717182]">
-                Timeframe Replay
-              </label>
-              <select
-                value={timeframe}
-                onChange={e => setTimeframe(e.target.value)}
-                disabled={analyzing}
-                className="w-full bg-white border-2 border-[#121212] py-2 px-2.5 text-xs font-bold text-[#121212] outline-none cursor-pointer"
-              >
-                <option value="M1">M1 (1 Menit — Disarankan)</option>
-                <option value="M5">M5 (5 Menit)</option>
-                <option value="M15">M15 (15 Menit)</option>
-                <option value="M30">M30 (30 Menit)</option>
-                <option value="H1">H1 (1 Jam)</option>
-                <option value="H4">H4 (4 Jam)</option>
-                <option value="D1">D1 (Daily)</option>
-              </select>
-              <p className="text-[10px] text-[#717182] font-medium">Resolusi candle analisis</p>
-            </div>
-          </div>
-
-          {/* Action Trigger */}
-          <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-[#121212]/15">
-            <p className="text-[11px] text-[#717182] font-medium">
-              Akan mereplay <strong>{trades.length} trade</strong> terhadap feed <strong>{marketDataSource} ({timeframe})</strong>.
-            </p>
             <button
-              onClick={() => {
-                if (slTpStats.hasFullActual) {
-                  runMarketAnalysis();
-                } else {
-                  setShowRRModal(true);
-                }
-              }}
-              disabled={analyzing || !sessionId}
-              className={`flex items-center justify-center gap-2 px-5 py-2.5 font-black text-xs uppercase tracking-wider border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] transition-all min-h-[44px]
-                ${analyzing
-                  ? 'bg-[#E5E5E5] text-[#717182] cursor-not-allowed'
-                  : 'bg-[#121212] text-white hover:bg-[#333] active:translate-y-0.5 active:shadow-none'}`}
+              type="button"
+              onClick={() => setActiveTab('REPLAY')}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#121212] hover:bg-[#333] text-white text-xs font-black uppercase tracking-wider border-2 border-[#121212] shadow-[2px_2px_0px_0px_#1040C0] active:translate-y-0.5 active:shadow-none transition-all whitespace-nowrap min-h-[42px]"
             >
-              {analyzing ? (
-                <>
-                  <span className="animate-spin text-sm">⟳</span>
-                  <span>Sedang Menjalankan Replay...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4 text-[#F0C020]" />
-                  <span>Jalankan Replay Validation</span>
-                </>
-              )}
+              <span>Buka Replay Engine</span>
+              <ArrowUpRight className="w-4 h-4 text-[#F0C020]" />
             </button>
           </div>
         </div>
+      )}
 
-        {/* ── RR Reconstruction Modal Dialog (When SL/TP is missing) ── */}
-        {showRRModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <div
-              className="fixed inset-0 bg-[#121212]/70 backdrop-blur-xs transition-opacity"
-              onClick={() => setShowRRModal(false)}
-              aria-hidden="true"
-            />
-
-            {/* Dialog Box */}
-            <div
-              className="relative bg-white border-4 border-[#121212] p-6 md:p-7 max-w-lg w-full shadow-[8px_8px_0px_0px_#121212] space-y-5 animate-scale-up z-10"
-              role="dialog"
-              aria-modal="true"
-            >
-              <div className="flex items-start justify-between gap-3 border-b-2 border-[#121212]/15 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-[#F0C020] text-[#121212] border-2 border-[#121212] shrink-0 font-black text-base">
-                    📐
-                  </div>
-                  <div>
-                    <h3 className="font-black text-base md:text-lg text-[#121212] font-display tracking-tight">
-                      Tentukan Target RR Rekonstruksi
-                    </h3>
-                    <p className="text-[11px] text-[#717182] font-bold uppercase tracking-wider">
-                      {trades.length} Trade Tanpa SL & TP Asli Terdeteksi
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowRRModal(false)}
-                  className="text-[#717182] hover:text-[#121212] transition-colors p-1"
-                  aria-label="Tutup"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                <p className="text-xs text-[#3F3F46] font-medium leading-relaxed">
-                  Karena dataset sesi ini tidak memiliki kolom Stop Loss & Take Profit riil, tentukan <strong>Target Risk-to-Reward (RR)</strong> yang diasumsikan saat Anda melakukan backtest:
-                </p>
-
-                {/* Big Visible High-Contrast Input Box */}
-                <div className="bg-[#F9F9F9] border-2 border-[#121212] p-4 space-y-3">
-                  <label className="block text-[11px] font-black uppercase tracking-wider text-[#121212]">
-                    Rasio Target Risk-to-Reward (RR)
-                  </label>
-                  <div className="flex items-center gap-2 bg-white border-2 border-[#121212] px-3.5 py-2.5 shadow-[3px_3px_0px_0px_#121212]">
-                    <span className="text-lg font-black text-[#121212] font-mono">1 :</span>
-                    <input
-                      type="number"
-                      step="0.05"
-                      min="0.10"
-                      max="10.0"
-                      value={backtestRR}
-                      onChange={e => setBacktestRR(parseFloat(e.target.value) || 1.0)}
-                      className="w-full text-lg font-black text-[#121212] outline-none bg-transparent font-mono"
-                      autoFocus
-                    />
-                    <span className="text-xs font-black text-[#121212] uppercase tracking-wider bg-[#F0F0F0] px-2 py-1 border border-[#121212]">
-                      Target
-                    </span>
-                  </div>
-
-                  {/* Quick Preset Badges */}
-                  <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#717182] mr-1">Preset:</span>
-                    {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0].map(r => (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => setBacktestRR(r)}
-                        className={`px-2.5 py-1 text-xs font-black border-2 border-[#121212] transition-all ${
-                          backtestRR === r
-                            ? 'bg-[#121212] text-white shadow-[2px_2px_0px_0px_#1040C0]'
-                            : 'bg-white text-[#121212] hover:bg-[#E5E5E5]'
-                        }`}
-                      >
-                        1:{r}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Reconstruction Mathematical Explanation */}
-                <div className="bg-blue-50 border-2 border-blue-200 p-3 text-xs text-blue-950 space-y-1">
-                  <p className="font-extrabold text-[11px] uppercase tracking-wider text-blue-900">
-                    💡 Logika Rekonstruksi Fixed RR 1:{backtestRR}:
-                  </p>
-                  <ul className="text-[11px] text-blue-800 list-disc list-inside space-y-0.5 leading-relaxed font-medium">
-                    <li><strong>Trade WIN:</strong> Titik Exit menjadi Take Profit (TP). Stop Loss diasumsikan di: <code className="bg-blue-100 px-1 py-0.5 font-bold">SL = Entry ∓ (Profit / {backtestRR})</code>.</li>
-                    <li><strong>Trade LOSS:</strong> Titik Exit menjadi Stop Loss (SL). Target TP diasumsikan di: <code className="bg-blue-100 px-1 py-0.5 font-bold">TP = Entry ± (Loss × {backtestRR})</code>.</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 pt-2 border-t-2 border-[#121212]/15">
-                <button
-                  type="button"
-                  onClick={() => setShowRRModal(false)}
-                  className="px-4 py-2.5 text-xs font-bold border-2 border-[#121212] bg-white hover:bg-[#F0F0F0] text-[#121212] transition-colors"
-                >
-                  Batal
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowRRModal(false);
-                    runMarketAnalysis();
-                  }}
-                  className="flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-black uppercase tracking-wider border-2 border-[#121212] bg-[#121212] text-white hover:bg-[#333] shadow-[3px_3px_0px_0px_#1040C0] active:translate-y-0.5 active:shadow-none transition-all"
-                >
+      {/* ── SECTION 2: REPLAY ENGINE & VALIDATION (MODE B) ── */}
+      {activeTab === 'REPLAY' && (
+        <div className="space-y-4">
+          {/* Controls Card */}
+          <div className="bg-white border-2 border-[#121212] p-4 sm:p-5 shadow-[4px_4px_0px_0px_#121212] space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b-2 border-[#121212]/10 pb-3">
+              <div>
+                <h3 className="text-sm sm:text-base font-black text-[#121212] uppercase tracking-wider font-display flex items-center gap-2">
                   <Zap className="w-4 h-4 text-[#F0C020]" />
-                  <span>Lanjutkan Replay (RR 1:{backtestRR})</span>
-                </button>
+                  Replay Validation Engine
+                </h3>
+                <p className="text-xs text-[#717182] font-semibold mt-0.5">
+                  Verifikasi eksekusi trade terhadap data pasar historis bebas look-ahead bias.
+                </p>
               </div>
-            </div>
-          </div>
-        )}
 
-
-
-        {/* ── Contextual Loading State ── */}
-        {analyzing && (
-          <>
-            <ContextualLoading
-              title="Menjalankan Replay Validation & What-If Simulation"
-              subtitle={
-                replayProgress && replayProgress.total > 0
-                  ? replayProgress.phase === 'persisting'
-                    ? `Menyimpan hasil... ${replayProgress.total} trade selesai diproses`
-                    : `Memproses Trade ${replayProgress.current.toLocaleString()} dari ${replayProgress.total.toLocaleString()}`
-                  : `Memproses ${trades.length} Trade pada feed ${marketDataSource}`
-              }
-              description="Engine sedang menelusuri candle pasar riil secara kronologis untuk menguji hit SL/TP dan menghitung pergerakan harga maksimal (MFE) sebelum batas SL tersentuh."
-              stages={loadingStages}
-              currentStepMessage={
-                replayProgress && replayProgress.total > 0
-                  ? replayProgress.phase === 'persisting'
-                    ? `Menyimpan data ke database...`
-                    : replayProgress.phase === 'processing'
-                    ? `Trade ${replayProgress.current} / ${replayProgress.total} — ${replayProgress.validSoFar} Valid, ${replayProgress.invalidSoFar} Rejection`
-                    : `Tahap ${analysisStep} dari 3: Memproses dataset...`
-                  : `Tahap ${analysisStep} dari 3: Memproses dataset...`
-              }
-            />
-            {/* Live progress bar */}
-            {replayProgress && replayProgress.total > 0 && (
-              <div className="mt-3 border-2 border-[#121212] bg-white p-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#717182]" style={{ fontFamily: 'Outfit' }}>
-                    {replayProgress.phase === 'persisting' ? 'Menyimpan Data' : 'Progress Replay'}
+              {/* Inline Status Pill */}
+              <div className="self-start sm:self-auto">
+                {slTpStats.hasFullActual ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-100 border border-emerald-400 text-emerald-900 text-[11px] font-black uppercase tracking-wider">
+                    <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                    {slTpStats.withBoth}/{slTpStats.total} SL & TP Detected (Ground Truth Ready)
                   </span>
-                  <span className="text-[11px] font-black text-[#121212]" style={{ fontFamily: 'Outfit' }}>
-                    {replayProgress.total > 0 ? Math.round((replayProgress.current / replayProgress.total) * 100) : 0}%
+                ) : slTpStats.hasNoSLTP ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 border border-amber-400 text-amber-900 text-[11px] font-black uppercase tracking-wider">
+                    <span className="w-2 h-2 rounded-full bg-amber-600" />
+                    Target RR Diperlukan (Missing SL/TP)
                   </span>
-                </div>
-                <div className="w-full h-2 bg-[#F0F0F0] border border-[#121212] overflow-hidden">
-                  <div
-                    className="h-full bg-[#1040C0] transition-all duration-300 ease-out"
-                    style={{ width: `${replayProgress.total > 0 ? (replayProgress.current / replayProgress.total) * 100 : 0}%` }}
-                  />
-                </div>
-                <div className="flex justify-between mt-1.5">
-                  <span className="text-[10px] font-bold text-[#059669]" style={{ fontFamily: 'Outfit' }}>
-                    ✓ {replayProgress.validSoFar.toLocaleString()} Valid
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-100 border border-blue-400 text-blue-900 text-[11px] font-black uppercase tracking-wider">
+                    <span className="w-2 h-2 rounded-full bg-blue-600" />
+                    Hybrid Mode ({slTpStats.withAny}/{slTpStats.total} SL/TP)
                   </span>
-                  {replayProgress.invalidSoFar > 0 && (
-                    <span className="text-[10px] font-bold text-[#DC2626]" style={{ fontFamily: 'Outfit' }}>
-                      ✗ {replayProgress.invalidSoFar.toLocaleString()} Rejection
-                    </span>
-                  )}
-                  <span className="text-[10px] font-bold text-[#717182]" style={{ fontFamily: 'Outfit' }}>
-                    {replayProgress.current.toLocaleString()} / {replayProgress.total.toLocaleString()} trade
-                  </span>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-
-        {/* ── Error State ── */}
-        {error && !analyzing && (
-          <ActionFeedback
-            type="ERROR"
-            title="Eksekusi Replay Gagal"
-            description={error}
-            primaryAction={{
-              label: 'Coba Lagi',
-              onClick: runMarketAnalysis,
-              variant: 'primary',
-            }}
-          />
-        )}
-
-        {/* ── Replay Result Summary Feedback ── */}
-        {analyzeResult && !analyzing && (
-          <ActionFeedback
-            type={analyzeResult.valid > 0 ? 'SUCCESS' : 'WARNING'}
-            title={analyzeResult.valid > 0 ? 'Replay Validation Selesai' : 'Replay Selesai dengan Catatan'}
-            subtitle={analyzeResult.latestReplayVersion ? `Engine v${analyzeResult.latestReplayVersion}` : undefined}
-            description={
-              analyzeResult.valid > 0
-                ? `${analyzeResult.valid} dari ${analyzeResult.processed} trade berhasil diverifikasi dan dihitung terhadap pergerakan pasar riil.`
-                : 'Tidak ada trade yang lolos kriteria validasi pasar. Periksa ketersediaan candle pasar untuk simbol dan rentang waktu sesi ini.'
-            }
-            metrics={[
-              { label: 'Trade Diproses', value: analyzeResult.processed, color: 'neutral' },
-              { label: 'Trade Valid', value: analyzeResult.valid, color: 'profit' },
-              { label: 'Rejection', value: analyzeResult.invalid, color: analyzeResult.invalid > 0 ? 'loss' : 'neutral' },
-              { label: 'Provider', value: marketDataSource, color: 'blue' },
-            ]}
-          />
-        )}
-
-        {/* ── MODE B: Replay Validation Result ── */}
-        {validationSummary && !analyzing && (
-          <div className="space-y-4 pt-1">
-            {/* Mode B Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-emerald-50 border-2 border-emerald-400 text-emerald-950">
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider">
-                  Mode B — Replay Result
-                </span>
-                <p className="text-xs font-extrabold font-display">
-                  Hasil Validasi: Apakah Candle {validationSummary.provider} {validationSummary.timeframe} mereproduksi exit broker?
-                </p>
-              </div>
-              <p className="text-[11px] text-emerald-800 font-semibold italic shrink-0">
-                {slTpStats.hasFullActual
-                  ? 'Replay menggunakan SL & TP aktual dari broker. Tidak membuat ulang SL/TP.'
-                  : `Replay menggunakan estimasi SL & TP berbasis asumsi Fixed RR 1:${backtestRR}.`}
-              </p>
-            </div>
-
-            {/* Broker vs Replay Comparison Card */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* Broker WR */}
-              <div className="bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212] flex flex-col gap-1">
-                <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#717182]">Broker Win Rate</p>
-                <p className="font-black font-number text-2xl text-[#121212]">
-                  {formatPercent(validationSummary.broker.winRate)}
-                </p>
-                <p className="text-[11px] font-semibold text-[#717182]">
-                  {validationSummary.broker.wins}W / {validationSummary.broker.losses}L dari {validationSummary.broker.totalTrades} trade
-                </p>
-                <div className="mt-1 pt-1 border-t border-dashed border-[#121212]/15 text-[10px] font-bold text-[#717182] uppercase tracking-wider">Ground Truth (MT5)</div>
-              </div>
-
-              {/* Replay WR */}
-              <div className="bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212] flex flex-col gap-1">
-                <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#717182]">Replay Win Rate</p>
-                <p className="font-black font-number text-2xl text-[#121212]">
-                  {formatPercent(validationSummary.replay.allTradesWinRate)}
-                </p>
-                <p className="text-[11px] font-semibold text-[#717182]">
-                  TP hits: {validationSummary.replay.tpHits} dari {validationSummary.broker.totalTrades} trade total
-                </p>
-                <div className="mt-1 pt-1 border-t border-dashed border-[#121212]/15 text-[10px] font-bold text-[#717182] uppercase tracking-wider">
-                  {validationSummary.provider} {validationSummary.timeframe}
-                </div>
-              </div>
-
-              {/* Difference */}
-              <div className={`border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212] flex flex-col gap-1 ${
-                Math.abs(validationSummary.replay.diffPp) < 1
-                  ? 'bg-emerald-50'
-                  : Math.abs(validationSummary.replay.diffPp) < 3
-                  ? 'bg-amber-50'
-                  : 'bg-red-50'
-              }`}>
-                <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#717182]">Selisih WR</p>
-                <p className={`font-black font-number text-2xl ${
-                  Math.abs(validationSummary.replay.diffPp) < 1
-                    ? 'text-emerald-700'
-                    : Math.abs(validationSummary.replay.diffPp) < 3
-                    ? 'text-amber-700'
-                    : 'text-red-700'
-                }`}>
-                  {validationSummary.replay.diffPp >= 0 ? '+' : ''}{validationSummary.replay.diffPp.toFixed(2)} pp
-                </p>
-                <p className="text-[11px] font-semibold text-[#717182]">
-                  {Math.abs(validationSummary.replay.diffPp) < 1 ? '✅ VERY CLOSE' : Math.abs(validationSummary.replay.diffPp) < 3 ? '⚠️ SLIGHT DEVIATION' : '❌ SIGNIFICANT DEVIATION'}
-                </p>
-                <div className="mt-1 pt-1 border-t border-dashed border-[#121212]/15 text-[10px] font-bold text-[#717182] uppercase tracking-wider">vs Broker Ground Truth</div>
-              </div>
-            </div>
-
-            {/* Exact Match Card */}
-            <div className="bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212]">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                <div>
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#717182] mb-0.5">Exact Match — Replay vs Broker Exit</p>
-                  <p className="text-xs text-[#717182] font-medium max-w-lg">
-                    Berapa banyak trade dimana replay (candle {validationSummary.provider} {validationSummary.timeframe}) menghasilkan keputusan yang <strong>sama persis</strong> dengan exit broker riil?
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="font-black font-number text-xl text-[#121212]">
-                    {validationSummary.replay.exactMatches} / {validationSummary.broker.totalTrades}
-                  </p>
-                  <p className="font-extrabold font-number text-sm text-emerald-700">
-                    {formatPercent(validationSummary.replay.exactMatchPct)} Match
-                  </p>
-                </div>
-              </div>
-
-              {/* Visual Breakdown Bar */}
-              <div className="space-y-2">
-                <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#717182]">Breakdown Candle Replay ({validationSummary.broker.totalTrades} Trade Total)</p>
-
-                {/* TP Hit First */}
-                <div className="space-y-1">
-                  <div className="flex justify-between items-center text-xs font-semibold">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-                      TP Hit First
-                    </span>
-                    <span className="font-black font-number text-emerald-700">
-                      {validationSummary.replay.tpHits} ({formatPercent(validationSummary.replay.tpPct)})
-                    </span>
-                  </div>
-                  <div className="h-3 bg-[#E5E5E5] rounded-full overflow-hidden w-full">
-                    <div
-                      className="h-full bg-emerald-500 rounded-full transition-all duration-700"
-                      style={{ width: `${Math.min(100, validationSummary.replay.tpPct)}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* SL Hit First */}
-                <div className="space-y-1">
-                  <div className="flex justify-between items-center text-xs font-semibold">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
-                      SL Hit First
-                    </span>
-                    <span className="font-black font-number text-red-700">
-                      {validationSummary.replay.slHits} ({formatPercent(validationSummary.replay.slPct)})
-                    </span>
-                  </div>
-                  <div className="h-3 bg-[#E5E5E5] rounded-full overflow-hidden w-full">
-                    <div
-                      className="h-full bg-red-500 rounded-full transition-all duration-700"
-                      style={{ width: `${Math.min(100, validationSummary.replay.slPct)}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Neither */}
-                <div className="space-y-1">
-                  <div className="flex justify-between items-center text-xs font-semibold">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-gray-400 shrink-0" />
-                      Neither (SL/TP tidak tersentuh dalam window)
-                    </span>
-                    <span className="font-black font-number text-gray-600">
-                      {validationSummary.replay.neither} ({formatPercent(validationSummary.replay.neitherPct)})
-                    </span>
-                  </div>
-                  <div className="h-3 bg-[#E5E5E5] rounded-full overflow-hidden w-full">
-                    <div
-                      className="h-full bg-gray-400 rounded-full transition-all duration-700"
-                      style={{ width: `${Math.min(100, validationSummary.replay.neitherPct)}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Ambiguous */}
-                {validationSummary.replay.ambiguous > 0 && (
-                  <div className="space-y-1">
-                    <div className="flex justify-between items-center text-xs font-semibold">
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
-                        Intrabar Ambiguous (SL &amp; TP pada candle yang sama)
-                      </span>
-                      <span className="font-black font-number text-amber-700">
-                        {validationSummary.replay.ambiguous} ({formatPercent(validationSummary.replay.ambiguousPct)})
-                      </span>
-                    </div>
-                    <div className="h-3 bg-[#E5E5E5] rounded-full overflow-hidden w-full">
-                      <div
-                        className="h-full bg-amber-400 rounded-full transition-all duration-700"
-                        style={{ width: `${Math.min(100, validationSummary.replay.ambiguousPct)}%` }}
-                      />
-                    </div>
-                  </div>
                 )}
               </div>
             </div>
 
-            {/* Semantic Disclaimer */}
-            <div className="bg-blue-50 border-l-4 border-blue-500 p-3.5 text-xs font-medium text-blue-950 space-y-1.5 font-[Outfit]">
-              <p className="font-extrabold text-blue-900 uppercase tracking-wider text-[11px]">
-                ℹ️ Memahami Hasil Validasi Mode B ({validationSummary.provider} {validationSummary.timeframe})
-              </p>
-              {slTpStats.hasFullActual ? (
-                <p className="leading-relaxed text-blue-900">
-                  Mode B menguji apakah pergerakan candle independen ({validationSummary.provider} {validationSummary.timeframe}) menyentuh Stop Loss atau Take Profit riil broker secara kronologis. Replay tidak memodifikasi atau merekonstruksi SL/TP — 100% menggunakan titik SL/TP pembukaan order MT5 Anda.
-                </p>
-              ) : (
-                <p className="leading-relaxed text-blue-900">
-                  Karena sesi ini tidak mencatat kolom Stop Loss asli, engine menguji pergerakan candle pasar dengan <strong>asumsi Fixed RR 1:{backtestRR}</strong> (Level Stop Loss dihitung dari jarak Take Profit / Profit riil yang dicapai). Jika terdapat perbedaan Win Rate ({validationSummary.replay.slHits} trade SL Hit First), hal ini menunjukkan bahwa pada data candle pasar riil M1, fluktuasi/wick harga sempat menyentuh level Stop Loss asumsi tersebut sebelum batas profit tercapai.
-                </p>
-              )}
-              {validationSummary.replay.neither > 0 && (
-                <p className="leading-relaxed text-blue-800 text-[11px]">
-                  <strong>Neither ({validationSummary.replay.neither} Trade):</strong> Baik SL maupun TP tidak tersentuh pada seluruh candle dalam window trade — ini terjadi jika data candle pada feed tidak mencakup seluruh durasi trade.
-                </p>
-              )}
+            {/* Inputs & Actions */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-end">
+              <div className="space-y-1">
+                <label className="block text-[10px] font-black uppercase tracking-wider text-[#717182]">
+                  Sumber Data Pasar
+                </label>
+                <select
+                  value={marketDataSource}
+                  onChange={e => setMarketDataSource(e.target.value)}
+                  disabled={analyzing}
+                  className="w-full bg-[#F9F9F9] border-2 border-[#121212] py-2 px-3 text-xs font-bold text-[#121212] outline-none cursor-pointer"
+                >
+                  <option value="PARQUET">Parquet Tick Data (725M Canonical Ticks)</option>
+                  <option value="DUKASCOPY">Dukascopy (Historical Ticks / Candles)</option>
+                  <option value="MT5">MT5 (Historical/Live)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-[10px] font-black uppercase tracking-wider text-[#717182]">
+                  Timeframe Replay
+                </label>
+                <select
+                  value={timeframe}
+                  onChange={e => setTimeframe(e.target.value)}
+                  disabled={analyzing}
+                  className="w-full bg-[#F9F9F9] border-2 border-[#121212] py-2 px-3 text-xs font-bold text-[#121212] outline-none cursor-pointer"
+                >
+                  <option value="M1">M1 (1 Menit, Disarankan)</option>
+                  <option value="M5">M5 (5 Menit)</option>
+                  <option value="M15">M15 (15 Menit)</option>
+                  <option value="M30">M30 (30 Menit)</option>
+                  <option value="H1">H1 (1 Jam)</option>
+                  <option value="H4">H4 (4 Jam)</option>
+                  <option value="D1">D1 (Daily)</option>
+                </select>
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (slTpStats.hasFullActual) {
+                      runMarketAnalysis();
+                    } else {
+                      setShowRRModal(true);
+                    }
+                  }}
+                  disabled={analyzing || !sessionId}
+                  className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 font-black text-xs uppercase tracking-wider border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] transition-all min-h-[42px] ${
+                    analyzing
+                      ? 'bg-[#E5E5E5] text-[#717182] cursor-not-allowed'
+                      : 'bg-[#121212] text-white hover:bg-[#333] active:translate-y-0.5 active:shadow-none'
+                  }`}
+                >
+                  {analyzing ? (
+                    <>
+                      <span className="animate-spin text-sm">⟳</span>
+                      <span>Sedang Memproses Replay...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 text-[#F0C020]" />
+                      <span>Jalankan Replay Validation</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
-        )}
 
-
-        {/* ── Mode C: What-If Simulation Matrix ── */}
-
-        {rrSimData && rrSimData.length > 0 && (
-          <div className="space-y-4 pt-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-blue-50 border-2 border-blue-300 text-blue-950">
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 bg-[#1040C0] text-white text-[10px] font-black uppercase tracking-wider">
-                  Mode C
-                </span>
-                <p className="text-xs font-extrabold font-display">
-                  Matriks Simulasi Target RR Hipotetis ({rrSimData[0]?.total ?? trades.length} Trade)
-                </p>
-              </div>
-              <p className="text-[11px] text-blue-800 font-medium">
-                Probabilitas tercapai sebelum menyentuh batas Actual SL
-              </p>
+          {/* Loading Stage */}
+          {analyzing && (
+            <div className="space-y-3">
+              <ContextualLoading
+                title="Menjalankan Replay Validation & What-If Simulation"
+                subtitle={
+                  replayProgress && replayProgress.total > 0
+                    ? replayProgress.phase === 'persisting'
+                      ? `Menyimpan hasil... ${replayProgress.total} trade selesai diproses`
+                      : `Memproses Trade ${replayProgress.current.toLocaleString()} dari ${replayProgress.total.toLocaleString()}`
+                    : `Memproses ${trades.length} Trade pada feed ${marketDataSource}`
+                }
+                description="Engine sedang menelusuri data pasar riil secara kronologis untuk memvalidasi hit SL/TP."
+                stages={loadingStages}
+                currentStepMessage={
+                  replayProgress && replayProgress.total > 0
+                    ? replayProgress.phase === 'persisting'
+                      ? `Menyimpan data ke database...`
+                      : replayProgress.phase === 'processing'
+                      ? `Trade ${replayProgress.current} / ${replayProgress.total} · ${replayProgress.validSoFar} Valid, ${replayProgress.invalidSoFar} Rejection`
+                      : `Tahap ${analysisStep} dari 3: Memproses dataset...`
+                    : `Tahap ${analysisStep} dari 3: Memproses dataset...`
+                }
+              />
+              {replayProgress && replayProgress.total > 0 && (
+                <div className="border-2 border-[#121212] bg-white p-3.5 shadow-[2px_2px_0px_0px_#121212]">
+                  <div className="flex justify-between items-center mb-1.5 text-[11px] font-black uppercase tracking-wider text-[#121212]">
+                    <span>{replayProgress.phase === 'persisting' ? 'Menyimpan Data' : 'Progress Replay'}</span>
+                    <span>{replayProgress.total > 0 ? Math.round((replayProgress.current / replayProgress.total) * 100) : 0}%</span>
+                  </div>
+                  <div className="w-full h-2.5 bg-[#F0F0F0] border border-[#121212] overflow-hidden">
+                    <div
+                      className="h-full bg-[#1040C0] transition-all duration-300 ease-out"
+                      style={{ width: `${replayProgress.total > 0 ? (replayProgress.current / replayProgress.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1 text-[10px] font-bold text-[#717182]">
+                    <span className="text-[var(--profit)] font-black">✓ {replayProgress.validSoFar.toLocaleString()} Valid</span>
+                    {replayProgress.invalidSoFar > 0 && (
+                      <span className="text-[var(--loss)] font-black">✗ {replayProgress.invalidSoFar.toLocaleString()} Rejection</span>
+                    )}
+                    <span>{replayProgress.current.toLocaleString()} / {replayProgress.total.toLocaleString()} trades</span>
+                  </div>
+                </div>
+              )}
             </div>
+          )}
 
-            {/* Mobile Card List View (< md) */}
-            <div className="grid grid-cols-1 gap-3 md:hidden">
-              {rrSimData.map((row) => {
-                const isProfitable = row.expectancy > 0;
-                const isBreakEven = Math.abs(row.expectancy) <= 0.02;
+          {/* Error Feedback */}
+          {error && !analyzing && (
+            <ActionFeedback
+              type="ERROR"
+              title="Eksekusi Replay Gagal"
+              description={error}
+              primaryAction={{
+                label: 'Coba Lagi',
+                onClick: runMarketAnalysis,
+                variant: 'primary',
+              }}
+            />
+          )}
 
-                return (
-                  <div
-                    key={row.rrTarget}
-                    className={`bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212] space-y-3 ${
-                      isProfitable ? 'border-l-4 border-l-emerald-600' : 'border-l-4 border-l-gray-400'
-                    }`}
-                  >
-                    {/* Header Row */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-black text-sm font-display text-[#121212]">
-                          1 : {row.rrTarget}
-                        </span>
-                        <span className="text-[10px] font-bold text-[#717182] uppercase tracking-wider">
-                          Target RR
-                        </span>
-                      </div>
-                      <span
-                        className={`text-xs font-black font-number px-2 py-0.5 border ${
-                          isProfitable
-                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                            : isBreakEven
-                            ? 'bg-blue-50 text-blue-800 border-blue-300'
-                            : 'bg-red-50 text-red-800 border-red-300'
-                        }`}
-                      >
-                        {row.expectancy >= 0 ? '+' : ''}{formatNumber(row.expectancy, 2)}R EV
+          {/* Summary Result Feedback */}
+          {analyzeResult && !analyzing && (
+            <ActionFeedback
+              type={analyzeResult.valid > 0 ? 'SUCCESS' : 'WARNING'}
+              title={analyzeResult.valid > 0 ? 'Replay Validation Selesai' : 'Replay Selesai dengan Catatan'}
+              subtitle={analyzeResult.latestReplayVersion ? `Engine v${analyzeResult.latestReplayVersion}` : undefined}
+              description={
+                analyzeResult.valid > 0
+                  ? `${analyzeResult.valid} dari ${analyzeResult.processed} trade berhasil diverifikasi dan dihitung terhadap pergerakan pasar riil.`
+                  : 'Tidak ada trade yang lolos kriteria validasi pasar. Periksa ketersediaan candle pasar untuk simbol dan rentang waktu sesi ini.'
+              }
+              metrics={[
+                { label: 'Trade Diproses', value: analyzeResult.processed, color: 'neutral' },
+                { label: 'Trade Valid', value: analyzeResult.valid, color: 'profit' },
+                { label: 'Rejection', value: analyzeResult.invalid, color: analyzeResult.invalid > 0 ? 'loss' : 'neutral' },
+                { label: 'Provider', value: marketDataSource, color: 'blue' },
+              ]}
+            />
+          )}
+
+          {/* Validation Summary Metrics */}
+          {validationSummary && !analyzing && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Broker WR */}
+                <div className="bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212] flex flex-col justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-[#717182]">Broker Win Rate</p>
+                  <p className="font-black font-number text-2xl text-[#121212] my-1">
+                    {formatPercent(validationSummary.broker.winRate)}
+                  </p>
+                  <p className="text-[11px] font-bold text-[#717182] pt-1 border-t border-[#121212]/15">
+                    {validationSummary.broker.wins}W / {validationSummary.broker.losses}L · Ground Truth
+                  </p>
+                </div>
+
+                {/* Replay WR */}
+                <div className="bg-white border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212] flex flex-col justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-[#717182]">Replay Win Rate</p>
+                  <p className="font-black font-number text-2xl text-[#121212] my-1">
+                    {formatPercent(validationSummary.replay.allTradesWinRate)}
+                  </p>
+                  <p className="text-[11px] font-bold text-[#717182] pt-1 border-t border-[#121212]/15">
+                    TP Hits: {validationSummary.replay.tpHits} · {validationSummary.provider} {validationSummary.timeframe}
+                  </p>
+                </div>
+
+                {/* Diff */}
+                <div className={`border-2 border-[#121212] p-4 shadow-[3px_3px_0px_0px_#121212] flex flex-col justify-between ${
+                  Math.abs(validationSummary.replay.diffPp) < 1
+                    ? 'bg-emerald-50'
+                    : Math.abs(validationSummary.replay.diffPp) < 3
+                    ? 'bg-amber-50'
+                    : 'bg-red-50'
+                }`}>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-[#717182]">Selisih WR</p>
+                  <p className={`font-black font-number text-2xl my-1 ${
+                    Math.abs(validationSummary.replay.diffPp) < 1
+                      ? 'text-emerald-700'
+                      : Math.abs(validationSummary.replay.diffPp) < 3
+                      ? 'text-amber-700'
+                      : 'text-red-700'
+                  }`}>
+                    {validationSummary.replay.diffPp >= 0 ? '+' : ''}{validationSummary.replay.diffPp.toFixed(2)} pp
+                  </p>
+                  <p className="text-[11px] font-bold text-[#717182] pt-1 border-t border-[#121212]/15">
+                    {Math.abs(validationSummary.replay.diffPp) < 1 ? 'Very Close' : Math.abs(validationSummary.replay.diffPp) < 3 ? 'Slight Deviation' : 'Significant Deviation'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Breakdown Card */}
+              <div className="bg-white border-2 border-[#121212] p-4 sm:p-5 shadow-[3px_3px_0px_0px_#121212] space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <p className="text-xs font-black uppercase tracking-wider text-[#121212]">
+                    Breakdown Replay ({validationSummary.broker.totalTrades} Trade Total)
+                  </p>
+                  <span className="text-xs font-extrabold text-emerald-700 font-number">
+                    {validationSummary.replay.exactMatches} / {validationSummary.broker.totalTrades} ({formatPercent(validationSummary.replay.exactMatchPct)}) Exact Matches
+                  </span>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  {/* TP Hit */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="flex items-center gap-1.5 text-[#121212]">
+                        <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full" />
+                        TP Hit First
+                      </span>
+                      <span className="text-emerald-700 font-number font-black">
+                        {validationSummary.replay.tpHits} ({formatPercent(validationSummary.replay.tpPct)})
                       </span>
                     </div>
-
-                    {/* Win Rate Progress Bar */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs font-bold">
-                        <span className="text-[#717182]">Simulated Win Rate</span>
-                        <span
-                          className={`font-black font-number ${
-                            row.winRate >= 50
-                              ? 'text-[var(--profit)]'
-                              : row.winRate >= 35
-                              ? 'text-amber-600'
-                              : 'text-[var(--loss)]'
-                          }`}
-                        >
-                          {formatPercent(row.winRate)}
-                        </span>
-                      </div>
-                      <div className="h-2 bg-[#E5E5E5] rounded-full overflow-hidden w-full">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            row.winRate >= 50
-                              ? 'bg-emerald-500'
-                              : row.winRate >= 35
-                              ? 'bg-amber-400'
-                              : 'bg-red-400'
-                          }`}
-                          style={{ width: `${Math.min(100, Math.max(0, row.winRate))}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Breakdown */}
-                    <div className="flex justify-between items-center text-[11px] text-[#717182] font-semibold pt-1 border-t border-[#121212]/10">
-                      <span>Kemenangan / Kekalahan:</span>
-                      <span className="font-bold font-number">
-                        <strong className="text-[var(--profit)] font-black">{row.wins} Wins</strong> /{' '}
-                        <strong className="text-[var(--loss)] font-black">{row.losses} Losses</strong>
-                      </span>
+                    <div className="h-2.5 bg-[#E5E5E5] rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${Math.min(100, validationSummary.replay.tpPct)}%` }} />
                     </div>
                   </div>
-                );
-              })}
-            </div>
 
-            {/* Desktop Table View (>= md) */}
-            <div className="hidden md:block table-scroll">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Target RR</th>
-                    <th>Simulated Win Rate</th>
-                    <th>Wins / Losses</th>
-                    <th>Expectancy (EV per 1R)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rrSimData.map((row) => (
-                    <tr key={row.rrTarget} className={row.expectancy > 0 ? 'bg-emerald-50/40' : ''}>
-                      <td className="font-extrabold text-[#121212] font-display text-[15px]">
-                        1 : {row.rrTarget}
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-3">
-                          <span className={`font-extrabold font-number text-[14px] w-14 ${row.winRate >= 50 ? 'text-[var(--profit)]' : row.winRate >= 35 ? 'text-amber-600' : 'text-[var(--loss)]'}`}>
+                  {/* SL Hit */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="flex items-center gap-1.5 text-[#121212]">
+                        <span className="w-2.5 h-2.5 bg-red-500 rounded-full" />
+                        SL Hit First
+                      </span>
+                      <span className="text-red-700 font-number font-black">
+                        {validationSummary.replay.slHits} ({formatPercent(validationSummary.replay.slPct)})
+                      </span>
+                    </div>
+                    <div className="h-2.5 bg-[#E5E5E5] rounded-full overflow-hidden">
+                      <div className="h-full bg-red-500 rounded-full" style={{ width: `${Math.min(100, validationSummary.replay.slPct)}%` }} />
+                    </div>
+                  </div>
+
+                  {/* Neither */}
+                  {validationSummary.replay.neither > 0 && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs font-bold">
+                        <span className="flex items-center gap-1.5 text-[#717182]">
+                          <span className="w-2.5 h-2.5 bg-gray-400 rounded-full" />
+                          Neither (Out of Window)
+                        </span>
+                        <span className="text-gray-600 font-number font-black">
+                          {validationSummary.replay.neither} ({formatPercent(validationSummary.replay.neitherPct)})
+                        </span>
+                      </div>
+                      <div className="h-2.5 bg-[#E5E5E5] rounded-full overflow-hidden">
+                        <div className="h-full bg-gray-400 rounded-full" style={{ width: `${Math.min(100, validationSummary.replay.neitherPct)}%` }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!validationSummary && !analyzing && !error && (
+            <div className="text-center py-8 px-4 border-2 border-dashed border-[#121212]/20 bg-[#F9F9F9] space-y-2">
+              <Database className="w-8 h-8 text-[#121212] mx-auto opacity-70" />
+              <h4 className="font-black text-sm text-[#121212] uppercase tracking-wider">
+                Replay Belum Dijalankan
+              </h4>
+              <p className="text-xs text-[#717182] max-w-sm mx-auto font-semibold">
+                Tekan tombol "Jalankan Replay Validation" di atas untuk memulai penelusuran pasar historis.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SECTION 3: WHAT-IF SIMULATION MATRIX (MODE C) ── */}
+      {activeTab === 'MATRIX' && (
+        <div className="space-y-4">
+          {rrSimData && rrSimData.length > 0 ? (
+            <div className="bg-white border-2 border-[#121212] p-4 sm:p-5 shadow-[4px_4px_0px_0px_#121212] space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b-2 border-[#121212]/10 pb-3">
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-[#121212] uppercase tracking-wider font-display flex items-center gap-2">
+                    <Target className="w-4 h-4 text-[#1040C0]" />
+                    Matriks Simulasi Target RR Hipotetis
+                  </h3>
+                  <p className="text-xs text-[#717182] font-semibold mt-0.5">
+                    Probabilitas tercapai sebelum menyentuh batas Actual SL pada {rrSimData[0]?.total ?? trades.length} trade.
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 bg-[#F0F0F0] border border-[#121212] text-xs font-black text-[#121212] uppercase tracking-wider self-start sm:self-auto">
+                  {marketDataSource} {timeframe}
+                </span>
+              </div>
+
+              {/* Mobile View: Cards (< md) */}
+              <div className="grid grid-cols-1 gap-2.5 md:hidden">
+                {rrSimData.map(row => {
+                  const isProfitable = row.expectancy > 0;
+                  return (
+                    <div
+                      key={row.rrTarget}
+                      className={`bg-[#F9F9F9] border-2 border-[#121212] p-3 shadow-[2px_2px_0px_0px_#121212] space-y-2 ${
+                        isProfitable ? 'border-l-4 border-l-emerald-600' : 'border-l-4 border-l-gray-400'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-sm font-display text-[#121212]">
+                          Target 1 : {row.rrTarget}
+                        </span>
+                        <span
+                          className={`text-xs font-black font-number px-2 py-0.5 border ${
+                            isProfitable
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                              : 'bg-red-50 text-red-800 border-red-300'
+                          }`}
+                        >
+                          {row.expectancy >= 0 ? '+' : ''}{formatNumber(row.expectancy, 2)}R EV
+                        </span>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs font-bold">
+                          <span className="text-[#717182]">Win Rate</span>
+                          <span className={`font-black font-number ${row.winRate >= 50 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
                             {formatPercent(row.winRate)}
                           </span>
-                          <div className="flex-1 h-2 bg-[#E5E5E5] rounded-full overflow-hidden max-w-[140px]">
-                            <div
-                              className={`h-full rounded-full ${row.winRate >= 50 ? 'bg-emerald-500' : row.winRate >= 35 ? 'bg-amber-400' : 'bg-red-400'}`}
-                              style={{ width: `${Math.min(100, Math.max(0, row.winRate))}%` }}
-                            />
-                          </div>
                         </div>
-                      </td>
-                      <td className="font-bold font-number">
-                        <span className="text-[var(--profit)] font-black">{row.wins}</span>
-                        <span className="text-[#717182]"> / </span>
-                        <span className="text-[var(--loss)] font-black">{row.losses}</span>
-                      </td>
-                      <td className={`font-extrabold font-number text-[14px] ${row.expectancy >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
-                        {row.expectancy >= 0 ? '+' : ''}{formatNumber(row.expectancy, 2)}R
-                      </td>
+                        <div className="h-2 bg-[#E5E5E5] rounded-full overflow-hidden w-full">
+                          <div
+                            className={`h-full rounded-full ${row.winRate >= 50 ? 'bg-emerald-500' : 'bg-red-400'}`}
+                            style={{ width: `${Math.min(100, Math.max(0, row.winRate))}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center text-[11px] text-[#717182] font-semibold pt-1 border-t border-[#121212]/10">
+                        <span>Hasil:</span>
+                        <span className="font-bold font-number">
+                          <strong className="text-[var(--profit)] font-black">{row.wins} W</strong> /{' '}
+                          <strong className="text-[var(--loss)] font-black">{row.losses} L</strong>
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table View (>= md) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left text-xs sm:text-[13px] font-[Outfit]">
+                  <thead>
+                    <tr className="bg-[#121212] text-white">
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">Target RR</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">Simulated Win Rate</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">Wins / Losses</th>
+                      <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest">Expectancy (EV per 1R)</th>
                     </tr>
+                  </thead>
+                  <tbody className="divide-y-2 divide-[#121212]/10">
+                    {rrSimData.map(row => (
+                      <tr key={row.rrTarget} className={`hover:bg-[#F0F0F0] transition-colors ${row.expectancy > 0 ? 'bg-emerald-50/40' : ''}`}>
+                        <td className="px-4 py-3 font-black text-[#121212] font-display text-[14px]">
+                          1 : {row.rrTarget}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <span className={`font-extrabold font-number text-[13px] w-14 ${row.winRate >= 50 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
+                              {formatPercent(row.winRate)}
+                            </span>
+                            <div className="flex-1 h-2 bg-[#E5E5E5] rounded-full overflow-hidden max-w-[120px]">
+                              <div
+                                className={`h-full rounded-full ${row.winRate >= 50 ? 'bg-emerald-500' : 'bg-red-400'}`}
+                                style={{ width: `${Math.min(100, Math.max(0, row.winRate))}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-bold font-number">
+                          <span className="text-[var(--profit)] font-black">{row.wins}</span>
+                          <span className="text-[#717182]"> / </span>
+                          <span className="text-[var(--loss)] font-black">{row.losses}</span>
+                        </td>
+                        <td className={`px-4 py-3 font-black font-number text-[14px] ${row.expectancy >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
+                          {row.expectancy >= 0 ? '+' : ''}{formatNumber(row.expectancy, 2)}R
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-10 px-4 border-2 border-dashed border-[#121212]/20 bg-[#F9F9F9] space-y-3">
+              <Target className="w-8 h-8 text-[#121212] mx-auto opacity-70" />
+              <h4 className="font-black text-sm text-[#121212] uppercase tracking-wider">
+                Matriks Simulasi Belum Dihitung
+              </h4>
+              <p className="text-xs text-[#717182] max-w-sm mx-auto font-semibold">
+                Jalankan replay validation terlebih dahulu untuk mengkalkulasi probabilitas ekskursi target RR alternatif.
+              </p>
+              <button
+                type="button"
+                onClick={() => setActiveTab('REPLAY')}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[#121212] text-white text-xs font-black uppercase tracking-wider border-2 border-[#121212] shadow-[2px_2px_0px_0px_#1040C0]"
+              >
+                <Zap className="w-3.5 h-3.5 text-[#F0C020]" />
+                Ke Halaman Replay
+              </button>
+            </div>
+          )}
+
+          {/* Optional: CSV MFE/MAE Estimate Table */}
+          {hasMfeMae && (
+            <div className="bg-white border-2 border-[#121212] p-4 sm:p-5 shadow-[3px_3px_0px_0px_#121212] space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs sm:text-sm font-black text-[#121212] uppercase tracking-wider">
+                    Target Simulation (Estimasi MFE/MAE CSV)
+                  </h4>
+                  <p className="text-[11px] text-[#717182] font-medium">Berdasarkan ekskursi statis dari file CSV.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#717182]">Custom R:</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={customRR}
+                    onChange={e => setCustomRR(Number(e.target.value))}
+                    className="border-2 border-[#121212] py-1 px-2 w-20 text-center font-bold text-xs bg-[#F9F9F9]"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs sm:text-[13px] font-[Outfit]">
+                  <thead>
+                    <tr className="bg-[#F0F0F0] border-b-2 border-[#121212]">
+                      <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider">Target R</th>
+                      <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider">Simulated Winrate</th>
+                      <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider">Wins / Losses</th>
+                      <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider">Expected Value (EV)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y border-b border-[#121212]">
+                    {estimatedSims.map((sim, idx) => sim && (
+                      <tr key={idx} className="hover:bg-[#F9F9F9]">
+                        <td className="px-3 py-2 font-black text-[#121212] font-display">{sim.targetR}R</td>
+                        <td className="px-3 py-2 font-bold font-number">{formatPercent(sim.winrate)}</td>
+                        <td className="px-3 py-2 font-bold font-number">
+                          <span className="text-[var(--profit)] font-black">{sim.wins}W</span> / <span className="text-[var(--loss)] font-black">{sim.losses}L</span>
+                        </td>
+                        <td className={`px-3 py-2 font-black font-number ${sim.ev >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
+                          {formatNumber(sim.ev, 2)}R
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── RR Reconstruction Modal Dialog (When SL/TP is missing) ── */}
+      {showRRModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+          <div
+            className="fixed inset-0 bg-[#121212]/70 backdrop-blur-xs transition-opacity"
+            onClick={() => setShowRRModal(false)}
+            aria-hidden="true"
+          />
+          <div
+            className="relative bg-white border-3 sm:border-4 border-[#121212] p-4 sm:p-6 max-w-lg w-full shadow-[8px_8px_0px_0px_#121212] space-y-4 animate-scale-up z-10"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="flex items-start justify-between gap-3 border-b-2 border-[#121212]/15 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-[#F0C020] text-[#121212] border-2 border-[#121212] font-black text-sm">
+                  📐
+                </div>
+                <div>
+                  <h3 className="font-black text-sm sm:text-base text-[#121212] uppercase tracking-wider font-display">
+                    Tentukan Target RR Rekonstruksi
+                  </h3>
+                  <p className="text-[10px] sm:text-[11px] text-[#717182] font-bold uppercase tracking-wider">
+                    {trades.length} Trade Tanpa Kolom SL & TP Riil
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRRModal(false)}
+                className="w-8 h-8 border border-[#121212] bg-[#F0F0F0] hover:bg-[#E0E0E0] flex items-center justify-center text-[#121212]"
+                aria-label="Tutup dialog"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-[#3F3F46]">
+              <p className="font-medium leading-relaxed">
+                Tentukan target <strong>Rasio Risk-to-Reward (RR)</strong> strategi Anda agar engine dapat merekonstruksi level risiko per trade:
+              </p>
+
+              <div className="bg-[#F9F9F9] border-2 border-[#121212] p-3.5 space-y-2.5">
+                <label className="block text-[10px] font-black uppercase tracking-wider text-[#121212]">
+                  Rasio Target Risk-to-Reward (RR)
+                </label>
+                <div className="flex items-center gap-2 bg-white border-2 border-[#121212] px-3 py-2 shadow-[2px_2px_0px_0px_#121212]">
+                  <span className="text-base font-black text-[#121212] font-mono">1 :</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0.10"
+                    max="10.0"
+                    value={backtestRR}
+                    onChange={e => setBacktestRR(parseFloat(e.target.value) || 1.0)}
+                    className="w-full text-base font-black text-[#121212] outline-none bg-transparent font-mono"
+                    autoFocus
+                  />
+                  <span className="text-[10px] font-black text-[#121212] uppercase tracking-wider bg-[#F0F0F0] px-2 py-0.5 border border-[#121212]">
+                    Target
+                  </span>
+                </div>
+
+                {/* Preset Badges */}
+                <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#717182] mr-1">Preset:</span>
+                  {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0].map(r => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setBacktestRR(r)}
+                      className={`px-2 py-0.5 text-xs font-black border-2 border-[#121212] transition-all ${
+                        backtestRR === r
+                          ? 'bg-[#121212] text-white shadow-[1px_1px_0px_0px_#1040C0]'
+                          : 'bg-white text-[#121212] hover:bg-[#E5E5E5]'
+                      }`}
+                    >
+                      1:{r}
+                    </button>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              </div>
             </div>
 
-            <p className="text-[11px] text-[#717182] font-medium flex items-center gap-1.5 pt-1">
-              <Info className="w-3.5 h-3.5 shrink-0" />
-              <span>
-                Probabilitas simulasi dihitung dari pergerakan candle pasar riil murni ({marketDataSource} {timeframe}) dari titik entry hingga menyentuh target atau Actual SL.
-              </span>
-            </p>
-          </div>
-        )}
-
-        {/* Empty State when no simulation run yet */}
-        {!rrSimData && !analyzing && !error && !analyzeResult && (
-          <div className="text-center py-10 px-4 border-2 border-dashed border-[#121212]/20 bg-[#F9F9F9] space-y-3">
-            <div className="w-12 h-12 bg-white border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] flex items-center justify-center mx-auto">
-              <Database className="w-6 h-6 text-[#121212]" />
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2 border-t-2 border-[#121212]/15">
+              <button
+                type="button"
+                onClick={() => setShowRRModal(false)}
+                className="px-4 py-2 text-xs font-bold border-2 border-[#121212] bg-white hover:bg-[#F0F0F0] text-[#121212]"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRRModal(false);
+                  runMarketAnalysis();
+                }}
+                className="flex items-center justify-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-wider border-2 border-[#121212] bg-[#121212] text-white hover:bg-[#333] shadow-[2px_2px_0px_0px_#1040C0]"
+              >
+                <Zap className="w-4 h-4 text-[#F0C020]" />
+                <span>Lanjutkan Replay (RR 1:{backtestRR})</span>
+              </button>
             </div>
-            <h4 className="font-extrabold text-sm text-[#121212] font-display">
-              Belum Ada Data Simulasi Replay
-            </h4>
-            <p className="text-xs text-[#717182] max-w-sm mx-auto leading-relaxed">
-              Klik tombol "Jalankan Replay Validation" di atas untuk menganalisa seluruh {trades.length} trade sesi ini terhadap data candle pasar riil.
-            </p>
-            <button
-              onClick={runMarketAnalysis}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-[#121212] text-white text-xs font-extrabold border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] hover:bg-[#333] transition-all"
-            >
-              <Zap className="w-3.5 h-3.5 text-[#F0C020]" />
-              Jalankan Analisis Sekarang
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ── Estimated sim (legacy, CSV MFE/MAE based) ── */}
-      {hasMfeMae && (
-        <div className="bg-white border-2 border-[#121212] p-4 sm:p-5 shadow-[4px_4px_0px_0px_#121212] space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <SectionLabel label="Target Simulation (Estimasi CSV)" shape="square" color="yellow" icon={<Target className="w-4 h-4" />} />
-              <p className="text-[11px] text-[#717182] font-medium mt-1">Berdasarkan MFE/MAE dari data CSV — tanpa verifikasi candle riil.</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#717182]">Custom R:</span>
-              <input
-                type="number"
-                step="0.5"
-                value={customRR}
-                onChange={e => setCustomRR(Number(e.target.value))}
-                className="input py-1 px-2 w-20 text-center font-bold text-xs"
-              />
-            </div>
-          </div>
-
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Target R</th>
-                  <th>Simulated Winrate</th>
-                  <th>Wins / Losses</th>
-                  <th>Expected Value (EV)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {estimatedSims.map((sim, idx) => sim && (
-                  <tr key={idx} className="hover:bg-[#F0F0F0] transition-colors">
-                    <td className="font-extrabold text-[#121212] font-display text-[15px]">{sim.targetR}R</td>
-                    <td className="text-[#121212] font-bold font-number">{formatPercent(sim.winrate)}</td>
-                    <td className="text-[#121212] font-bold font-number">
-                      <span className="text-[var(--profit)] font-black">{sim.wins}</span> / <span className="text-[var(--loss)] font-black">{sim.losses}</span>
-                    </td>
-                    <td className={`font-extrabold font-number text-[15px] ${sim.ev >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
-                      {formatNumber(sim.ev, 2)}R
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         </div>
       )}
+
+      {/* ── Methodology & Guidelines Modal ── */}
+      {showMethodologyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+          <div
+            className="fixed inset-0 bg-[#121212]/70 backdrop-blur-xs transition-opacity"
+            onClick={() => setShowMethodologyModal(false)}
+            aria-hidden="true"
+          />
+          <div
+            className="relative bg-white border-3 sm:border-4 border-[#121212] p-4 sm:p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-[10px_10px_0px_0px_#121212] space-y-4 animate-scale-up z-10 font-[Outfit]"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="flex items-start justify-between gap-3 border-b-2 border-[#121212]/15 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-[#1040C0] text-white border-2 border-[#121212] font-black text-sm">
+                  📚
+                </div>
+                <div>
+                  <h3 className="font-black text-base sm:text-lg text-[#121212] uppercase tracking-wider font-display">
+                    Metodologi & Panduan RR Lab Pro
+                  </h3>
+                  <p className="text-[11px] text-[#717182] font-bold uppercase tracking-wider">
+                    Arsitektur Evaluasi Tiga Mode Terpisah
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMethodologyModal(false)}
+                className="w-8 h-8 border border-[#121212] bg-[#F0F0F0] hover:bg-[#E0E0E0] flex items-center justify-center text-[#121212]"
+                aria-label="Tutup panduan"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs text-[#121212] leading-relaxed">
+              <div className="p-3 bg-[#F9F9F9] border-2 border-[#121212] space-y-1">
+                <h4 className="font-black text-xs uppercase tracking-wider text-[#1040C0]">
+                  1. Mode A: Broker Ground Truth
+                </h4>
+                <p className="text-[#3F3F46]">
+                  Mengukur hasil riil berdasarkan data statement akun atau terminal MT5. Menghitung rata-rata dan median Realized R-Multiples serta rasio Planned RR yang direncanakan.
+                </p>
+              </div>
+
+              <div className="p-3 bg-[#F9F9F9] border-2 border-[#121212] space-y-1">
+                <h4 className="font-black text-xs uppercase tracking-wider text-[#059669]">
+                  2. Mode B: Replay Validation Engine
+                </h4>
+                <p className="text-[#3F3F46]">
+                  Menguji pergerakan harga kronologis tick-by-tick (Parquet 725M ticks / Dukascopy M1) dari saat order dibuka hingga ditutup. Memverifikasi apakah Stop Loss atau Take Profit riil tersentuh terlebih dahulu tanpa asumsi look-ahead bias.
+                </p>
+              </div>
+
+              <div className="p-3 bg-[#F9F9F9] border-2 border-[#121212] space-y-1">
+                <h4 className="font-black text-xs uppercase tracking-wider text-[#D97706]">
+                  3. Mode C: What-If Target RR Matrix
+                </h4>
+                <p className="text-[#3F3F46]">
+                  Menyimulasikan skenario alternatif jika target Take Profit diubah dari 0.25R hingga 10.0R. Setiap trade dievaluasi terhadap Maximum Favorable Excursion (MFE) sebelum menyentuh batas Actual SL.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t-2 border-[#121212]/15">
+              <button
+                type="button"
+                onClick={() => setShowMethodologyModal(false)}
+                className="px-4 py-2 text-xs font-black uppercase tracking-wider border-2 border-[#121212] bg-[#121212] text-white hover:bg-[#333]"
+              >
+                Tutup Panduan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+

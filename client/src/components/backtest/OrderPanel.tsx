@@ -20,6 +20,8 @@ import {
   calculatePnL,
   getSymbolContractSize,
   getDefaultSlDistance,
+  calculateAdaptiveSlDistance,
+  calculateAdaptiveOffsets,
   BacktestTradeRecord,
   TradeSide,
 } from '../../../../server/src/services/backtestEngine';
@@ -34,10 +36,13 @@ import {
   deconstructOrderType,
   getOrderTypeLabel,
   validateOrderPrices,
+  getEffectiveOrderType,
+  getSymbolPriceTolerance,
 } from './OrderTypes';
 
 export interface OrderPanelProps {
   symbol?: string;
+  candles?: Array<{ high: number; low: number; close?: number }>;
   currentPrice: number;
   balance: number;
   riskPercent: number;
@@ -96,6 +101,7 @@ export interface OrderPanelHandle {
 export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function OrderPanel(
   {
     symbol = 'XAUUSD',
+    candles,
     currentPrice,
     balance,
     riskPercent,
@@ -134,7 +140,21 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   const [riskInputStr, setRiskInputStr] = useState<string>(String(riskPercent));
   const [showChartPlannedLines, setShowChartPlannedLines] = useState<boolean>(false);
 
-  const currentOrderType = resolveOrderType(orderCategory, orderDirection);
+  // Dynamic Effective Order Classification
+  const parsedEntryNum = parseFloat(entryPriceStr) || currentPrice;
+  const tolerance = getSymbolPriceTolerance(symbol);
+  const effectiveEntry = orderCategory === 'MARKET' && Math.abs(parsedEntryNum - currentPrice) <= tolerance
+    ? currentPrice
+    : parsedEntryNum;
+
+  const effectiveClassification = getEffectiveOrderType({
+    direction: orderDirection,
+    entryPrice: effectiveEntry,
+    marketPrice: currentPrice,
+    symbol,
+    requestedCategory: orderCategory,
+  });
+  const currentOrderType = effectiveClassification.orderType;
 
   // Sync risk % prop
   useEffect(() => {
@@ -164,8 +184,17 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   useEffect(() => {
     if (controlledEntryPrice !== undefined && controlledEntryPrice !== null && controlledEntryPrice > 0) {
       setEntryPriceStr(controlledEntryPrice.toFixed(2));
+      if (currentPrice > 0) {
+        const eff = getEffectiveOrderType({
+          direction: orderDirection,
+          entryPrice: controlledEntryPrice,
+          marketPrice: currentPrice,
+          symbol,
+        });
+        setOrderCategory(eff.category);
+      }
     }
-  }, [controlledEntryPrice]);
+  }, [controlledEntryPrice, currentPrice, orderDirection, symbol]);
 
   useEffect(() => {
     if (controlledSlPrice !== undefined && controlledSlPrice !== null && controlledSlPrice > 0) {
@@ -184,15 +213,15 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   // Helper to re-calculate clean SL/TP from price, direction, and RR
   const resetLevelsForPrice = (baseEntry: number, direction: OrderDirection, rr: number) => {
     if (baseEntry <= 0) return;
-    const defaultSlDist = getDefaultSlDistance(symbol);
+    const { slDistance } = calculateAdaptiveOffsets(candles || [], currentPrice > 0 ? currentPrice : baseEntry, symbol);
     const side: TradeSide = direction === 'BUY' ? 'LONG' : 'SHORT';
     if (direction === 'BUY') {
-      const sl = Math.round((baseEntry - defaultSlDist) * 100) / 100;
+      const sl = Math.round((baseEntry - slDistance) * 100) / 100;
       const tp = calculateTPFromRR(side, baseEntry, sl, rr);
       setSlPriceStr(sl.toFixed(2));
       setTpPriceStr(tp.toFixed(2));
     } else {
-      const sl = Math.round((baseEntry + defaultSlDist) * 100) / 100;
+      const sl = Math.round((baseEntry + slDistance) * 100) / 100;
       const tp = calculateTPFromRR(side, baseEntry, sl, rr);
       setSlPriceStr(sl.toFixed(2));
       setTpPriceStr(tp.toFixed(2));
@@ -202,7 +231,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   // Switch Order Category
   const handleCategorySwitch = (cat: OrderCategory) => {
     setOrderCategory(cat);
-    const defaultSlDist = getDefaultSlDistance(symbol);
+    const { pendingOffset, slDistance } = calculateAdaptiveOffsets(candles || [], currentPrice, symbol);
     if (cat === 'MARKET') {
       setEntryPriceStr(currentPrice > 0 ? currentPrice.toFixed(2) : '');
       if (slPriceStr && tpPriceStr) {
@@ -210,15 +239,17 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
       }
     } else if (cat === 'LIMIT') {
       // For Limit: Buy Limit < current, Sell Limit > current
-      const limitEntry = orderDirection === 'BUY' ? currentPrice - defaultSlDist : currentPrice + defaultSlDist;
-      setEntryPriceStr(limitEntry.toFixed(2));
+      const limitEntry = orderDirection === 'BUY' ? currentPrice - pendingOffset : currentPrice + pendingOffset;
+      const roundedEntry = Math.round(limitEntry * 100) / 100;
+      setEntryPriceStr(roundedEntry.toFixed(2));
       if (slPriceStr && tpPriceStr) {
-        resetLevelsForPrice(limitEntry, orderDirection, selectedRR);
+        resetLevelsForPrice(roundedEntry, orderDirection, selectedRR);
       }
     } else if (cat === 'STOP') {
       // For Stop: Buy Stop > current, Sell Stop < current
-      const stopEntry = orderDirection === 'BUY' ? currentPrice + defaultSlDist : currentPrice - defaultSlDist;
-      setEntryPriceStr(stopEntry.toFixed(2));
+      const stopEntry = orderDirection === 'BUY' ? currentPrice + pendingOffset : currentPrice - pendingOffset;
+      const roundedEntry = Math.round(stopEntry * 100) / 100;
+      setEntryPriceStr(roundedEntry.toFixed(2));
       if (slPriceStr && tpPriceStr) {
         resetLevelsForPrice(stopEntry, orderDirection, selectedRR);
       }
@@ -297,6 +328,15 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   const handleEntryChange = (val: string) => {
     setEntryPriceStr(val);
     const parsedEntry = parseFloat(val);
+    if (!isNaN(parsedEntry) && parsedEntry > 0 && currentPrice > 0) {
+      const eff = getEffectiveOrderType({
+        direction: orderDirection,
+        entryPrice: parsedEntry,
+        marketPrice: currentPrice,
+        symbol,
+      });
+      setOrderCategory(eff.category);
+    }
     const numSL = parseFloat(slPriceStr);
     if (!isNaN(parsedEntry) && parsedEntry > 0 && !isNaN(numSL) && numSL > 0) {
       const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
@@ -309,7 +349,6 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   const handleSlChange = (val: string) => {
     setSlPriceStr(val);
     const numSL = parseFloat(val);
-    const effectiveEntry = orderCategory === 'MARKET' ? currentPrice : (parseFloat(entryPriceStr) || currentPrice);
     if (!isNaN(numSL) && numSL > 0 && effectiveEntry > 0) {
       const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
       const newTP = calculateTPFromRR(side, effectiveEntry, numSL, selectedRR);
@@ -318,7 +357,6 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   };
 
   // Numbers & Metrics
-  const effectiveEntry = orderCategory === 'MARKET' ? currentPrice : (parseFloat(entryPriceStr) || currentPrice);
   const numSL = parseFloat(slPriceStr) || 0;
   const numTP = parseFloat(tpPriceStr) || 0;
   const riskAmount = (balance * riskPercent) / 100;
@@ -328,7 +366,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   const rrCalc = calculateRR(tradeSide, effectiveEntry, numSL, numTP);
 
   // Price validation
-  const validation = validateOrderPrices(currentOrderType, currentPrice, effectiveEntry, numSL, numTP);
+  const validation = validateOrderPrices(currentOrderType, currentPrice, effectiveEntry, numSL, numTP, symbol);
 
   const isExecutionValid = validation.isValid && lotSize > 0 && !isSubmitting;
   const canSubmitVisualOrder = onVisualOrderSubmit
@@ -378,10 +416,10 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     if (activeTrade) return;
 
     if (onVisualOrderSubmit) {
-      if (orderCategory === 'MARKET') {
-        const defaultSlDist = getDefaultSlDistance(symbol);
-        const sl = numSL > 0 ? numSL : (orderDirection === 'BUY' ? effectiveEntry - defaultSlDist : effectiveEntry + defaultSlDist);
-        const tp = numTP > 0 ? numTP : (orderDirection === 'BUY' ? effectiveEntry + defaultSlDist * 2 : effectiveEntry - defaultSlDist * 2);
+      if (!effectiveClassification.isPending) {
+        const { slDistance } = calculateAdaptiveOffsets(candles || [], currentPrice, symbol);
+        const sl = numSL > 0 ? numSL : (orderDirection === 'BUY' ? effectiveEntry - slDistance : effectiveEntry + slDistance);
+        const tp = numTP > 0 ? numTP : (orderDirection === 'BUY' ? effectiveEntry + slDistance * selectedRR : effectiveEntry - slDistance * selectedRR);
         const roundedSL = Math.round(sl * 100) / 100;
         const roundedTP = Math.round(tp * 100) / 100;
         const calcLots = calculatePositionSize(balance, riskPercent, effectiveEntry, roundedSL, contractSize);
@@ -413,7 +451,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
 
     if (!isExecutionValid) return;
 
-    if (orderCategory === 'MARKET') {
+    if (!effectiveClassification.isPending) {
       onOpenTrade({
         side: tradeSide,
         entryPrice: effectiveEntry,
@@ -447,10 +485,10 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
         if (dir !== orderDirection || orderCategory !== 'MARKET') {
           setOrderCategory('MARKET');
           setOrderDirection(dir);
-          const defaultSlDist = getDefaultSlDistance(symbol);
+          const { slDistance } = calculateAdaptiveOffsets(candles || [], currentPrice, symbol);
           const newSl = dir === 'BUY'
-            ? Math.round((currentPrice - defaultSlDist) * 100) / 100
-            : Math.round((currentPrice + defaultSlDist) * 100) / 100;
+            ? Math.round((currentPrice - slDistance) * 100) / 100
+            : Math.round((currentPrice + slDistance) * 100) / 100;
           const newTp = calculateTPFromRR(side, currentPrice, newSl, selectedRR);
           const newLot = calculatePositionSize(balance, riskPercent, currentPrice, newSl, contractSize);
           const newRisk = (balance * riskPercent) / 100;
@@ -955,7 +993,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
               ? 'Memproses Order...'
               : !validation.isValid
                 ? (validation.error || 'Harga tidak valid')
-                : orderCategory === 'MARKET'
+                : !effectiveClassification.isPending
                   ? `Buka Posisi Market ${orderDirection} (Atur di Chart)`
                   : `Pasang ${getOrderTypeLabel(currentOrderType)} (Atur di Chart)`}
           </button>

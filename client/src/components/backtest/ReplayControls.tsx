@@ -137,8 +137,9 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
               <button
                 key={tf}
                 type="button"
+                disabled={loading}
                 onClick={() => onTimeframeChange?.(tf)}
-                className={`px-2 py-0.5 text-xs font-mono font-bold transition-all cursor-pointer ${
+                className={`px-2 py-0.5 text-xs font-mono font-bold transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                   timeframe === tf
                     ? 'bg-[#121212] text-white shadow-[1px_1px_0px_0px_#121212]'
                     : 'text-[#121212] hover:bg-white'

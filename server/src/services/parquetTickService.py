@@ -78,7 +78,20 @@ TIMEFRAME_SECONDS = {
     'D1': 86400,
 }
 
-def get_adaptive_lookback(tf, limit=1500):
+TIMEFRAME_DEFAULT_LIMITS = {
+    'M1': 1200,
+    'M5': 1200,
+    'M15': 800,
+    'M30': 800,
+    'H1': 600,
+    'H4': 600,
+    'D1': 700,
+}
+
+def get_adaptive_lookback(tf, limit=None):
+    tf_upper = tf.upper()
+    if limit is None or limit <= 0:
+        limit = TIMEFRAME_DEFAULT_LIMITS.get(tf_upper, 1200)
     tf_hours = {
         'M1': 1/60,
         'M5': 5/60,
@@ -88,11 +101,11 @@ def get_adaptive_lookback(tf, limit=1500):
         'H4': 4,
         'D1': 24,
     }
-    h = tf_hours.get(tf.upper(), 1/60)
+    h = tf_hours.get(tf_upper, 1/60)
     needed_hours = limit * h * 1.5
-    needed_days = max(4, math.ceil(needed_hours / 24))
+    needed_days = max(3, math.ceil(needed_hours / 24))
     max_days = {'M1': 14, 'M5': 30, 'M15': 60, 'M30': 90, 'H1': 180, 'H4': 400, 'D1': 1500}
-    final_days = min(needed_days, max_days.get(tf.upper(), 30))
+    final_days = min(needed_days, max_days.get(tf_upper, 30))
     return datetime.timedelta(days=final_days)
 
 def parse_iso(dt_str):
@@ -122,6 +135,16 @@ def get_timeline_bounds():
         'totalTicks': 725596648,
     }
 
+def get_time_bucket_expr(tf):
+    if tf.upper() == 'D1':
+        # Clean 5-day week: naturally merge Sunday evening ticks into Monday without shifting weekday hours!
+        return """CASE 
+            WHEN strftime(dt, '%w') = '0' THEN time_bucket(INTERVAL '1 day', dt + INTERVAL '1 day')
+            ELSE time_bucket(INTERVAL '1 day', dt)
+        END"""
+    interval_sql = TIMEFRAME_CONFIG.get(tf.upper(), ("INTERVAL '1 minute'", None))[0]
+    return f"time_bucket({interval_sql}, dt)"
+
 def get_next_bucket_start(dt, tf):
     sec = TIMEFRAME_SECONDS.get(tf.upper(), 60)
     ts = dt.replace(tzinfo=datetime.timezone.utc).timestamp()
@@ -129,13 +152,22 @@ def get_next_bucket_start(dt, tf):
     next_bucket_start_ts = current_bucket_start_ts + sec
     return datetime.datetime.fromtimestamp(next_bucket_start_ts, tz=datetime.timezone.utc).replace(tzinfo=None)
 
-def query_candles(symbol='XAUUSD', timeframe='M1', limit=1500, before_time=None, after_time=None, from_time=None, to_time=None, replay_time=None):
+def query_candles(symbol='XAUUSD', timeframe='M1', limit=None, before_time=None, after_time=None, from_time=None, to_time=None, replay_time=None):
     tf = timeframe.upper()
-    interval_sql = TIMEFRAME_CONFIG.get(tf, ("INTERVAL '1 minute'", None))[0]
-    default_lookback = get_adaptive_lookback(tf, int(limit))
+    default_limit = TIMEFRAME_DEFAULT_LIMITS.get(tf, 1200)
+    try:
+        limit_val = int(limit) if limit is not None else default_limit
+        if limit_val <= 0:
+            limit_val = default_limit
+    except (ValueError, TypeError):
+        limit_val = default_limit
+    limit_val = min(limit_val, default_limit)
+
+    bucket_expr = get_time_bucket_expr(tf)
+    default_lookback = get_adaptive_lookback(tf, limit_val)
     
-    where_clauses = []
-    having_clauses = []
+    where_clauses = ["Bid > 0", "Volume > 0"]
+    having_clauses = ["count(*) > 0 AND max(Bid) > 0 AND min(Bid) > 0"]
     
     f_dt = parse_iso(from_time) if isinstance(from_time, str) else from_time
     t_dt = parse_iso(to_time) if isinstance(to_time, str) else to_time
@@ -168,7 +200,7 @@ def query_candles(symbol='XAUUSD', timeframe='M1', limit=1500, before_time=None,
     elif b_dt:
         # Backward window up to b_dt
         start_date = b_dt - default_lookback
-        where_clauses.append(f"DateTime >= '{format_db_dt(start_date)}' AND DateTime <= '{format_db_dt(b_dt)}'")
+        where_clauses.append(f"DateTime >= '{format_db_dt(start_date)}' AND DateTime <= '{format_db_dt(b_dt + datetime.timedelta(days=1))}'")
         having_clauses.append(f"candle_time <= TIMESTAMP '{b_dt.strftime('%Y-%m-%d %H:%M:%S')}'")
         order_dir = 'DESC'
     else:
@@ -183,22 +215,27 @@ def query_candles(symbol='XAUUSD', timeframe='M1', limit=1500, before_time=None,
     
     query = f"""
         WITH filtered AS (
-            SELECT DateTime, Bid, Volume
+            SELECT 
+                strptime(DateTime, '%Y%m%d %H:%M:%S.%g') as dt,
+                DateTime,
+                Bid,
+                Volume
             FROM '{PARQUET_FILE}'
             WHERE {where_sql}
         )
         SELECT 
-            time_bucket({interval_sql}, strptime(DateTime, '%Y%m%d %H:%M:%S.%g')) as candle_time,
-            FIRST(Bid) as open,
+            {bucket_expr} as candle_time,
+            ARG_MIN(Bid, dt) as open,
             MAX(Bid) as high,
             MIN(Bid) as low,
-            LAST(Bid) as close,
+            ARG_MAX(Bid, dt) as close,
             COUNT(*) as tick_volume
         FROM filtered
+        WHERE Bid > 0 AND Volume > 0
         GROUP BY candle_time
         {having_sql}
         ORDER BY candle_time {order_dir}
-        LIMIT {int(limit)}
+        LIMIT {int(limit_val)}
     """
     
     t0 = time.perf_counter()
@@ -234,7 +271,8 @@ def query_next_candle(symbol='XAUUSD', timeframe='M1', after_time=None, replay_t
         return {'ok': False, 'error': 'afterTime is required'}
         
     tf = timeframe.upper()
-    interval_sql, lookahead = TIMEFRAME_CONFIG.get(tf, ("INTERVAL '1 minute'", datetime.timedelta(days=7)))
+    bucket_expr = get_time_bucket_expr(tf)
+    _, lookahead = TIMEFRAME_CONFIG.get(tf, ("INTERVAL '1 minute'", datetime.timedelta(days=7)))
     
     a_dt = parse_iso(after_time) if isinstance(after_time, str) else after_time
     if not a_dt:
@@ -242,7 +280,7 @@ def query_next_candle(symbol='XAUUSD', timeframe='M1', after_time=None, replay_t
         
     # Strictly compute next bucket start to avoid any duplicates!
     next_dt = get_next_bucket_start(a_dt, tf)
-    where_clauses = [f"DateTime >= '{format_db_dt(next_dt)}'"]
+    where_clauses = [f"DateTime >= '{format_db_dt(next_dt - datetime.timedelta(hours=3))}'"]
     having_clauses = [f"candle_time >= TIMESTAMP '{next_dt.strftime('%Y-%m-%d %H:%M:%S')}'"]
     
     # Strict replay cutoff
@@ -261,16 +299,20 @@ def query_next_candle(symbol='XAUUSD', timeframe='M1', after_time=None, replay_t
     
     query = f"""
         WITH filtered AS (
-            SELECT DateTime, Bid, Volume
+            SELECT 
+                strptime(DateTime, '%Y%m%d %H:%M:%S.%g') as dt,
+                DateTime,
+                Bid,
+                Volume
             FROM '{PARQUET_FILE}'
             WHERE {where_sql}
         )
         SELECT 
-            time_bucket({interval_sql}, strptime(DateTime, '%Y%m%d %H:%M:%S.%g')) as candle_time,
-            FIRST(Bid) as open,
+            {bucket_expr} as candle_time,
+            ARG_MIN(Bid, dt) as open,
             MAX(Bid) as high,
             MIN(Bid) as low,
-            LAST(Bid) as close,
+            ARG_MAX(Bid, dt) as close,
             COUNT(*) as tick_volume
         FROM filtered
         GROUP BY candle_time
@@ -293,6 +335,56 @@ def query_next_candle(symbol='XAUUSD', timeframe='M1', after_time=None, replay_t
         'tickVolume': int(r[5]),
     }
     return {'ok': True, 'candle': candle}
+
+def query_ticks(symbol='XAUUSD', from_time=None, to_time=None, limit=100000):
+    if not from_time or not to_time:
+        return {'ok': False, 'error': 'fromTime and toTime are required'}
+        
+    f_dt = parse_iso(from_time) if isinstance(from_time, str) else from_time
+    t_dt = parse_iso(to_time) if isinstance(to_time, str) else to_time
+    
+    if not f_dt or not t_dt:
+        return {'ok': False, 'error': 'Invalid fromTime or toTime format'}
+        
+    if t_dt < f_dt:
+        return {'ok': True, 'ticks': [], 'count': 0, 'dataStart': None, 'dataEnd': None}
+        
+    f_str = f_dt.strftime('%Y%m%d %H:%M:%S') + (f'.{f_dt.microsecond // 1000:03d}' if f_dt.microsecond > 0 else '')
+    t_str = t_dt.strftime('%Y%m%d %H:%M:%S') + (f'.{t_dt.microsecond // 1000:03d}' if t_dt.microsecond > 0 else '.999')
+    
+    query = f"""
+        SELECT DateTime, Bid, Volume
+        FROM '{PARQUET_FILE}'
+        WHERE DateTime >= '{f_str}' AND DateTime <= '{t_str}'
+        ORDER BY DateTime ASC
+        LIMIT {int(limit)}
+    """
+    
+    t0 = time.perf_counter()
+    rows = con.execute(query).fetchall()
+    latency_ms = (time.perf_counter() - t0) * 1000
+    
+    ticks = []
+    for r in rows:
+        ticks.append({
+            'time': r[0],
+            'bid': round(float(r[1]), 3),
+            'ask': round(float(r[1]), 3),
+            'volume': int(r[2]),
+        })
+        
+    data_start = rows[0][0] if rows else None
+    data_end = rows[-1][0] if rows else None
+    
+    return {
+        'ok': True,
+        'symbol': symbol.upper(),
+        'count': len(ticks),
+        'dataStart': data_start,
+        'dataEnd': data_end,
+        'ticks': ticks,
+        'latencyMs': round(latency_ms, 2),
+    }
 
 def run_daemon():
     """Persistent stdio JSON-RPC daemon for Node.js child process"""
@@ -326,6 +418,14 @@ def run_daemon():
                     from_time=req.get('fromTime') or req.get('from_time'),
                     to_time=req.get('toTime') or req.get('to_time'),
                     replay_time=req.get('replayTime') or req.get('replay_time'),
+                )
+                resp = {'id': req_id, **res}
+            elif action == 'ticks':
+                res = query_ticks(
+                    symbol=req.get('symbol', 'XAUUSD'),
+                    from_time=req.get('fromTime') or req.get('from_time'),
+                    to_time=req.get('toTime') or req.get('to_time'),
+                    limit=req.get('limit', 100000),
                 )
                 resp = {'id': req_id, **res}
             elif action == 'ping':

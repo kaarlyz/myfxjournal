@@ -13,6 +13,18 @@ import {
   Calendar,
   Menu,
   MousePointer2,
+  Crosshair,
+  Minus,
+  SplitSquareVertical,
+  TrendingUp,
+  Square,
+  Binary,
+  Ruler,
+  Trash2,
+  Eraser,
+  Lock,
+  Unlock,
+  RotateCw,
   PanelRightOpen,
   Minimize2,
   Maximize2,
@@ -23,6 +35,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   SlidersHorizontal,
+  GripVertical,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
@@ -38,8 +51,11 @@ import { TradeNotificationToast, type TradeToastItem } from '../components/backt
 import {
   PendingOrderRecord,
   OrderExecutionType,
+  OrderDirection,
   getOrderTypeLabel,
   validateOrderPrices,
+  getEffectiveOrderType,
+  getSymbolPriceTolerance,
 } from '../components/backtest/OrderTypes';
 import {
   calculatePositionSize,
@@ -49,6 +65,7 @@ import {
   calculateRR,
   calculateTPFromRR,
   getDefaultSlDistance,
+  calculateAdaptiveSlDistance,
   getSymbolContractSize,
   BacktestTradeRecord,
   TradeSide,
@@ -79,6 +96,8 @@ export default function Backtest() {
   });
   const [candles, setCandles] = useState<ChartCandle[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [isTimeframeLoading, setIsTimeframeLoading] = useState<boolean>(false);
+  const timeframeAbortControllerRef = useRef<AbortController | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Playback & Follow State
@@ -105,6 +124,16 @@ export default function Backtest() {
   pendingOrdersRef.current = pendingOrders;
   const handleOpenTradeRef = useRef<any>(null);
   const [isSyncingDashboard, setIsSyncingDashboard] = useState<boolean>(false);
+  const [isQuickTradeCollapsed, setIsQuickTradeCollapsed] = useState<boolean>(false);
+  const [pillPos, setPillPos] = useState<{ x: number; y: number } | null>(null);
+  const pillDragRef = useRef<{
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+    hasMoved: boolean;
+  } | null>(null);
+  const pillRef = useRef<HTMLDivElement | null>(null);
   const [symbol, setSymbol] = useState<string>('XAUUSD');
   const [availableSymbols, setAvailableSymbols] = useState<Array<{ symbol: string; provider: string; candleCount: number }>>([]);
   const navigate = useNavigate();
@@ -207,17 +236,26 @@ export default function Backtest() {
         : 1.0;
 
       const currentP = candles[candles.length - 1]?.close || 0;
-      const orderType = prev.orderType || (prev.side === 'BUY' ? 'MARKET_BUY' : 'MARKET_SELL');
+      const direction: OrderDirection = prev.side === 'BUY' ? 'BUY' : 'SELL';
+      const effClassification = getEffectiveOrderType({
+        direction,
+        entryPrice: newPlanned.entryPrice,
+        marketPrice: currentP,
+        symbol,
+      });
+      const orderType = effClassification.orderType;
       const validation = validateOrderPrices(
         orderType,
         currentP,
         newPlanned.entryPrice,
         newPlanned.slPrice,
-        newPlanned.tpPrice
+        newPlanned.tpPrice,
+        symbol
       );
 
       return {
         ...prev,
+        orderType,
         entryPrice: newPlanned.entryPrice,
         slPrice: newPlanned.slPrice,
         tpPrice: newPlanned.tpPrice,
@@ -234,11 +272,13 @@ export default function Backtest() {
   const buildPlannedTrade = useCallback((side: TradeSide, entryPrice: number): PlannedOrderPreview | null => {
     if (entryPrice <= 0) return null;
 
-    const defaultSlDistance = getDefaultSlDistance(symbol);
+    const defaultSlDistance = calculateAdaptiveSlDistance(candles, entryPrice, symbol);
     const slPrice = side === 'LONG'
       ? Math.round((entryPrice - defaultSlDistance) * 100) / 100
       : Math.round((entryPrice + defaultSlDistance) * 100) / 100;
-    const tpPrice = calculateTPFromRR(side, entryPrice, slPrice, 2.0);
+    const tpPrice = side === 'LONG'
+      ? Math.round((entryPrice + defaultSlDistance * 2.0) * 100) / 100
+      : Math.round((entryPrice - defaultSlDistance * 2.0) * 100) / 100;
     const riskAmount = (balance * riskPercent) / 100;
     const lotSize = calculatePositionSize(balance, riskPercent, entryPrice, slPrice, getSymbolContractSize(symbol));
     const rr = calculateRR(side, entryPrice, slPrice, tpPrice);
@@ -253,7 +293,7 @@ export default function Backtest() {
       targetProfit: rr.isValid ? riskAmount * rr.rr : 0,
       rrRatio: rr.isValid ? rr.rr : 0,
     };
-  }, [balance, riskPercent, symbol]);
+  }, [balance, candles, riskPercent, symbol]);
 
   // Chart, Drawing & Tool State
   const [activeTool, setActiveTool] = useState<DrawingTool>('cursor');
@@ -281,6 +321,15 @@ export default function Backtest() {
   const mobileOrderPanelRef = useRef<OrderPanelHandle | null>(null);
   const editingPendingOrderIdRef = useRef<string | null>(null);
   const originalPendingOrderRef = useRef<PendingOrderRecord | null>(null);
+  const isSteppingRef = useRef<boolean>(false);
+
+  const [activeToast, setActiveToast] = useState<TradeToastItem | null>(null);
+  const showToast = useCallback((item: Omit<TradeToastItem, 'id'>) => {
+    setActiveToast({ ...item, id: Math.random().toString(36).slice(2, 9) });
+  }, []);
+  const dismissToast = useCallback(() => {
+    setActiveToast(null);
+  }, []);
 
   // ── 1. Fetch Timeline Bounds & Available Symbols ──
   useEffect(() => {
@@ -405,38 +454,62 @@ export default function Backtest() {
 
   // ── 2d. Timeframe Switch Handler ──
   const handleTimeframeChange = async (newTF: ChartTimeframe) => {
+    if (timeframeAbortControllerRef.current) {
+      timeframeAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    timeframeAbortControllerRef.current = controller;
+
     setTimeframe(newTF);
-    if (appMode === 'analysis') {
-      loadAnalysisCandles(newTF, symbol);
-    } else if (appMode === 'replay') {
-      // Keep replay session, trades, and position intact!
-      setIsPlaying(false);
-      setLoading(true);
-      try {
+    setIsTimeframeLoading(true);
+
+    try {
+      if (appMode === 'analysis') {
+        const res = await fetch(
+          `${API_BASE}/candles?symbol=${symbol}&timeframe=${newTF}&provider=DUKASCOPY`,
+          { signal: controller.signal }
+        );
+        const json = await res.json();
+        if (json.ok && json.data && json.data.candles) {
+          setCandles(json.data.candles);
+          if (json.data.candles.length > 0) {
+            setReplayTime(new Date(json.data.candles[json.data.candles.length - 1].time));
+          }
+        }
+      } else if (appMode === 'replay') {
+        // Keep replay session, trades, and position intact!
+        setIsPlaying(false);
         const currentTargetTime = replayTime || (candles.length > 0 ? new Date(candles[candles.length - 1].time) : replayStartTime);
         if (!currentTargetTime) return;
 
         // 1. Update session timeframe in DB
         if (sessionId) {
-          await fetch(`${API_BASE}/sessions/${sessionId}`, {
+          fetch(`${API_BASE}/sessions/${sessionId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ timeframe: newTF }),
-          }).catch(console.error);
+            signal: controller.signal,
+          }).catch(() => {});
         }
 
-        // 2. Fetch candles for newTF up to currentTargetTime (strict cutoff)
+        // 2. Fetch candles for newTF up to currentTargetTime (strict cutoff with backend adaptive limit)
         const resCandles = await fetch(
-          `${API_BASE}/candles?symbol=${symbol}&timeframe=${newTF}&provider=DUKASCOPY&replayTime=${encodeURIComponent(currentTargetTime.toISOString())}&limit=2000`
+          `${API_BASE}/candles?symbol=${symbol}&timeframe=${newTF}&provider=DUKASCOPY&replayTime=${encodeURIComponent(currentTargetTime.toISOString())}`,
+          { signal: controller.signal }
         );
         const candlesJson = await resCandles.json();
         if (candlesJson.ok && candlesJson.data && candlesJson.data.candles) {
           setCandles(candlesJson.data.candles);
         }
-      } catch (err: any) {
-        console.error('Error switching replay timeframe:', err);
-      } finally {
-        setLoading(false);
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error('Error switching timeframe:', err);
+      }
+    } finally {
+      if (timeframeAbortControllerRef.current === controller) {
+        setIsTimeframeLoading(false);
+        timeframeAbortControllerRef.current = null;
       }
     }
   };
@@ -569,7 +642,8 @@ export default function Backtest() {
 
   // ── 9. Sequential Step Forward Engine (Evaluates Active Trade) ──
   const stepForward = useCallback(async () => {
-    if (candles.length === 0 || appMode !== 'replay') return;
+    if (candles.length === 0 || appMode !== 'replay' || isSteppingRef.current) return;
+    isSteppingRef.current = true;
     const lastCandle = candles[candles.length - 1];
     const lastTime = new Date(lastCandle.time).toISOString();
 
@@ -581,6 +655,12 @@ export default function Backtest() {
       const json = await res.json();
       if (!json.ok || !json.data) {
         setIsPlaying(false);
+        showToast({
+          kind: 'INFO',
+          symbol,
+          title: 'AKHIR DATASET',
+          message: 'Telah mencapai akhir data historis yang tersedia.',
+        });
         return;
       }
 
@@ -702,8 +782,10 @@ export default function Backtest() {
     } catch (err) {
       console.error('Step forward error:', err);
       setIsPlaying(false);
+    } finally {
+      isSteppingRef.current = false;
     }
-  }, [candles, timeframe, symbol, sessionId, appMode]);
+  }, [candles, timeframe, symbol, sessionId, appMode, showToast]);
 
   // ── 10. Step Back Engine ──
   const stepBack = useCallback(() => {
@@ -963,10 +1045,10 @@ export default function Backtest() {
       if (e.code === 'Space') {
         e.preventDefault();
         if (appMode === 'replay') setIsPlaying((prev) => !prev);
-      } else if (e.code === 'ArrowRight') {
+      } else if (e.code === 'ArrowRight' || (e.shiftKey && e.key === 'Tab') || e.code === 'KeyD' || e.key === 'd' || e.key === 'D') {
         e.preventDefault();
         if (appMode === 'replay') stepForward();
-      } else if (e.code === 'ArrowLeft') {
+      } else if (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.key === 'a' || e.key === 'A') {
         e.preventDefault();
         if (appMode === 'replay') stepBack();
       } else if (e.key === 'f' || e.key === 'F') {
@@ -1010,15 +1092,6 @@ export default function Backtest() {
 
   const [isMobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [mobileSheetKind, setMobileSheetKind] = useState<'MENU' | 'ORDER' | 'TOOLS' | 'STATS' | 'HISTORY'>('ORDER');
-  const [activeToast, setActiveToast] = useState<TradeToastItem | null>(null);
-
-  const showToast = useCallback((item: Omit<TradeToastItem, 'id'>) => {
-    setActiveToast({ ...item, id: Math.random().toString(36).slice(2, 9) });
-  }, []);
-
-  const dismissToast = useCallback(() => {
-    setActiveToast(null);
-  }, []);
 
   const openMobileSheet = (kind: typeof mobileSheetKind) => {
     setMobileSheetKind(kind);
@@ -1084,14 +1157,22 @@ export default function Backtest() {
       ? calculateRR(tradeParams.side, tradeParams.entryPrice, tradeParams.slPrice, tradeParams.tpPrice)
       : { isValid: true, rr: 0 };
 
-    const resolvedType = tradeParams.orderType || (tradeParams.side === 'LONG' ? 'MARKET_BUY' : 'MARKET_SELL');
+    const direction: OrderDirection = tradeParams.side === 'LONG' ? 'BUY' : 'SELL';
     const currentP = candles[candles.length - 1]?.close || 0;
+    const effectiveClassification = getEffectiveOrderType({
+      direction,
+      entryPrice: tradeParams.entryPrice,
+      marketPrice: currentP,
+      symbol,
+    });
+    const resolvedType = effectiveClassification.orderType;
     const validation = validateOrderPrices(
       resolvedType,
       currentP,
       tradeParams.entryPrice,
       tradeParams.slPrice,
-      tradeParams.tpPrice
+      tradeParams.tpPrice,
+      symbol
     );
 
     const nextPlannedTrade: PlannedOrderPreview = {
@@ -1293,6 +1374,180 @@ export default function Backtest() {
     ? () => { void initReplaySession(replayStartTime, timeframe); }
     : undefined;
 
+  // ── Draggable Quick Trade Floating Action Pill ──
+  const handlePillPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const el = pillRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const parent = el.offsetParent as HTMLElement | null;
+    const parentRect = parent ? parent.getBoundingClientRect() : { left: 0, top: 0 };
+
+    pillDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: rect.left - parentRect.left,
+      origY: rect.top - parentRect.top,
+      hasMoved: false,
+    };
+    el.setPointerCapture(e.pointerId);
+  };
+
+  const handlePillPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pillDragRef.current || !pillRef.current) return;
+    e.stopPropagation();
+    const { startX, startY, origX, origY } = pillDragRef.current;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    if (Math.hypot(dx, dy) > 5) {
+      pillDragRef.current.hasMoved = true;
+    }
+
+    const el = pillRef.current;
+    const parent = el.offsetParent as HTMLElement | null;
+    const pW = parent ? parent.clientWidth : window.innerWidth;
+    const pH = parent ? parent.clientHeight : window.innerHeight;
+    const elW = el.offsetWidth;
+    const elH = el.offsetHeight;
+
+    // Clamped coordinates:
+    // clampedX between 10px and windowWidth - pillWidth - 10px
+    // clampedY between 50px (below top header) and windowHeight - pillHeight - 36px (above bottom time scale)
+    const minX = 10;
+    const maxX = Math.max(minX, pW - elW - 10);
+    const minY = 45;
+    const maxY = Math.max(minY, pH - elH - 36);
+
+    const nextX = Math.max(minX, Math.min(maxX, origX + dx));
+    const nextY = Math.max(minY, Math.min(maxY, origY + dy));
+    setPillPos({ x: nextX, y: nextY });
+  };
+
+  const handlePillPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pillDragRef.current) {
+      e.stopPropagation();
+      try {
+        pillRef.current?.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+      setTimeout(() => {
+        if (pillDragRef.current) {
+          pillDragRef.current = null;
+        }
+      }, 50);
+    }
+  };
+
+  const renderQuickTradePill = () => {
+    const pillStyle: React.CSSProperties = pillPos
+      ? { position: 'absolute', left: `${pillPos.x}px`, top: `${pillPos.y}px` }
+      : { position: 'absolute', bottom: '48px', left: 0, right: 0, margin: '0 auto' };
+
+    return (
+      <AnimatePresence>
+        {appMode !== 'selecting' && !isSubmittingTrade && !activeTrade && (
+          <div
+            ref={pillRef}
+            style={pillStyle}
+            className="z-30 w-fit pointer-events-auto select-none touch-none"
+            onPointerMove={handlePillPointerMove}
+            onPointerUp={handlePillPointerUp}
+            onPointerCancel={handlePillPointerUp}
+          >
+            {isQuickTradeCollapsed ? (
+              <motion.div
+                key="collapsed"
+                initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="flex items-center gap-1 p-0.5 bg-white/95 backdrop-blur-sm rounded-full border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212]"
+              >
+                {/* Drag handle */}
+                <div
+                  onPointerDown={handlePillPointerDown}
+                  className="cursor-grab active:cursor-grabbing pl-1.5 pr-0.5 text-[#717182] hover:text-[#121212] transition-colors"
+                  title="Geser posisi widget"
+                >
+                  <GripVertical className="w-3 h-3" />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (pillDragRef.current?.hasMoved) return;
+                    setIsQuickTradeCollapsed(false);
+                  }}
+                  className="flex items-center gap-1.5 pr-2 py-0.5 text-[#121212] text-[10px] font-black tracking-wider uppercase cursor-pointer transition-all active:translate-x-[1px] active:translate-y-[1px] select-none"
+                  title="Buka Tombol Order Cepat"
+                  aria-label="Buka Tombol Order Cepat"
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="font-mono">ORDER</span>
+                  <ChevronUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                </button>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="expanded"
+                initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                className="flex items-center gap-1.5 p-1 bg-white/95 backdrop-blur-sm rounded-xl border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212]"
+              >
+                {/* Dedicated Drag Handle */}
+                <div
+                  onPointerDown={handlePillPointerDown}
+                  className="cursor-grab active:cursor-grabbing p-1 text-[#717182] hover:text-[#121212] transition-colors select-none"
+                  title="Geser posisi widget"
+                >
+                  <GripVertical className="w-3.5 h-3.5" />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (pillDragRef.current?.hasMoved) return;
+                    handleChartOrderOpen('LONG');
+                  }}
+                  className="bg-[#059669] hover:bg-[#047857] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none text-white font-mono font-black text-xs px-3.5 py-1.5 rounded-lg border-2 border-[#121212] shadow-[1.5px_1.5px_0px_0px_#121212] transition-all cursor-pointer select-none"
+                >
+                  BUY
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (pillDragRef.current?.hasMoved) return;
+                    handleChartOrderOpen('SHORT');
+                  }}
+                  className="bg-[#DC2626] hover:bg-[#B91C1C] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none text-white font-mono font-black text-xs px-3.5 py-1.5 rounded-lg border-2 border-[#121212] shadow-[1.5px_1.5px_0px_0px_#121212] transition-all cursor-pointer select-none"
+                >
+                  SELL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (pillDragRef.current?.hasMoved) return;
+                    setIsQuickTradeCollapsed(true);
+                  }}
+                  className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-900 transition-colors cursor-pointer select-none"
+                  title="Sembunyikan Tombol Order (Minimize)"
+                  aria-label="Sembunyikan Tombol Order"
+                >
+                  <ChevronDown className="w-4 h-4 stroke-[2.5]" />
+                </button>
+              </motion.div>
+            )}
+          </div>
+        )}
+      </AnimatePresence>
+    );
+  };
+
   // ── MOBILE TERMINAL ──
   // Chart is the hero. Strip = symbol/TF/mode. Context = position info.
   // Actions = primary buy/sell (or replay controls), secondary in a sheet.
@@ -1318,9 +1573,10 @@ export default function Backtest() {
           <span className="mobile-tag mobile-tag-accent shrink-0">{symbol}</span>
           <select
             value={timeframe}
+            disabled={isTimeframeLoading || loading}
             onChange={(e) => handleTimeframeChange(e.target.value as ChartTimeframe)}
             aria-label="Timeframe"
-            className="mobile-tag mobile-select shrink-0"
+            className="mobile-tag mobile-select shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {(['M1','M5','M15','M30','H1','H4','D1'] as ChartTimeframe[]).map(tf => (
               <option key={tf} value={tf} className="bg-white text-slate-700">{tf}</option>
@@ -1412,37 +1668,11 @@ export default function Backtest() {
           isVisualOrderActive={isVisualOrderActive}
           onConfirmVisualOrder={handleConfirmVisualOrder}
           onCancelVisualOrder={handleCancelVisualOrder}
+          isTimeframeLoading={isTimeframeLoading}
         />
 
-        {/* Floating Quick Actions (Mobile) - Centered flex container */}
-        <AnimatePresence>
-          {appMode !== 'selecting' && !isSubmittingTrade && !activeTrade && (
-            <div className="pointer-events-none absolute bottom-[68px] inset-x-0 z-40 flex justify-center">
-              <motion.div
-                initial={{ opacity: 0, y: 16, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 12, scale: 0.96 }}
-                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                className="pointer-events-auto flex items-center gap-2 p-1.5 bg-white rounded-xl border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212]"
-              >
-                <button
-                  type="button"
-                  onClick={() => handleChartOrderOpen('LONG')}
-                  className="bg-[#059669] hover:bg-[#047857] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white font-mono font-black text-xs px-5 py-2 rounded-lg border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] transition-all cursor-pointer"
-                >
-                  BUY
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleChartOrderOpen('SHORT')}
-                  className="bg-[#DC2626] hover:bg-[#B91C1C] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none text-white font-mono font-black text-xs px-5 py-2 rounded-lg border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] transition-all cursor-pointer"
-                >
-                  SELL
-                </button>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
+        {/* Quick Trade Floating Actions - Elevated cleanly above time axis */}
+        {renderQuickTradePill()}
       </div>
 
       {/* Context line: compact price + balance + active trade info. */}
@@ -1787,6 +2017,7 @@ export default function Backtest() {
               <OrderPanel
                 ref={mobileOrderPanelRef}
                 symbol={symbol}
+                candles={candles}
                 currentPrice={currentPrice}
                 balance={balance}
                 riskPercent={riskPercent}
@@ -1812,26 +2043,218 @@ export default function Backtest() {
             )}
 
             {mobileSheetKind === 'TOOLS' && (
-              <div className="mobile-tool-row">
-                <DrawingToolbar
-                  activeTool={activeTool}
-                  onToolChange={(tool) => {
-                    setActiveTool(tool);
-                    setMobileSheetOpen(false);
-                  }}
-                  onDeleteSelected={() => {
-                    handleDeleteSelectedDrawing();
-                    setMobileSheetOpen(false);
-                  }}
-                  onDeleteAll={() => {
-                    handleDeleteAllDrawings();
-                    setMobileSheetOpen(false);
-                  }}
-                  hasSelectedDrawing={Boolean(selectedDrawingId)}
-                  hasDrawings={drawings.length > 0}
-                  lockRR={lockRR}
-                  onToggleLockRR={() => setLockRR(!lockRR)}
-                />
+              <div className="space-y-4 pb-2">
+                {/* Pointer / Navigasi */}
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-wider text-[#717182] mb-1.5 flex items-center gap-1.5">
+                    <MousePointer2 className="w-3.5 h-3.5" />
+                    <span>Pointer & Navigasi</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTool('cursor'); setMobileSheetOpen(false); }}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-lg border-2 border-[#121212] transition-all cursor-pointer ${
+                        activeTool === 'cursor'
+                          ? 'bg-[#EBF2FF] text-[#1040C0] shadow-[2px_2px_0px_0px_#121212]'
+                          : 'bg-white text-[#121212] hover:bg-[#FFFDEB] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                      }`}
+                    >
+                      <div className="w-7 h-7 rounded border border-[#121212] bg-[#F0F0F0] flex items-center justify-center shrink-0">
+                        <MousePointer2 className="w-4 h-4 text-[#121212]" />
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-wider">Cursor / Pan</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTool('crosshair'); setMobileSheetOpen(false); }}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-lg border-2 border-[#121212] transition-all cursor-pointer ${
+                        activeTool === 'crosshair'
+                          ? 'bg-[#EBF2FF] text-[#1040C0] shadow-[2px_2px_0px_0px_#121212]'
+                          : 'bg-white text-[#121212] hover:bg-[#FFFDEB] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                      }`}
+                    >
+                      <div className="w-7 h-7 rounded border border-[#121212] bg-[#F0F0F0] flex items-center justify-center shrink-0">
+                        <Crosshair className="w-4 h-4 text-[#121212]" />
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-wider">Crosshair</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Garis / Lines */}
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-wider text-[#717182] mb-1.5 flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    <span>Garis (Lines)</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTool('trendline'); setMobileSheetOpen(false); }}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-lg border-2 border-[#121212] transition-all cursor-pointer text-center min-h-[64px] ${
+                        activeTool === 'trendline'
+                          ? 'bg-[#EBF2FF] text-[#1040C0] shadow-[2px_2px_0px_0px_#121212]'
+                          : 'bg-white text-[#121212] hover:bg-[#FFFDEB] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                      }`}
+                    >
+                      <TrendingUp className="w-4 h-4 mb-1 text-[#121212]" />
+                      <span className="text-[10px] font-black uppercase tracking-wider">Trendline</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTool('hline'); setMobileSheetOpen(false); }}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-lg border-2 border-[#121212] transition-all cursor-pointer text-center min-h-[64px] ${
+                        activeTool === 'hline'
+                          ? 'bg-[#EBF2FF] text-[#1040C0] shadow-[2px_2px_0px_0px_#121212]'
+                          : 'bg-white text-[#121212] hover:bg-[#FFFDEB] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                      }`}
+                    >
+                      <Minus className="w-4 h-4 mb-1 text-[#121212]" />
+                      <span className="text-[10px] font-black uppercase tracking-wider">Horizontal</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTool('vline'); setMobileSheetOpen(false); }}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-lg border-2 border-[#121212] transition-all cursor-pointer text-center min-h-[64px] ${
+                        activeTool === 'vline'
+                          ? 'bg-[#EBF2FF] text-[#1040C0] shadow-[2px_2px_0px_0px_#121212]'
+                          : 'bg-white text-[#121212] hover:bg-[#FFFDEB] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                      }`}
+                    >
+                      <SplitSquareVertical className="w-4 h-4 mb-1 text-[#121212]" />
+                      <span className="text-[10px] font-black uppercase tracking-wider">Vertical</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Geometri & Fibonacci */}
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-wider text-[#717182] mb-1.5 flex items-center gap-1.5">
+                    <Square className="w-3.5 h-3.5" />
+                    <span>Geometri & Fibonacci</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTool('rect'); setMobileSheetOpen(false); }}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-lg border-2 border-[#121212] transition-all cursor-pointer ${
+                        activeTool === 'rect'
+                          ? 'bg-[#EBF2FF] text-[#1040C0] shadow-[2px_2px_0px_0px_#121212]'
+                          : 'bg-white text-[#121212] hover:bg-[#FFFDEB] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                      }`}
+                    >
+                      <div className="w-7 h-7 rounded border border-[#121212] bg-[#F0F0F0] flex items-center justify-center shrink-0">
+                        <Square className="w-4 h-4 text-[#121212]" />
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-wider">Rectangle (Zone)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTool('fibonacci'); setMobileSheetOpen(false); }}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-lg border-2 border-[#121212] transition-all cursor-pointer ${
+                        activeTool === 'fibonacci'
+                          ? 'bg-[#EBF2FF] text-[#1040C0] shadow-[2px_2px_0px_0px_#121212]'
+                          : 'bg-white text-[#121212] hover:bg-[#FFFDEB] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                      }`}
+                    >
+                      <div className="w-7 h-7 rounded border border-[#121212] bg-[#F0F0F0] flex items-center justify-center shrink-0">
+                        <Binary className="w-4 h-4 text-[#121212]" />
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-wider">Fibonacci</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Analisis / Positions & Measurement */}
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-wider text-[#717182] mb-1.5 flex items-center gap-1.5">
+                    <Ruler className="w-3.5 h-3.5" />
+                    <span>Analisis & Posisi</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTool('measure'); setMobileSheetOpen(false); }}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-lg border-2 border-[#121212] transition-all cursor-pointer text-center min-h-[64px] ${
+                        activeTool === 'measure'
+                          ? 'bg-[#EBF2FF] text-[#1040C0] shadow-[2px_2px_0px_0px_#121212]'
+                          : 'bg-white text-[#121212] hover:bg-[#FFFDEB] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                      }`}
+                    >
+                      <Ruler className="w-4 h-4 mb-1 text-[#121212]" />
+                      <span className="text-[10px] font-black uppercase tracking-wider">Ruler</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTool('long_position'); setMobileSheetOpen(false); }}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-lg border-2 border-[#121212] transition-all cursor-pointer text-center min-h-[64px] ${
+                        activeTool === 'long_position'
+                          ? 'bg-[#E7F9F0] text-[#059669] shadow-[2px_2px_0px_0px_#121212]'
+                          : 'bg-white text-[#059669] hover:bg-[#F0FDF4] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                      }`}
+                    >
+                      <ArrowUpRight className="w-4 h-4 mb-1 stroke-[2.5]" />
+                      <span className="text-[10px] font-black uppercase tracking-wider">Long Pos</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTool('short_position'); setMobileSheetOpen(false); }}
+                      className={`flex flex-col items-center justify-center p-2.5 rounded-lg border-2 border-[#121212] transition-all cursor-pointer text-center min-h-[64px] ${
+                        activeTool === 'short_position'
+                          ? 'bg-[#FDECEC] text-[#DC2626] shadow-[2px_2px_0px_0px_#121212]'
+                          : 'bg-white text-[#DC2626] hover:bg-[#FEF2F2] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                      }`}
+                    >
+                      <ArrowDownRight className="w-4 h-4 mb-1 stroke-[2.5]" />
+                      <span className="text-[10px] font-black uppercase tracking-wider">Short Pos</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Utilities / Aksi */}
+                <div className="pt-2 border-t-2 border-[#121212] flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLockRR(!lockRR)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg border-2 border-[#121212] text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                      lockRR
+                        ? 'bg-[#FEF3C7] text-[#D97706] shadow-[2px_2px_0px_0px_#121212]'
+                        : 'bg-white text-[#121212] hover:bg-[#F0F0F0] shadow-[2px_2px_0px_0px_#121212]'
+                    }`}
+                  >
+                    {lockRR ? <Lock className="w-3.5 h-3.5 stroke-[2.5]" /> : <Unlock className="w-3.5 h-3.5 stroke-[2.5]" />}
+                    <span>Lock R:R {lockRR ? 'ON' : 'OFF'}</span>
+                  </button>
+
+                  {selectedDrawingId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleDeleteSelectedDrawing();
+                        setMobileSheetOpen(false);
+                      }}
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border-2 border-[#DC2626] bg-[#FDECEC] text-[#DC2626] text-xs font-black uppercase tracking-wider shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>Hapus</span>
+                    </button>
+                  )}
+
+                  {drawings.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleDeleteAllDrawings();
+                        setMobileSheetOpen(false);
+                      }}
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border-2 border-[#121212] bg-white text-[#DC2626] hover:bg-red-50 text-xs font-black uppercase tracking-wider shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer"
+                    >
+                      <Eraser className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>Hapus Semua</span>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1975,10 +2398,11 @@ export default function Backtest() {
               isVisualOrderActive={isVisualOrderActive}
               onConfirmVisualOrder={handleConfirmVisualOrder}
               onCancelVisualOrder={handleCancelVisualOrder}
+              isTimeframeLoading={isTimeframeLoading}
             />
 
-
-
+            {/* Quick Trade Floating Actions on Desktop - Elevated cleanly above time axis */}
+            {renderQuickTradePill()}
           </div>
         </div>
 
@@ -2079,35 +2503,46 @@ export default function Backtest() {
         />
       </main>
 
-      {isOrderPanelOpen && (
-        <aside className="w-72 lg:w-80 flex-shrink-0 border-l-2 border-[#121212] bg-[#F4F4F0] flex flex-col h-full overflow-y-auto z-20">
-          <OrderPanel
-            ref={orderPanelRef}
-            symbol={symbol}
-            currentPrice={currentPrice}
-            balance={balance}
-            riskPercent={riskPercent}
-            onRiskPercentChange={setRiskPercent}
-            activeTrade={activeTrade}
-            pendingOrders={pendingOrders}
-            onCancelPendingOrder={handleCancelPendingOrder}
-            onEditPendingOrder={handleEditPendingOrder}
-            onOpenTrade={handleOpenTrade}
-            onPlaceOrder={handlePlaceOrder}
-            onCloseTrade={handleManualClose}
-            selectedSideOverride={tradeSide}
-            intrabarWarning={intrabarWarning}
-            isSubmitting={isSubmittingTrade}
-            appMode={appMode}
-            onActivateReplay={handleActivateBarReplay}
-            onPlannedTradeChange={setPlannedTrade}
-            onVisualOrderSubmit={handleSubmitVisualOrder}
-            controlledEntryPrice={controlledEntryPrice}
-            controlledSlPrice={controlledSlPrice}
-            controlledTpPrice={controlledTpPrice}
-          />
-        </aside>
-      )}
+      <AnimatePresence>
+        {isOrderPanelOpen && (
+          <motion.aside
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 'auto', opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="flex-shrink-0 border-l-2 border-[#121212] bg-[#F4F4F0] flex flex-col h-full overflow-hidden z-20"
+          >
+            <div className="w-72 lg:w-80 h-full flex flex-col overflow-y-auto">
+              <OrderPanel
+                ref={orderPanelRef}
+                symbol={symbol}
+                candles={candles}
+                currentPrice={currentPrice}
+                balance={balance}
+                riskPercent={riskPercent}
+                onRiskPercentChange={setRiskPercent}
+                activeTrade={activeTrade}
+                pendingOrders={pendingOrders}
+                onCancelPendingOrder={handleCancelPendingOrder}
+                onEditPendingOrder={handleEditPendingOrder}
+                onOpenTrade={handleOpenTrade}
+                onPlaceOrder={handlePlaceOrder}
+                onCloseTrade={handleManualClose}
+                selectedSideOverride={tradeSide}
+                intrabarWarning={intrabarWarning}
+                isSubmitting={isSubmittingTrade}
+                appMode={appMode}
+                onActivateReplay={handleActivateBarReplay}
+                onPlannedTradeChange={setPlannedTrade}
+                onVisualOrderSubmit={handleSubmitVisualOrder}
+                controlledEntryPrice={controlledEntryPrice}
+                controlledSlPrice={controlledSlPrice}
+                controlledTpPrice={controlledTpPrice}
+              />
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
     </div>
   );
 

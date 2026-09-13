@@ -1,11 +1,13 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
-import { Settings, Trash2, Plus, X, RotateCcw, Check, Zap, Edit3, XCircle } from 'lucide-react';
+import { Settings, Trash2, Plus, X, RotateCcw, RotateCw, Check, Zap, Edit3, XCircle, ChevronDown, ChevronUp, GripHorizontal, Minimize2, Maximize2, Video } from 'lucide-react';
 import {
   calculateFibonacciLevels,
   calculatePositionToolGeometry,
   updatePositionToolHandle,
   getDefaultSlDistance,
+  calculateAdaptiveSlDistance,
   ChartTimeframe,
   TradeSide,
 } from '../../../../server/src/services/backtestEngine';
@@ -134,6 +136,7 @@ interface CandlestickChartProps {
   isVisualOrderActive?: boolean;
   onConfirmVisualOrder?: () => void;
   onCancelVisualOrder?: () => void;
+  isTimeframeLoading?: boolean;
 }
 
 interface DraggingHandleState {
@@ -153,6 +156,9 @@ interface VP {
   chartW: number;
   mainH: number;
   candleH: number;
+  paddingTop: number;
+  paddingBottom: number;
+  drawableHeight: number;
   cw: number;
   slot: number;
   rightMargin: number;
@@ -206,6 +212,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   isVisualOrderActive = false,
   onConfirmVisualOrder,
   onCancelVisualOrder,
+  isTimeframeLoading = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
@@ -274,10 +281,35 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const [dblConfirm, setDblConfirm] = useState<{ time: Date; price: number } | null>(null);
   const [fibSettingsOpen, setFibSettingsOpen] = useState<boolean>(false);
 
+  // Long-press Touch Support for Mobile
+  const touchStartPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
+
   // Selected Placed Order on Chart (for Edit / Delete)
   const [selectedPendingOrderId, setSelectedPendingOrderId] = useState<string | null>(null);
   const [isActiveTradeSelected, setIsActiveTradeSelected] = useState<boolean>(false);
   const selectedPendingOrder = pendingOrders.find((p) => p.id === selectedPendingOrderId) || null;
+
+  // Draggable order overlay state
+  const [overlayPos, setOverlayPos] = useState<{ x: number; y: number } | null>(null);
+  const [overlayCollapsed, setOverlayCollapsed] = useState<boolean>(false);
+  const overlayDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const overlayContainerRef = useRef<HTMLDivElement>(null);
 
   const candlesRef = useRef<ChartCandle[]>(candles);
   candlesRef.current = candles;
@@ -295,6 +327,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
 
   // Preserve user's viewport on data prepend / append
+  // Reset overlay position and collapse when order panel is closed
+  useEffect(() => {
+    if (!isVisualOrderActive) {
+      setOverlayPos(null);
+      setOverlayCollapsed(false);
+    }
+  }, [isVisualOrderActive]);
+
   useEffect(() => {
     const prev = prevCandlesRef.current;
     prevCandlesRef.current = candles;
@@ -322,7 +362,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           setPanOffsetX(0);
         } else {
           const cw = cwRef.current;
-          const slot = cw + Math.max(1, cw * 0.2);
+          const slot = cw;
           const deltaPixels = appendedCount * slot;
           // If actively dragging, compensate startPanX so mouse tracking never skips!
           if (panStartRef.current) {
@@ -346,6 +386,22 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       setPanOffsetX(0);
     }
   }, [followReplay, appMode]);
+
+  // When timeframe changes, reset pan offset and set adaptive initial candleWidth so viewport snaps cleanly
+  useEffect(() => {
+    panXRef.current = 0;
+    setPanOffsetX(0);
+    let initialCw = 8;
+    if (timeframe === 'M1' || timeframe === 'M5' || timeframe === 'M15' || timeframe === 'M30') {
+      initialCw = 8;
+    } else if (timeframe === 'H1' || timeframe === 'H4') {
+      initialCw = 10;
+    } else if (timeframe === 'D1') {
+      initialCw = 12;
+    }
+    cwRef.current = initialCw;
+    setCandleWidth(initialCw);
+  }, [timeframe]);
 
   // ResizeObserver on the canvas wrapper element to guarantee exact viewport dimensions (excluding HUD)
   useEffect(() => {
@@ -395,74 +451,107 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const mainH = Math.max(50, cssH - timeScaleH);
     const candleH = Math.max(40, mainH - volH);
 
-    const spacing = Math.max(1, cw * 0.2);
-    const slot = cw + spacing;
-    const rightMargin = Math.max(35, slot * 6);
+    // Padding ensuring wicks never penetrate top toolbar or bottom volume area
+    const paddingTop = 36;
+    const paddingBottom = 16;
+    // Ensure drawableHeight subtracts paddingTop, TIME_AXIS_HEIGHT, and volume indicator height
+    const drawableHeight = Math.max(20, mainH - volH - paddingTop - paddingBottom);
 
+    const slot = cw;
+    const rightMargin = Math.max(35, cw * 5);
     const lastGlobalIdx = Math.max(0, candles.length - 1);
 
-    // Canonical Projection:
-    // 1 px pointer movement = 1 px visual chart movement.
-    const getX = (gIdx: number): number => {
-      return chartW - rightMargin + (gIdx - lastGlobalIdx) * slot + panX + slot / 2;
+    // Canonical Projection: Pure sequential integer index within dense array
+    // candlesFromRight = (candles.length - 1) - i
+    // x = (chartW - rightMargin) - (candlesFromRight * cw) + panX
+    const getX = (i: number): number => {
+      const candlesFromRight = lastGlobalIdx - i;
+      return (chartW - rightMargin) - (candlesFromRight * cw) + panX;
     };
 
     // Inverse Projection: exact mathematical inverse
     const xToGIdx = (x: number): number => {
-      return lastGlobalIdx + (x - (chartW - rightMargin) - panX - slot / 2) / slot;
+      return lastGlobalIdx + (x - (chartW - rightMargin) - panX) / cw;
     };
 
-    // Derived visible index bounds directly from screen boundaries:
-    const gIdxLeft = xToGIdx(0);
-    const gIdxRight = xToGIdx(chartW);
-    const startIdx = Math.max(0, Math.floor(gIdxLeft) - 5);
-    const endIdx = Math.min(lastGlobalIdx, Math.ceil(gIdxRight) + 5);
-    const vis = candles.slice(startIdx, Math.min(candles.length, endIdx + 1));
+    // Derived visible index bounds directly from screen boundaries (0 to chartW):
+    const idxLeft = xToGIdx(0);
+    const idxRight = xToGIdx(chartW);
+    const startIdx = Math.max(0, Math.floor(Math.min(idxLeft, idxRight)) - 5);
+    const endIdx = Math.min(lastGlobalIdx, Math.ceil(Math.max(idxLeft, idxRight)) + 5);
 
-    // Dynamic Price Range Calculation
-    let minP = Infinity, maxP = -Infinity;
-    for (const c of vis) {
-      if (c.low > 0 && c.low < minP) minP = c.low;
-      if (c.high > 0 && c.high > maxP) maxP = c.high;
+    // Dynamic Price Range Calculation strictly across visible viewport candles (+5 bar margin)
+    let rawMin = Infinity, rawMax = -Infinity;
+    for (let i = 0; i < candles.length; i++) {
+      const c = candles[i];
+      if (!c) continue;
+      const barsFromRight = lastGlobalIdx - i;
+      const x = (chartW - rightMargin) - (barsFromRight * cw) + panX;
+      if (x < -cw * 5 || x > chartW + cw * 5) continue;
+      if (c.low > 0 && c.low < rawMin) rawMin = c.low;
+      if (c.high > 0 && c.high > rawMax) rawMax = c.high;
     }
-    if (!isFinite(minP) || minP <= 0 || maxP <= minP) {
+    if (!isFinite(rawMin) || rawMin <= 0 || rawMax <= rawMin) {
       const fallbackPrice = candles.length > 0 ? candles[candles.length - 1].close : 3000;
-      minP = fallbackPrice * 0.99;
-      maxP = fallbackPrice * 1.01;
+      rawMin = fallbackPrice * 0.99;
+      rawMax = fallbackPrice * 1.01;
     }
 
     if (tradesList.length > 0) {
-      const mid = (maxP + minP) / 2;
-      const span = Math.max(1, maxP - minP);
+      const mid = (rawMax + rawMin) / 2;
+      const span = Math.max(1, rawMax - rawMin);
       for (const t of tradesList) {
-        if (t.entryPrice > 0 && Math.abs(t.entryPrice - mid) < span * 4) {
-          minP = Math.min(minP, t.entryPrice);
-          maxP = Math.max(maxP, t.entryPrice);
+        if (t.entryPrice > 0 && Math.abs(t.entryPrice - mid) < span * 3) {
+          rawMin = Math.min(rawMin, t.entryPrice);
+          rawMax = Math.max(rawMax, t.entryPrice);
         }
-        if (t.slPrice > 0 && Math.abs(t.slPrice - mid) < span * 4) {
-          minP = Math.min(minP, t.slPrice);
-          maxP = Math.max(maxP, t.slPrice);
+        if (t.slPrice > 0 && Math.abs(t.slPrice - mid) < span * 3) {
+          rawMin = Math.min(rawMin, t.slPrice);
+          rawMax = Math.max(rawMax, t.slPrice);
         }
-        if (t.tpPrice > 0 && Math.abs(t.tpPrice - mid) < span * 4) {
-          minP = Math.min(minP, t.tpPrice);
-          maxP = Math.max(maxP, t.tpPrice);
+        if (t.tpPrice > 0 && Math.abs(t.tpPrice - mid) < span * 3) {
+          rawMin = Math.min(rawMin, t.tpPrice);
+          rawMax = Math.max(rawMax, t.tpPrice);
         }
       }
     }
 
-    const midPrice = (maxP + minP) / 2;
-    const baseRange = Math.max(0.5, maxP - minP);
-    const scaledRange = (baseRange * 1.16) / Math.max(0.1, pz);
-    const paddedMin = midPrice - scaledRange / 2 + po;
-    const paddedMax = midPrice + scaledRange / 2 + po;
-    const totalRange = Math.max(0.1, paddedMax - paddedMin);
+    if (plannedOrder && plannedOrder.entryPrice > 0) {
+      const mid = (rawMax + rawMin) / 2;
+      const span = Math.max(1, rawMax - rawMin);
+      if (Math.abs(plannedOrder.entryPrice - mid) < span * 3) {
+        rawMin = Math.min(rawMin, plannedOrder.entryPrice);
+        rawMax = Math.max(rawMax, plannedOrder.entryPrice);
+      }
+      if (plannedOrder.slPrice && plannedOrder.slPrice > 0 && Math.abs(plannedOrder.slPrice - mid) < span * 3) {
+        rawMin = Math.min(rawMin, plannedOrder.slPrice);
+        rawMax = Math.max(rawMax, plannedOrder.slPrice);
+      }
+      if (plannedOrder.tpPrice && plannedOrder.tpPrice > 0 && Math.abs(plannedOrder.tpPrice - mid) < span * 3) {
+        rawMin = Math.min(rawMin, plannedOrder.tpPrice);
+        rawMax = Math.max(rawMax, plannedOrder.tpPrice);
+      }
+    }
+
+    // Robust 15% vertical buffer above and below so NO wick touches boundaries:
+    const priceRange = Math.max(rawMax - rawMin, 0.01);
+    const bufferedMax = rawMax + priceRange * 0.15;
+    const bufferedMin = rawMin - priceRange * 0.15;
+
+    // Apply manual price scale zoom (pz) and price pan offset (po)
+    const baseSpan = bufferedMax - bufferedMin;
+    const scaledSpan = baseSpan / Math.max(0.1, pz);
+    const midPrice = (bufferedMax + bufferedMin) / 2;
+    const paddedMin = midPrice - scaledSpan / 2 + po;
+    const paddedMax = midPrice + scaledSpan / 2 + po;
+    const totalRange = Math.max(0.01, paddedMax - paddedMin);
 
     const getY = (price: number) => {
-      return ((paddedMax - price) / totalRange) * (candleH - 20) + 10;
+      return paddingTop + ((paddedMax - price) / totalRange) * drawableHeight;
     };
 
     const yToPrice = (y: number) => {
-      return paddedMax - ((y - 10) / (candleH - 20)) * totalRange;
+      return paddedMax - ((y - paddingTop) / drawableHeight) * totalRange;
     };
 
     const timeToGIdx = (ms: number): number => {
@@ -518,11 +607,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     return {
       cssW, cssH, priceScaleW, timeScaleH, volH, chartW, mainH, candleH,
+      paddingTop, paddingBottom, drawableHeight,
       cw, slot, rightMargin, startIdx, endIdx, paddedMin, paddedMax, totalRange,
       priceZoom: pz, pricePanOffset: po, panOffsetX: panX,
       getX, getY, timeToGIdx, timeToX, xToGIdx, xToTime, yToPrice,
     };
-  }, [candles, activeTrade, activeTrades]);
+  }, [candles, activeTrade, activeTrades, plannedOrder]);
 
   // ── Main Render Loop ──
   useEffect(() => {
@@ -540,11 +630,20 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     const vp = buildVP(cssW, cssH);
     vpRef.current = vp;
-    const { priceScaleW, timeScaleH, volH, chartW, mainH, cw, startIdx, endIdx, paddedMin, paddedMax, totalRange, getX, getY, timeToX } = vp;
+    const { priceScaleW, timeScaleH, volH, chartW, mainH, cw, rightMargin, paddedMin, paddedMax, totalRange, getY, timeToX } = vp;
+    const panX = vp.panOffsetX;
+    const total = candles.length;
+    const rightBoundary = chartW - rightMargin + panX;
 
-    const vis = candles.slice(startIdx, Math.min(candles.length, endIdx + 1));
     let maxVol = 0;
-    for (const c of vis) { if ((c.tickVolume || 0) > maxVol) maxVol = c.tickVolume || 0; }
+    for (let i = 0; i < total; i++) {
+      const c = candles[i];
+      if (!c) continue;
+      const barsFromRight = (total - 1) - i;
+      const x = rightBoundary - (barsFromRight * cw);
+      if (x < -cw * 2 || x > chartW + cw * 2) continue;
+      if ((c.tickVolume || 0) > maxVol) maxVol = c.tickVolume || 0;
+    }
 
     // 1. Chart Background
     ctx.fillStyle = '#F8FAFC';
@@ -607,62 +706,134 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     ctx.beginPath(); ctx.moveTo(chartW, 0); ctx.lineTo(chartW, cssH); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, mainH); ctx.lineTo(cssW, mainH); ctx.stroke();
 
-    // 3. Adaptive Time Scale Labels
-    const tStep = Math.max(1, Math.floor(vis.length / 7));
-    for (let i = 0; i < vis.length; i += tStep) {
-      const x = getX(startIdx + i);
-      if (x < 0 || x > chartW) continue;
+    // 3. Adaptive Time Scale Labels (Pure dense candle indexing with deduplication)
+    const isDaily = timeframe === 'D1';
+    const labelFmt = isDaily
+      ? (cw > 14 ? 'yyyy-MM-dd' : 'MM/dd')
+      : (cw > 14 ? 'MM/dd HH:mm' : 'HH:mm');
+    const minPixelGap = isDaily ? (cw > 14 ? 75 : 55) : (cw > 14 ? 80 : 60);
+    const tStep = Math.max(1, Math.ceil(minPixelGap / cw));
+    let lastLabelX = -999;
+    let lastLabelStr = '';
+
+    for (let i = 0; i < total; i += tStep) {
+      const c = candles[i];
+      if (!c) continue;
+      const barsFromRight = (total - 1) - i;
+      const x = rightBoundary - (barsFromRight * cw);
+      if (x < 25 || x > chartW - 25) continue;
+      if (x - lastLabelX < minPixelGap) continue;
+
+      const labelStr = format(new Date(c.time), labelFmt);
+      if (labelStr === lastLabelStr) continue;
+
+      lastLabelX = x;
+      lastLabelStr = labelStr;
+
       ctx.strokeStyle = '#E2E8F0';
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, mainH); ctx.stroke();
       ctx.fillStyle = '#64748B'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
-
-      // Adaptive format depending on candle width
-      const labelFmt = cw > 12 ? 'MM/dd HH:mm' : cw > 5 ? 'dd HH:mm' : 'MM/dd';
-      ctx.fillText(format(new Date(vis[i].time), labelFmt), x, cssH - 7);
+      ctx.fillText(labelStr, x, cssH - 7);
     }
 
-    // 4. Volume Separator & Bars (Clipped strictly to chart viewport)
+    // 4. Volume Separator & Bars (Clipped strictly to volume viewport)
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, 0, chartW, mainH);
+    ctx.rect(0, mainH - volH, chartW, volH);
     ctx.clip();
 
     ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, mainH - volH); ctx.lineTo(chartW, mainH - volH); ctx.stroke();
 
-    for (let i = 0; i < vis.length; i++) {
-      const c = vis[i];
-      const x = getX(startIdx + i);
-      if (x < -cw || x > chartW + cw) continue;
+    for (let i = 0; i < total; i++) {
+      const c = candles[i];
+      if (!c) continue;
+      const barsFromRight = (total - 1) - i;
+      const rawX = rightBoundary - (barsFromRight * cw);
+      if (rawX < -cw * 2 || rawX > chartW + cw * 2) continue;
+      const centerX = Math.round(rawX);
       const vol = c.tickVolume || 0;
       const h = maxVol > 0 ? (vol / maxVol) * (volH - 6) : 0;
+      const calcVolW = Math.max(3, Math.round(cw * 0.75));
+      const volW = calcVolW % 2 === 0 ? calcVolW + 1 : calcVolW;
+      const volX = centerX - Math.floor(volW / 2);
       ctx.fillStyle = c.close >= c.open ? 'rgba(16,185,129,.22)' : 'rgba(239,68,68,.22)';
-      ctx.fillRect(x - cw / 2, mainH - h, cw, h);
+      ctx.fillRect(volX, mainH - h, volW, h);
+    }
+    ctx.restore();
+
+    // 5. Candlesticks (OHLC) - TradingView Standard Candlestick Geometry
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, chartW, mainH - volH);
+    ctx.clip();
+
+    for (let i = 0; i < total; i++) {
+      const candle = candles[i];
+      if (!candle) continue;
+      // Strict distance from the latest bar:
+      const barsFromRight = (total - 1) - i;
+      const rawX = rightBoundary - (barsFromRight * cw);
+
+      // Culling guard: only skip drawing operations if completely offscreen,
+      // but NEVER use startIdx / endIdx to bound the loop
+      if (rawX < -cw * 2 || rawX > chartW + cw * 2) continue;
+
+      // 1. Center of the candle slot:
+      const centerX = Math.round(rawX);
+
+      // 2. Proportional body width (at least 75% of available bar slot):
+      // Ensure bodyWidth is an odd integer so centerX is the exact mathematical middle pixel
+      const calcWidth = Math.max(3, Math.round(cw * 0.75));
+      const bodyWidth = calcWidth % 2 === 0 ? calcWidth + 1 : calcWidth;
+      const bodyLeft = centerX - Math.floor(bodyWidth / 2);
+
+      // 3. Y-coordinates:
+      const yOpen = getY(candle.open);
+      const yClose = getY(candle.close);
+      const yHigh = getY(candle.high);
+      const yLow = getY(candle.low);
+
+      const topY = Math.min(yOpen, yClose);
+      const rawHeight = Math.abs(yClose - yOpen);
+      // Guarantee Dojis and flat bars are always visible as a solid 1.5px-2px slab:
+      const bodyHeight = Math.max(1.5, Math.round(rawHeight));
+      const bodyTop = rawHeight < 1.5 ? Math.round(topY) - 0.75 : Math.round(topY);
+
+      const isBullish = candle.close >= candle.open;
+      const color = isBullish ? '#10B981' : '#EF4444';
+
+      // 4. Sharp, Perfectly Centered Wicks (on +0.5 half-pixel offset for crisp 1px line)
+      const wickX = centerX + 0.5;
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(wickX, Math.round(yHigh));
+      ctx.lineTo(wickX, Math.round(yLow));
+      ctx.stroke();
+
+      // 5. Render Solid Bodies Over Wicks (cleanly overlays the center wick segment)
+      ctx.fillStyle = color;
+      ctx.fillRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
     }
 
-    // 5. Candlesticks (OHLC)
-    for (let i = 0; i < vis.length; i++) {
-      const c = vis[i];
-      const x = getX(startIdx + i);
-      if (x < -cw || x > chartW) continue;
-      const oY = getY(c.open), cY = getY(c.close);
-      const hY = getY(c.high), lY = getY(c.low);
-      const bull = c.close >= c.open;
-      const col = bull ? '#10B981' : '#EF4444';
-      ctx.strokeStyle = col; ctx.fillStyle = col;
-      ctx.lineWidth = Math.max(0.8, cw * 0.1);
-      ctx.beginPath(); ctx.moveTo(x, hY); ctx.lineTo(x, lY); ctx.stroke();
-      ctx.fillRect(x - cw / 2, Math.min(oY, cY), cw, Math.max(1, Math.abs(cY - oY)));
-    }
-
-    // 6. Indicators (SMAs)
+    // 6. Indicators (SMAs) - Aligned to the exact same sequential X coordinates
     const drawSMA = (vals: (number | null)[], color: string, lw: number) => {
       ctx.strokeStyle = color; ctx.lineWidth = lw;
       ctx.beginPath(); let started = false;
-      for (let i = 0; i < vis.length; i++) {
-        const v = vals[startIdx + i];
-        if (v == null) continue;
-        const x = getX(startIdx + i), y = getY(v);
+      for (let i = 0; i < total; i++) {
+        const v = vals[i];
+        if (v == null) {
+          started = false;
+          continue;
+        }
+        const barsFromRight = (total - 1) - i;
+        const x = rightBoundary - (barsFromRight * cw);
+        if (x < -cw * 4 || x > chartW + cw * 4) {
+          started = false;
+          continue;
+        }
+        const y = getY(v);
         started ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
         started = true;
       }
@@ -671,8 +842,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     if (sma20v.length) drawSMA(sma20v, '#F59E0B', 1.5);
     if (sma50v.length) drawSMA(sma50v, '#38BDF8', 1.5);
     if (sma200v.length) drawSMA(sma200v, '#C084FC', 2);
+    ctx.restore();
 
     // 7. Interactive Drawings
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, chartW, mainH);
+    ctx.clip();
     const allDrawings = draftRef.current ? [...drawings, draftRef.current] : drawings;
     for (const d of allDrawings) {
       const isSel = selectedDrawingId === d.id;
@@ -1287,16 +1463,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.setLineDash([]);
 
       const hp = vp.yToPrice(mousePos.y);
-      ctx.fillStyle = '#334155'; ctx.fillRect(chartW + 1, mousePos.y - 10, priceScaleW - 2, 20);
-      ctx.fillStyle = '#F0F9FF'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
+      ctx.fillStyle = '#121212'; ctx.fillRect(chartW + 1, mousePos.y - 10, priceScaleW - 2, 20);
+      ctx.fillStyle = '#FFFFFF'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
       ctx.fillText(hp.toFixed(2), chartW + 6, mousePos.y + 4);
 
       const hIdx = Math.round(vp.xToGIdx(mousePos.x));
       if (hIdx >= 0 && hIdx < candles.length) {
         const t = new Date(candles[hIdx].time);
-        ctx.fillStyle = '#334155'; ctx.fillRect(mousePos.x - 45, cssH - timeScaleH, 90, timeScaleH);
-        ctx.fillStyle = '#F0F9FF'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
-        ctx.fillText(format(t, 'MM/dd HH:mm'), mousePos.x, cssH - 8);
+        const isDaily = timeframe === 'D1';
+        const crosshairFmt = isDaily ? 'yyyy-MM-dd' : 'MM/dd HH:mm';
+        const badgeW = isDaily ? 84 : 90;
+        ctx.fillStyle = '#121212'; ctx.fillRect(mousePos.x - badgeW / 2, cssH - timeScaleH, badgeW, timeScaleH);
+        ctx.fillStyle = '#FFFFFF'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(format(t, crosshairFmt), mousePos.x, cssH - 8);
       }
     }
   }, [
@@ -1340,7 +1519,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
 
       // Case B: Vertical scroll outside the main chart body (e.g. price scale or time scale) -> allow natural page scroll
-      if (mouseX > vp.chartW || mouseY > vp.candleH) {
+      if (mouseX > vp.chartW || mouseY > vp.mainH - vp.volH) {
         return;
       }
 
@@ -1362,17 +1541,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       // 1. Find global fractional candle index directly under mouseX before zoom
       const anchorGIdx = vp.xToGIdx(mouseX);
 
-      // 2. Compute new slot & right margin with newCW
-      const newSpacing = Math.max(1, newCW * 0.2);
-      const newSlot = newCW + newSpacing;
-      const newRightMargin = Math.max(35, newSlot * 6);
+      // 2. Compute new right margin with newCW
+      const newRightMargin = Math.max(35, newCW * 5);
 
       // 3. Solve for newPanX so that getX(anchorGIdx) === mouseX:
-      // mouseX = vp.chartW - newRightMargin + (anchorGIdx - lastGlobalIdx) * newSlot + newPanX + newSlot / 2
-      let newPanX = mouseX - (vp.chartW - newRightMargin) - (anchorGIdx - lastGlobalIdx) * newSlot - newSlot / 2;
+      // mouseX = (vp.chartW - newRightMargin) - (lastGlobalIdx - anchorGIdx) * newCW + newPanX
+      let newPanX = mouseX - (vp.chartW - newRightMargin) + (lastGlobalIdx - anchorGIdx) * newCW;
 
       const minPanX = -Math.round(vp.chartW * 0.35);
-      const maxPanX = Math.max(0, lastGlobalIdx * newSlot + 100);
+      const maxPanX = Math.max(0, lastGlobalIdx * newCW + 100);
       newPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
 
       cwRef.current = newCW;
@@ -1627,8 +1804,23 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     return null;
   };
 
-  // ── Reset Auto-Scale ──
+  // ── Reset Auto-Scale & View ──
   const handleResetAutoScale = () => {
+    setPriceZoom(1.0);
+    setPricePanOffset(0);
+  };
+
+  const handleResetView = () => {
+    panXRef.current = 0;
+    setPanOffsetX(0);
+    let defaultCw = 8;
+    if (timeframe === 'H1' || timeframe === 'H4') {
+      defaultCw = 10;
+    } else if (timeframe === 'D1') {
+      defaultCw = 12;
+    }
+    cwRef.current = defaultCw;
+    setCandleWidth(defaultCw);
     setPriceZoom(1.0);
     setPricePanOffset(0);
   };
@@ -1644,6 +1836,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     // Multi-touch Pinch Zoom Initialization (2 fingers)
     if (activePointersRef.current.size === 2) {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      touchStartPosRef.current = null;
       dragModeRef.current = 'PINCH_ZOOM';
       panStartRef.current = null;
       draggingHandleRef.current = null;
@@ -1656,7 +1853,29 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       pinchMidRef.current = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
       return;
     }
-    if (activePointersRef.current.size > 2) return;
+    if (activePointersRef.current.size > 2) {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      touchStartPosRef.current = null;
+      return;
+    }
+
+    // Touch Long-Press detection for Mobile
+    if (e.pointerType === 'touch' && activePointersRef.current.size === 1) {
+      touchStartPosRef.current = { clientX: e.clientX, clientY: e.clientY };
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = setTimeout(() => {
+        if (!touchStartPosRef.current) return;
+        dragModeRef.current = 'NONE';
+        panStartRef.current = null;
+        triggerContextMenu(touchStartPosRef.current.clientX, touchStartPosRef.current.clientY);
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try { navigator.vibrate(40); } catch (_) {}
+        }
+      }, 500);
+    }
 
     const vp = vpRef.current;
     if (!vp) return;
@@ -1829,6 +2048,25 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     setMousePos({ x, y });
     activePointersRef.current.set(e.pointerId, { x, y });
 
+    // Cancel long-press timer if movement exceeds threshold (> 8px) or multiple pointers
+    if (touchStartPosRef.current) {
+      if (activePointersRef.current.size === 1) {
+        const dx = e.clientX - touchStartPosRef.current.clientX;
+        const dy = e.clientY - touchStartPosRef.current.clientY;
+        if (Math.hypot(dx, dy) > 8) {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }
+      } else {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }
+    }
+
     const vp = vpRef.current;
     if (!vp) return;
 
@@ -1849,26 +2087,24 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         if (lastGlobalIdx > 0) {
           const anchorGIdx = vp.xToGIdx(midX);
           const anchorPrice = vp.yToPrice(midY);
-          const newSpacing = Math.max(1, newCW * 0.2);
-          const newSlot = newCW + newSpacing;
-          const newRightMargin = Math.max(35, newSlot * 6);
+          const newRightMargin = Math.max(35, newCW * 5);
 
-          let newPanX = midX - (vp.chartW - newRightMargin) - (anchorGIdx - lastGlobalIdx) * newSlot - newSlot / 2;
+          let newPanX = midX - (vp.chartW - newRightMargin) + (lastGlobalIdx - anchorGIdx) * newCW;
           const minPanX = -Math.round(vp.chartW * 0.35);
-          const maxPanX = Math.max(0, lastGlobalIdx * newSlot + 100);
+          const maxPanX = Math.max(0, lastGlobalIdx * newCW + 100);
           newPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
 
           // Vertical Anchor Compensation
-          const newGIdxLeft = lastGlobalIdx + (0 - (vp.chartW - newRightMargin) - newPanX - newSlot / 2) / newSlot;
-          const newGIdxRight = lastGlobalIdx + (vp.chartW - (vp.chartW - newRightMargin) - newPanX - newSlot / 2) / newSlot;
-          const newStartIdx = Math.max(0, Math.floor(newGIdxLeft) - 5);
-          const newEndIdx = Math.min(lastGlobalIdx, Math.ceil(newGIdxRight) + 5);
+          const newIdxLeft = lastGlobalIdx + (0 - (vp.chartW - newRightMargin) - newPanX) / newCW;
+          const newIdxRight = lastGlobalIdx + (vp.chartW - (vp.chartW - newRightMargin) - newPanX) / newCW;
+          const newStartIdx = Math.max(0, Math.floor(Math.min(newIdxLeft, newIdxRight)) - 5);
+          const newEndIdx = Math.min(lastGlobalIdx, Math.ceil(Math.max(newIdxLeft, newIdxRight)) + 5);
 
           let minP = Infinity, maxP = -Infinity;
           for (let i = newStartIdx; i <= newEndIdx && i < candlesList.length; i++) {
             const c = candlesList[i];
-            if (c.low < minP) minP = c.low;
-            if (c.high > maxP) maxP = c.high;
+            if (c.low > 0 && c.low < minP) minP = c.low;
+            if (c.high > 0 && c.high > maxP) maxP = c.high;
           }
           if (!isFinite(minP)) { minP = 3000; maxP = 3100; }
           for (const t of activeTradesRef.current) {
@@ -1876,12 +2112,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             maxP = Math.max(maxP, t.tpPrice, t.entryPrice);
           }
           const newMidPrice = (maxP + minP) / 2;
-          const newBaseRange = (maxP - minP) || 1;
-          const newScaledRange = (newBaseRange * 1.16) / Math.max(0.1, pzRef.current);
+          const newBaseRange = Math.max(0.01, maxP - minP);
+          const newBuffer = newBaseRange * 0.10;
+          const newScaledRange = (newBaseRange + newBuffer * 2) / Math.max(0.1, pzRef.current);
           const newTotalRange = newScaledRange;
-          if (vp.candleH > 20) {
-            const clampedY = Math.max(10, Math.min(vp.candleH - 10, midY));
-            const newPO = anchorPrice + ((clampedY - 10) / (vp.candleH - 20)) * newTotalRange - (newMidPrice + newScaledRange / 2);
+          if (vp.drawableHeight > 10) {
+            const clampedY = Math.max(vp.paddingTop, Math.min(vp.paddingTop + vp.drawableHeight, midY));
+            const newPO = anchorPrice + ((clampedY - vp.paddingTop) / vp.drawableHeight) * newTotalRange - (newMidPrice + newScaledRange / 2);
             poRef.current = newPO;
             setPricePanOffset(newPO);
           }
@@ -2068,7 +2305,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
 
       // Y Shift: Drag down -> shift price pan offset
-      const priceShift = (dy / (vp.candleH - 20)) * vp.totalRange;
+      const priceShift = (dy / vp.drawableHeight) * vp.totalRange;
       setPricePanOffset(panStartRef.current.startPanY + priceShift);
 
       // Debounced Prefetch: trigger only when approaching boundaries and not spamming during active drag
@@ -2121,6 +2358,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   // ── Pointer Up Handler ──
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    touchStartPosRef.current = null;
+
     activePointersRef.current.delete(e.pointerId);
     if (activePointersRef.current.size < 2 && dragModeRef.current === 'PINCH_ZOOM') {
       dragModeRef.current = 'NONE';
@@ -2165,18 +2408,85 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   };
 
-  // ── Context Menu (Right Click) ──
-  const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const { x, y } = clientToCanvas(e.clientX, e.clientY);
+  // ── Context Menu (Right Click & Mobile Long-Press Clamping) ──
+  const triggerContextMenu = useCallback((clientX: number, clientY: number) => {
+    const { x, y } = clientToCanvas(clientX, clientY);
     const vp = vpRef.current;
     if (!vp) return;
+
+    const menuWidth = 250;
+    const menuHeight = 380;
+    const clampedX = Math.min(Math.max(8, clientX), (window.innerWidth || 360) - menuWidth - 12);
+    const clampedY = Math.min(Math.max(50, clientY), (window.innerHeight || 640) - menuHeight - 12);
+
+    const safeCandle = hoveredCandle || candles[candles.length - 1];
+    const chartTime = (x >= 0 && x <= vp.chartW)
+      ? vp.xToTime(x)
+      : (safeCandle ? new Date(safeCandle.time).getTime() : Date.now());
+    const chartPrice = (y >= 0 && y <= vp.mainH)
+      ? Math.round(vp.yToPrice(y) * 1000) / 1000
+      : (safeCandle ? safeCandle.close : 0);
+
     setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      chartTime: vp.xToTime(x),
-      chartPrice: Math.round(vp.yToPrice(y) * 1000) / 1000,
+      x: clampedX,
+      y: clampedY,
+      chartTime,
+      chartPrice,
     });
+  }, [clientToCanvas, hoveredCandle, candles]);
+
+  const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    triggerContextMenu(e.clientX, e.clientY);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      touchStartPosRef.current = { clientX: t.clientX, clientY: t.clientY };
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = setTimeout(() => {
+        if (!touchStartPosRef.current) return;
+        dragModeRef.current = 'NONE';
+        panStartRef.current = null;
+        triggerContextMenu(touchStartPosRef.current.clientX, touchStartPosRef.current.clientY);
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try { navigator.vibrate(40); } catch (_) {}
+        }
+      }, 500);
+    } else {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      touchStartPosRef.current = null;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (touchStartPosRef.current && e.touches.length === 1) {
+      const dx = e.touches[0].clientX - touchStartPosRef.current.clientX;
+      const dy = e.touches[0].clientY - touchStartPosRef.current.clientY;
+      if (Math.hypot(dx, dy) > 8) {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }
+    } else {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    touchStartPosRef.current = null;
   };
 
   const latestC = candles[candles.length - 1];
@@ -2203,10 +2513,28 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     >
       {/* Top HUD: Asset, Timeframe, OHLC Values & SMA Toggles */}
       <div className="flex flex-wrap items-center justify-between px-3 py-1.5 pr-28 bg-slate-50 border-b border-slate-200 text-xs z-10 gap-2 shrink-0">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <span className="font-bold text-[#121212] bg-white px-2 py-0.5 border border-slate-200 rounded-lg text-xs font-mono tracking-tight shadow-sm">
-            XAUUSD • {timeframe}
-          </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <span className="font-bold text-[#121212] bg-white px-2 py-0.5 border border-slate-200 rounded-lg text-xs font-mono tracking-tight shadow-sm">
+              XAUUSD • {timeframe}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const rect = e.currentTarget.getBoundingClientRect();
+                triggerContextMenu(rect.left, rect.bottom + 6);
+              }}
+              title="Menu Opsi Chart (Set Replay, Reset View, Alat Gambar)"
+              aria-label="Menu Opsi Chart"
+              className="flex items-center gap-1 px-2 py-0.5 text-xs font-bold font-mono bg-white text-[#121212] border-2 border-[#121212] rounded-lg shadow-[2px_2px_0px_0px_#121212] hover:bg-[#EAF2FF] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+            >
+              <Settings className="w-3.5 h-3.5 text-[#1040C0]" />
+              <span className="text-[10px] font-black uppercase tracking-wider">OPSI</span>
+              <ChevronDown className="w-3 h-3 text-[#121212]" />
+            </button>
+          </div>
           {activeC && m && (
             <span className="flex items-center gap-2 font-mono text-[11px] text-[#121212] flex-wrap">
               <span>
@@ -2295,6 +2623,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerLeave={(e) => {
+            if (longPressTimerRef.current) {
+              clearTimeout(longPressTimerRef.current);
+              longPressTimerRef.current = null;
+            }
+            touchStartPosRef.current = null;
             activePointersRef.current.delete(e.pointerId);
             if (activePointersRef.current.size === 0) {
               setMousePos(null);
@@ -2306,563 +2639,840 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             }
           }}
           onPointerCancel={(e) => {
-      activePointersRef.current.delete(e.pointerId);
-      if (activePointersRef.current.size === 0) {
-        dragModeRef.current = 'NONE';
-        panStartRef.current = null;
-        priceScaleStartRef.current = null;
-        timeScaleStartRef.current = null;
-        draggingHandleRef.current = null;
-        plannedDragHandleRef.current = null;
-      }
-      lastPanAnchorRef.current = null;
-
+            if (longPressTimerRef.current) {
+              clearTimeout(longPressTimerRef.current);
+              longPressTimerRef.current = null;
+            }
+            touchStartPosRef.current = null;
+            activePointersRef.current.delete(e.pointerId);
+            if (activePointersRef.current.size === 0) {
+              dragModeRef.current = 'NONE';
+              panStartRef.current = null;
+              priceScaleStartRef.current = null;
+              timeScaleStartRef.current = null;
+              draggingHandleRef.current = null;
+              plannedDragHandleRef.current = null;
+            }
+            lastPanAnchorRef.current = null;
           }}
           onDoubleClick={handleDoubleClick}
           onContextMenu={handleContextMenu}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
         />
       </div>
 
+      {/* Bauhaus Floating Timeframe Loader Overlay */}
+      <AnimatePresence>
+        {isTimeframeLoading && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.94 }}
+            transition={{ duration: 0.16 }}
+            className="absolute top-5 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center gap-2 px-3 py-1.5 bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] rounded-lg text-[#121212] font-mono font-black text-xs uppercase tracking-wider"
+          >
+            <RotateCw className="w-3.5 h-3.5 animate-spin text-[#1040C0] stroke-[2.5]" />
+            <span>MEMUAT TIMEFRAME {timeframe}...</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Double Click Confirmation Dialog */}
-      {dblConfirm && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-2xl space-y-3 max-w-xs text-xs">
-            <div className="font-bold text-slate-100 text-sm">Mulai Replay di Titik Ini?</div>
-            <div className="font-mono text-amber-300 bg-slate-950 p-2 rounded border border-slate-800 space-y-1">
-              <div>⏱ {format(dblConfirm.time, 'yyyy-MM-dd HH:mm')}</div>
-              <div>📍 {dblConfirm.price.toFixed(2)}</div>
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <button
-                onClick={() => setDblConfirm(null)}
-                className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-750 text-slate-300 font-semibold"
-              >
-                Batal
-              </button>
-              <button
-                onClick={() => {
-                  onReplaySelectionClick?.(dblConfirm.time);
-                  setDblConfirm(null);
-                }}
-                className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold"
-              >
-                Set Replay Start
-              </button>
-            </div>
+      <AnimatePresence>
+        {dblConfirm && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.14 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+              onClick={() => setDblConfirm(null)}
+              aria-hidden="true"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 8 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              className="relative z-10 bg-white border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-lg p-4 max-w-[280px] w-[90%] space-y-3"
+            >
+              <div className="font-black text-[#121212] text-sm uppercase tracking-wide">
+                Mulai Replay di Titik Ini?
+              </div>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between border border-[#121212] bg-slate-50 rounded px-2.5 py-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#717182]">Waktu</span>
+                  <span className="text-xs font-mono font-bold text-[#121212]">{format(dblConfirm.time, 'yyyy-MM-dd HH:mm')}</span>
+                </div>
+                <div className="flex items-center justify-between border border-[#121212] bg-slate-50 rounded px-2.5 py-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#717182]">Harga</span>
+                  <span className="text-xs font-mono font-bold text-[#121212]">{dblConfirm.price.toFixed(2)}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setDblConfirm(null)}
+                  className="flex-1 border-2 border-[#121212] bg-white text-[#121212] font-bold text-xs px-3 py-1.5 rounded hover:bg-slate-50 active:translate-y-[1px] transition-transform cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onReplaySelectionClick?.(dblConfirm.time);
+                    setDblConfirm(null);
+                  }}
+                  className="flex-1 border-2 border-[#121212] bg-[#121212] text-white font-bold text-xs px-3 py-1.5 rounded hover:bg-[#2a2a2a] active:translate-y-[1px] shadow-[2px_2px_0px_0px_#717182] active:shadow-none transition-all cursor-pointer"
+                >
+                  Set Replay Start
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
-      {/* Context Menu */}
-      {contextMenu && (
-        <div
-          className="fixed z-50 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 text-xs text-slate-200 min-w-[200px]"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={() => setContextMenu(null)}
-        >
-          <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-            Tambah Gambar
-          </div>
-          {(['hline', 'vline', 'trendline', 'rect', 'fibonacci', 'measure'] as DrawingTool[]).map((t) => {
-            const labels: Record<string, string> = {
-              hline: 'Horizontal Line (H)',
-              vline: 'Vertical Line (V)',
-              trendline: 'Trendline (T)',
-              rect: 'Rectangle Zone (R)',
-              fibonacci: 'Fibonacci (F)',
-              measure: 'Measure Tool (M)',
+      {/* Screen-Clamped Neo-Brutalist Compact Floating Popover Menu */}
+      <AnimatePresence>
+        {contextMenu && (
+          <>
+            {/* Backdrop click to dismiss */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12 }}
+              className="fixed inset-0 z-50 bg-black/20"
+              onClick={() => setContextMenu(null)}
+              aria-hidden="true"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.93, y: -6 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.93, y: -4 }}
+              transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+              style={{ top: contextMenu.y, left: contextMenu.x }}
+              role="menu"
+              aria-label="Menu Opsi Chart"
+              className="fixed z-50 w-[250px] bg-white/95 backdrop-blur-md border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl p-2 select-none"
+            >
+              {/* Header: Title + Close Icon */}
+              <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b-2 border-[#121212]">
+                <span className="text-[11px] font-black uppercase tracking-wider text-[#121212] font-mono">
+                  Menu Opsi Chart
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setContextMenu(null)}
+                  className="p-1 text-slate-400 hover:text-[#121212] rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                  aria-label="Tutup"
+                >
+                  <X className="w-3.5 h-3.5 stroke-[2.5]" />
+                </button>
+              </div>
+
+              {/* Primary Action: Set Replay Start */}
+              <button
+                type="button"
+                onClick={() => {
+                  onReplaySelectionClick?.(new Date(contextMenu.chartTime));
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-2.5 py-1.5 text-xs font-black bg-amber-50 hover:bg-amber-100 text-amber-950 border-2 border-amber-400 rounded-lg shadow-[1px_1px_0px_0px_#B45309] active:translate-x-[1px] active:translate-y-[1px] flex items-center justify-between cursor-pointer transition-all mb-1.5"
+              >
+                <span className="flex items-center gap-1.5 truncate">
+                  <Video className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span className="truncate">Set Replay Di Sini</span>
+                </span>
+                <span className="text-[9px] font-mono font-bold bg-amber-200 text-amber-900 px-1 py-0.5 rounded uppercase shrink-0">
+                  Replay
+                </span>
+              </button>
+
+              {/* Dedicated Action: Reset View (Default Zoom & Pan) */}
+              <button
+                type="button"
+                onClick={() => {
+                  handleResetView();
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-2.5 py-1.5 text-xs font-black bg-[#EBF2FF] hover:bg-[#DBEAFE] text-[#1040C0] border-2 border-blue-400 rounded-lg shadow-[1px_1px_0px_0px_#1040C0] active:translate-x-[1px] active:translate-y-[1px] flex items-center justify-between cursor-pointer transition-all mb-2"
+              >
+                <span className="flex items-center gap-1.5 truncate">
+                  <RotateCcw className="w-3.5 h-3.5 text-[#1040C0] shrink-0" />
+                  <span className="truncate">Reset View (Zoom & Pan)</span>
+                </span>
+                <span className="text-[9px] font-mono font-bold bg-blue-100 text-[#1040C0] px-1 py-0.5 rounded uppercase shrink-0">
+                  Auto
+                </span>
+              </button>
+
+              {/* Quick Tools Header */}
+              <div className="text-[9px] font-black tracking-wider uppercase px-1 py-0.5 text-slate-500 font-mono">
+                Alat Gambar
+              </div>
+
+              {/* Quick Tools List */}
+              <div className="space-y-0.5 max-h-[190px] overflow-y-auto pr-0.5">
+                {(['hline', 'vline', 'trendline', 'rect', 'fibonacci', 'measure'] as DrawingTool[]).map((t) => {
+                  const labels: Record<string, { name: string; key: string }> = {
+                    hline: { name: 'Horizontal Line', key: 'H' },
+                    vline: { name: 'Vertical Line', key: 'V' },
+                    trendline: { name: 'Trendline', key: 'T' },
+                    rect: { name: 'Rectangle Zone', key: 'R' },
+                    fibonacci: { name: 'Fibonacci', key: 'F' },
+                    measure: { name: 'Measure Tool', key: 'M' },
+                  };
+                  const info = labels[t];
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => {
+                        onToolChange?.(t);
+                        setContextMenu(null);
+                      }}
+                      className="w-full text-left px-2 py-1 text-xs font-bold hover:bg-slate-100 flex items-center justify-between cursor-pointer rounded transition-colors text-slate-800"
+                    >
+                      <span className="truncate">{info.name}</span>
+                      <span className="text-[10px] font-mono text-slate-400 font-normal shrink-0">({info.key})</span>
+                    </button>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToolChange?.('long_position');
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-2 py-1 text-xs font-bold hover:bg-emerald-50 text-[#059669] flex items-center justify-between cursor-pointer rounded transition-colors"
+                >
+                  <span>Long Position</span>
+                  <span className="text-[10px] font-mono text-emerald-600 font-normal">(L)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToolChange?.('short_position');
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-2 py-1 text-xs font-bold hover:bg-rose-50 text-[#DC2626] flex items-center justify-between cursor-pointer rounded transition-colors"
+                >
+                  <span>Short Position</span>
+                  <span className="text-[10px] font-mono text-rose-600 font-normal">(S)</span>
+                </button>
+
+                {drawings.length > 0 && (
+                  <>
+                    <div className="h-px bg-slate-200 my-1" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDrawingsChange?.([]);
+                        setContextMenu(null);
+                      }}
+                      className="w-full text-left px-2 py-1 text-xs font-bold hover:bg-rose-50 text-[#DC2626] flex items-center justify-between cursor-pointer rounded transition-colors"
+                    >
+                      <span>Hapus Semua Gambar</span>
+                      <span className="text-[10px] font-mono text-rose-500 font-normal">({drawings.length})</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Visual Order Confirmation Overlay — draggable, collapsible, safely clamped */}
+      <AnimatePresence>
+        {isVisualOrderActive && plannedOrder && (() => {
+          const isBuy = plannedOrder.side === 'BUY';
+          const sideColor = isBuy ? '#059669' : '#DC2626';
+          const sideBg = isBuy ? '#E7F9F0' : '#FDECEC';
+
+          const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+            e.stopPropagation();
+            const el = overlayContainerRef.current;
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+            const parentRect = el.offsetParent?.getBoundingClientRect();
+            if (!parentRect) return;
+            overlayDragRef.current = {
+              startX: e.clientX,
+              startY: e.clientY,
+              origX: rect.left - parentRect.left,
+              origY: rect.top - parentRect.top,
             };
-            return (
-              <button
-                key={t}
-                onClick={() => onToolChange?.(t)}
-                className="w-full text-left px-2.5 py-1.5 hover:bg-slate-800 rounded"
-              >
-                {labels[t]}
-              </button>
-            );
-          })}
-          <button
-            onClick={() => onToolChange?.('long_position')}
-            className="w-full text-left px-2.5 py-1.5 hover:bg-slate-800 text-emerald-400 rounded font-medium"
+            el.setPointerCapture(e.pointerId);
+          };
+
+          const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+            e.stopPropagation();
+            if (!overlayDragRef.current || !overlayContainerRef.current) return;
+            const { startX, startY, origX, origY } = overlayDragRef.current;
+            const el = overlayContainerRef.current;
+            const parent = el.offsetParent as HTMLElement | null;
+            if (!parent) return;
+            const pW = parent.clientWidth;
+            const pH = parent.clientHeight;
+            const elW = el.offsetWidth;
+            const elH = el.offsetHeight;
+            const newX = Math.max(8, Math.min(pW - elW - 8, origX + (e.clientX - startX)));
+            const newY = Math.max(8, Math.min(pH - elH - 8, origY + (e.clientY - startY)));
+            setOverlayPos({ x: newX, y: newY });
+          };
+
+          const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+            e.stopPropagation();
+            overlayDragRef.current = null;
+          };
+
+          const posStyle: React.CSSProperties = overlayPos
+            ? { position: 'absolute', left: `${overlayPos.x}px`, top: `${overlayPos.y}px` }
+            : { position: 'absolute', top: 16, left: 0, right: 0, margin: '0 auto' };
+
+          return (
+            <motion.div
+              ref={overlayContainerRef}
+              initial={{ opacity: 0, y: -16, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -12, scale: 0.95 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              className="z-50 w-[min(92vw,340px)] max-w-[340px] bg-white/95 backdrop-blur-md border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl overflow-hidden pointer-events-auto select-none"
+              style={posStyle}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
           >
-            Long Position (L)
-          </button>
-          <button
-            onClick={() => onToolChange?.('short_position')}
-            className="w-full text-left px-2.5 py-1.5 hover:bg-slate-800 text-rose-400 rounded font-medium"
-          >
-            Short Position (S)
-          </button>
-          <div className="h-px bg-slate-800 my-1" />
-          <button
-            onClick={() => onReplaySelectionClick?.(new Date(contextMenu.chartTime))}
-            className="w-full text-left px-2.5 py-1.5 hover:bg-amber-600/40 text-amber-300 rounded font-semibold"
-          >
-            Set Replay Start Di Sini
-          </button>
-          {isCustomScaled && (
-            <button
-              onClick={handleResetAutoScale}
-              className="w-full text-left px-2.5 py-1.5 hover:bg-blue-900/40 text-blue-300 rounded"
+            {/* Drag handle — the only interactive-drag area */}
+            <div
+              className="flex items-center justify-between px-2.5 py-1.5 bg-[#F0F0F0] border-b-2 border-[#121212] cursor-grab active:cursor-grabbing select-none touch-none"
+              onPointerDown={handlePointerDown}
             >
-              Reset Skala Harga (Auto)
-            </button>
-          )}
-          {drawings.length > 0 && (
-            <>
-              <div className="h-px bg-slate-800 my-1" />
-              <button
-                onClick={() => onDrawingsChange?.([])}
-                className="w-full text-left px-2.5 py-1.5 hover:bg-rose-900/40 text-rose-400 rounded"
-              >
-                Hapus Semua Gambar
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Visual Order Confirmation Overlay */}
-      {isVisualOrderActive && plannedOrder && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 w-[min(94%,350px)] rounded-xl border border-slate-200 bg-white/95 shadow-xl backdrop-blur-sm p-3">
-          <div className="flex items-center justify-between gap-3 mb-2 pb-2 border-b border-slate-100">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                {plannedOrder.orderType ? getOrderTypeLabel(plannedOrder.orderType) : 'Pending Order'}
+              <div className="flex items-center gap-1.5">
+                <GripHorizontal className="w-3.5 h-3.5 text-[#717182]" />
+                <span
+                  className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 border border-[#121212] rounded"
+                  style={{ background: sideBg, color: sideColor }}
+                >
+                  {plannedOrder.side}
+                </span>
+                <span className="text-[10px] font-black uppercase tracking-wider text-[#717182]">
+                  {plannedOrder.orderType ? getOrderTypeLabel(plannedOrder.orderType) : 'Order'}
+                </span>
               </div>
-              <div className="text-sm font-bold text-slate-900">
-                {plannedOrder.side} • ${plannedOrder.entryPrice.toFixed(2)}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">R:R</div>
-              <div className="text-sm font-bold text-[#1040C0]">
-                {plannedOrder.rrRatio && plannedOrder.rrRatio > 0 ? `1 : ${plannedOrder.rrRatio.toFixed(2)}` : '-'}
-              </div>
-            </div>
-          </div>
-
-          {/* Quick +SL and +TP action buttons */}
-          <div className="flex items-center gap-2 mb-2">
-            {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? (
-              <div className="flex-1 flex items-center justify-between bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1 text-xs">
-                <div>
-                  <span className="text-[9px] uppercase font-bold text-rose-600 block">SL</span>
-                  <span className="font-mono font-bold text-rose-700">${plannedOrder.slPrice.toFixed(2)}</span>
-                </div>
+              <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => onPlannedOrderChange?.({
-                    entryPrice: plannedOrder.entryPrice,
-                    slPrice: 0,
-                    tpPrice: plannedOrder.tpPrice || 0,
-                  })}
-                  title="Hapus SL"
-                  className="w-4 h-4 rounded-full bg-rose-200 hover:bg-rose-300 text-rose-800 flex items-center justify-center font-bold text-[10px] cursor-pointer transition-colors"
+                  onClick={(e) => { e.stopPropagation(); setOverlayCollapsed((c) => !c); }}
+                  className="p-1 text-[#717182] hover:text-[#121212] hover:bg-white/60 rounded transition-colors cursor-pointer"
+                  aria-label={overlayCollapsed ? 'Perluas panel' : 'Ciutkan panel'}
                 >
-                  ✕
+                  {overlayCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
+                  className="p-1 text-[#717182] hover:text-[#DC2626] hover:bg-red-50 rounded transition-colors cursor-pointer"
+                  aria-label="Batal"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Collapsed pill — side, entry, RR, confirm */}
+            {overlayCollapsed ? (
+              <div className="flex items-center gap-2 px-2.5 py-2">
+                <span className="font-mono font-black text-xs text-[#121212]">
+                  @{plannedOrder.entryPrice.toFixed(2)}
+                </span>
+                <span className="text-[10px] font-mono text-[#1040C0] font-bold">
+                  {plannedOrder.lotSize.toFixed(2)}L
+                </span>
+                {plannedOrder.rrRatio && plannedOrder.rrRatio > 0 && (
+                  <span className="text-[10px] font-mono font-bold text-[#717182]">
+                    1:{plannedOrder.rrRatio.toFixed(1)}
+                  </span>
+                )}
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  disabled={plannedOrder.isValid === false}
+                  onClick={(e) => { e.stopPropagation(); onConfirmVisualOrder?.(); }}
+                  className={`px-3 py-1 border-2 border-[#121212] font-black text-[10px] uppercase tracking-wider rounded transition-all cursor-pointer ${
+                    plannedOrder.isValid === false
+                      ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                      : 'bg-[#121212] text-white hover:bg-[#2a2a2a] shadow-[2px_2px_0px_0px_#717182] active:shadow-none active:translate-y-[1px]'
+                  }`}
+                >
+                  Konfirmasi
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  const isLong = plannedOrder.side === 'BUY';
-                  const dist = getDefaultSlDistance(symbol);
-                  const newSL = Math.round((isLong ? plannedOrder.entryPrice - dist : plannedOrder.entryPrice + dist) * 100) / 100;
-                  onPlannedOrderChange?.({
-                    entryPrice: plannedOrder.entryPrice,
-                    slPrice: newSL,
-                    tpPrice: plannedOrder.tpPrice || 0,
-                  });
-                }}
-                className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-rose-400 text-rose-600 bg-rose-50/70 hover:bg-rose-100 font-bold text-[10px] rounded-lg flex items-center justify-center gap-1 cursor-pointer transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ SL</span>
-              </button>
-            )}
-
-            {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? (
-              <div className="flex-1 flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1 text-xs">
-                <div>
-                  <span className="text-[9px] uppercase font-bold text-emerald-600 block">TP</span>
-                  <span className="font-mono font-bold text-emerald-700">${plannedOrder.tpPrice.toFixed(2)}</span>
+              /* Expanded — full details */
+              <div className="p-2.5 sm:p-3 space-y-2">
+                {/* Entry + RR row */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-wider text-[#717182]">Entry</div>
+                    <div className="font-mono font-black text-sm text-[#121212]">{plannedOrder.entryPrice.toFixed(2)}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-[#717182]">R:R</div>
+                    <div className="font-mono font-black text-sm text-[#1040C0]">
+                      {plannedOrder.rrRatio && plannedOrder.rrRatio > 0 ? `1:${plannedOrder.rrRatio.toFixed(2)}` : '-'}
+                    </div>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onPlannedOrderChange?.({
-                    entryPrice: plannedOrder.entryPrice,
-                    slPrice: plannedOrder.slPrice || 0,
-                    tpPrice: 0,
-                  })}
-                  title="Hapus TP"
-                  className="w-4 h-4 rounded-full bg-emerald-200 hover:bg-emerald-300 text-emerald-800 flex items-center justify-center font-bold text-[10px] cursor-pointer transition-colors"
-                >
-                  ✕
-                </button>
+
+                {/* SL / TP row */}
+                <div className="flex items-center gap-2">
+                  {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? (
+                    <div className="flex-1 flex items-center justify-between bg-[#FFF0F0] border border-[#DC2626] rounded px-2 py-1 text-xs">
+                      <div>
+                        <span className="text-[9px] uppercase font-black text-[#DC2626] block">SL</span>
+                        <span className="font-mono font-bold text-[#121212]">{plannedOrder.slPrice.toFixed(2)}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: 0, tpPrice: plannedOrder.tpPrice || 0 }); }}
+                        className="w-4 h-4 flex items-center justify-center text-[#DC2626] hover:bg-red-100 rounded-full cursor-pointer font-black text-[10px]"
+                      >✕</button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const dist = calculateAdaptiveSlDistance(candles, plannedOrder.entryPrice, symbol);
+                        const newSL = Math.round((isBuy ? plannedOrder.entryPrice - dist : plannedOrder.entryPrice + dist) * 100) / 100;
+                        onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: newSL, tpPrice: plannedOrder.tpPrice || 0 });
+                      }}
+                      className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-[#DC2626] text-[#DC2626] font-bold text-[10px] rounded flex items-center justify-center gap-1 cursor-pointer hover:bg-red-50 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /><span>+ SL</span>
+                    </button>
+                  )}
+
+                  {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? (
+                    <div className="flex-1 flex items-center justify-between bg-[#F0FFF8] border border-[#059669] rounded px-2 py-1 text-xs">
+                      <div>
+                        <span className="text-[9px] uppercase font-black text-[#059669] block">TP</span>
+                        <span className="font-mono font-bold text-[#121212]">{plannedOrder.tpPrice.toFixed(2)}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: plannedOrder.slPrice || 0, tpPrice: 0 }); }}
+                        className="w-4 h-4 flex items-center justify-center text-[#059669] hover:bg-green-100 rounded-full cursor-pointer font-black text-[10px]"
+                      >✕</button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const dist = calculateAdaptiveSlDistance(candles, plannedOrder.entryPrice, symbol) * 2;
+                        const newTP = Math.round((isBuy ? plannedOrder.entryPrice + dist : plannedOrder.entryPrice - dist) * 100) / 100;
+                        onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: plannedOrder.slPrice || 0, tpPrice: newTP });
+                      }}
+                      className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-[#059669] text-[#059669] font-bold text-[10px] rounded flex items-center justify-center gap-1 cursor-pointer hover:bg-green-50 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /><span>+ TP</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Risk / Target grid */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="border border-[#121212] bg-slate-50 rounded px-2 py-1.5">
+                    <div className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Risk</div>
+                    <div className="font-mono font-bold text-xs text-[#DC2626] mt-0.5">
+                      {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? `-$${plannedOrder.riskAmount.toFixed(2)}` : 'Tanpa SL'}
+                    </div>
+                  </div>
+                  <div className="border border-[#121212] bg-slate-50 rounded px-2 py-1.5">
+                    <div className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Target</div>
+                    <div className="font-mono font-bold text-xs text-[#059669] mt-0.5">
+                      {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? `+$${(plannedOrder.targetProfit || 0).toFixed(2)}` : 'Tanpa TP'}
+                    </div>
+                  </div>
+                  <div className="border border-[#121212] bg-slate-50 rounded px-2 py-1.5 col-span-2">
+                    <div className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Lot</div>
+                    <div className="font-mono font-bold text-xs text-[#121212] mt-0.5">{plannedOrder.lotSize.toFixed(2)} Lot</div>
+                  </div>
+                </div>
+
+                {/* Validation error */}
+                {plannedOrder.isValid === false && (
+                  <div className="p-2 bg-[#FFF0F0] border border-[#DC2626] rounded text-[10px] text-[#DC2626] font-medium leading-tight">
+                    {plannedOrder.validationError || 'Level harga tidak valid untuk tipe order ini.'}
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
+                    className="flex-1 min-h-[36px] border-2 border-[#121212] bg-white text-[#121212] font-bold text-[11px] uppercase tracking-wider rounded hover:bg-slate-50 active:translate-y-[1px] transition-transform cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    disabled={plannedOrder.isValid === false}
+                    onClick={(e) => { e.stopPropagation(); onConfirmVisualOrder?.(); }}
+                    className={`flex-1 min-h-[36px] border-2 border-[#121212] font-black text-[11px] uppercase tracking-wider rounded shadow-[2px_2px_0px_0px_#717182] active:shadow-none active:translate-y-[1px] transition-all cursor-pointer ${
+                      plannedOrder.isValid === false
+                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed shadow-none'
+                        : 'bg-[#121212] text-white hover:bg-[#2a2a2a]'
+                    }`}
+                  >
+                    Konfirmasi
+                  </button>
+                </div>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  const isLong = plannedOrder.side === 'BUY';
-                  const dist = getDefaultSlDistance(symbol) * 2;
-                  const newTP = Math.round((isLong ? plannedOrder.entryPrice + dist : plannedOrder.entryPrice - dist) * 100) / 100;
-                  onPlannedOrderChange?.({
-                    entryPrice: plannedOrder.entryPrice,
-                    slPrice: plannedOrder.slPrice || 0,
-                    tpPrice: newTP,
-                  });
-                }}
-                className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-emerald-400 text-emerald-600 bg-emerald-50/70 hover:bg-emerald-100 font-bold text-[10px] rounded-lg flex items-center justify-center gap-1 cursor-pointer transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ TP</span>
-              </button>
             )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700">
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Risk</div>
-              <div className="mt-1 font-mono font-bold text-rose-600">
-                {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? `-$${plannedOrder.riskAmount.toFixed(2)}` : 'Tanpa SL'}
-              </div>
-            </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Target Profit</div>
-              <div className="mt-1 font-mono font-bold text-emerald-600">
-                {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? `+$${(plannedOrder.targetProfit || 0).toFixed(2)}` : 'Tanpa TP'}
-              </div>
-            </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Lot Size</div>
-              <div className="mt-1 font-mono font-bold text-slate-900">{plannedOrder.lotSize.toFixed(2)} Lot</div>
-            </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">SL / TP</div>
-              <div className="mt-1 font-mono font-bold text-slate-900">
-                {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? plannedOrder.slPrice.toFixed(2) : '-'} / {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? plannedOrder.tpPrice.toFixed(2) : '-'}
-              </div>
-            </div>
-          </div>
-
-          {/* Inline Validation Warning if invalid */}
-          {plannedOrder.isValid === false && (
-            <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-600 font-medium leading-tight">
-              {plannedOrder.validationError || 'Level harga tidak valid untuk tipe order ini.'}
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 mt-3">
-            <button
-              type="button"
-              onClick={onCancelVisualOrder}
-              className="flex-1 min-h-[38px] rounded-lg border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] uppercase tracking-wider cursor-pointer transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={plannedOrder.isValid === false}
-              onClick={onConfirmVisualOrder}
-              className={`flex-1 min-h-[38px] rounded-lg border font-bold text-[11px] uppercase tracking-wider shadow-sm transition-colors cursor-pointer ${
-                plannedOrder.isValid === false
-                  ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
-                  : 'border-emerald-300 bg-emerald-600 hover:bg-emerald-700 text-white'
-              }`}
-            >
-              Confirm Order
-            </button>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        );
+      })()}
+      </AnimatePresence>
 
       {/* Floating Action Bar for Selected Pending Order on Chart (Edit or Delete) */}
-      {selectedPendingOrder && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm">
-          <div className="flex items-center gap-2 pr-3 border-r border-[#121212]/15">
-            <span
-              className={`px-2 py-0.5 text-[10px] rounded font-black font-mono border border-[#121212] ${
-                selectedPendingOrder.side === 'LONG'
-                  ? 'bg-[#E7F9F0] text-[#059669]'
-                  : 'bg-[#FDECEC] text-[#DC2626]'
-              }`}
-            >
-              {selectedPendingOrder.orderType.replace('_', ' ')}
-            </span>
-            <span className="font-mono font-black text-xs text-[#121212]">
-              @{selectedPendingOrder.entryPrice.toFixed(2)}
-            </span>
-          </div>
-
-          <div className="text-[10px] font-mono text-[#717182] hidden sm:flex items-center gap-2">
-            <span>SL: {selectedPendingOrder.slPrice > 0 ? `$${selectedPendingOrder.slPrice.toFixed(2)}` : 'None'}</span>
-            <span>•</span>
-            <span>TP: {selectedPendingOrder.tpPrice > 0 ? `$${selectedPendingOrder.tpPrice.toFixed(2)}` : 'None'}</span>
-            <span>•</span>
-            <span>{selectedPendingOrder.volume.toFixed(2)}L</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 ml-auto">
-            {onEditPendingOrder && (
-              <button
-                type="button"
-                onClick={() => {
-                  onEditPendingOrder(selectedPendingOrder);
-                  setSelectedPendingOrderId(null);
-                }}
-                className="flex items-center gap-1 px-2.5 py-1 bg-[#1040C0] hover:bg-[#0D3399] text-white font-bold text-xs rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-                title="Edit Entry, SL, atau TP pada Chart"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Edit</span>
-              </button>
-            )}
-
-            {onCancelPendingOrder && (
-              <button
-                type="button"
-                onClick={() => {
-                  onCancelPendingOrder(selectedPendingOrder.id);
-                  setSelectedPendingOrderId(null);
-                }}
-                className="flex items-center gap-1 px-2.5 py-1 bg-[#FEE2E2] hover:bg-[#FCA5A5] text-[#DC2626] font-bold text-xs rounded border border-[#DC2626] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-                title="Hapus / Batalkan Pending Order Ini"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Hapus</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setSelectedPendingOrderId(null)}
-              className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded cursor-pointer transition-colors"
-              title="Tutup Menu"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Floating Action Bar for Selected Active Position on Chart */}
-      {isActiveTradeSelected && activeTrade && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm">
-          <div className="flex items-center gap-2 pr-3 border-r border-[#121212]/15">
-            <span
-              className={`px-2 py-0.5 text-[10px] rounded font-black font-mono border border-[#121212] ${
-                activeTrade.side === 'LONG'
-                  ? 'bg-[#E7F9F0] text-[#059669]'
-                  : 'bg-[#FDECEC] text-[#DC2626]'
-              }`}
-            >
-              POSISI {activeTrade.side === 'LONG' ? 'BUY' : 'SELL'}
-            </span>
-            <span className="font-mono font-black text-xs text-[#121212]">
-              @{activeTrade.entryPrice.toFixed(2)} ({activeTrade.volume.toFixed(2)}L)
-            </span>
-          </div>
-
-          <div className="text-[10px] font-mono text-[#717182] hidden sm:flex items-center gap-2">
-            <span>SL: {activeTrade.slPrice > 0 ? `$${activeTrade.slPrice.toFixed(2)}` : 'None'}</span>
-            <span>•</span>
-            <span>TP: {activeTrade.tpPrice > 0 ? `$${activeTrade.tpPrice.toFixed(2)}` : 'None'}</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 ml-auto">
-            {onCloseActiveTrade && (
-              <button
-                type="button"
-                onClick={() => {
-                  onCloseActiveTrade();
-                  setIsActiveTradeSelected(false);
-                }}
-                className="flex items-center gap-1 px-2.5 py-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-                title="Tutup Posisi Ini Sekarang"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                <span>Tutup Posisi</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setIsActiveTradeSelected(false)}
-              className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded cursor-pointer transition-colors"
-              title="Tutup Menu"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Floating Drawing Action Bar for Selected Drawing */}
-      {selectedDrawing && (
-        <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-slate-900/95 border border-slate-700/80 shadow-lg rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs backdrop-blur-sm">
-          <span className="text-slate-300 font-semibold uppercase text-[10px] tracking-wider pr-2 border-r border-slate-700">
-            {selectedDrawing.type.replace('_', ' ')}
-          </span>
-          {(selectedDrawing.type === 'long_position' || selectedDrawing.type === 'short_position') && onExecutePlannedTrade && (
-            <button
-              onClick={() => onExecutePlannedTrade(selectedDrawing)}
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase rounded transition-colors shadow-xs"
-              title="Buka Posisi Langsung dari Tool Ini"
-            >
-              <Zap className="w-3.5 h-3.5 fill-current" />
-              <span>Buka Posisi</span>
-            </button>
-          )}
-          {selectedDrawing.type === 'fibonacci' && (
-            <button
-              onClick={() => setFibSettingsOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs uppercase border border-slate-700 rounded transition-colors"
-              title="Pengaturan Level Fibonacci"
-            >
-              <Settings className="w-3.5 h-3.5" />
-              <span>Settings</span>
-            </button>
-          )}
-          <button
-            onClick={() => {
-              onDrawingsChange?.(drawings.filter((d) => d.id !== selectedDrawing.id));
-              onSelectDrawing?.(null);
-            }}
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white font-semibold text-xs uppercase border border-rose-500/30 rounded transition-colors"
-            title="Hapus Gambar (Del / Backspace)"
+      <AnimatePresence>
+        {selectedPendingOrder && (
+          <motion.div
+            initial={{ opacity: 0, y: -12, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.95 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm"
           >
-            <Trash2 className="w-3.5 h-3.5 text-current" />
-            <span>Hapus</span>
-          </button>
-        </div>
-      )}
+            <div className="flex items-center gap-2 pr-3 border-r border-[#121212]/15">
+              <span
+                className={`px-2 py-0.5 text-[10px] rounded font-black font-mono border border-[#121212] ${
+                  selectedPendingOrder.side === 'LONG'
+                    ? 'bg-[#E7F9F0] text-[#059669]'
+                    : 'bg-[#FDECEC] text-[#DC2626]'
+                }`}
+              >
+                {selectedPendingOrder.orderType.replace('_', ' ')}
+              </span>
+              <span className="font-mono font-black text-xs text-[#121212]">
+                @{selectedPendingOrder.entryPrice.toFixed(2)}
+              </span>
+            </div>
 
-      {/* Fibonacci Settings Modal */}
-      {fibSettingsOpen && selectedDrawing && selectedDrawing.type === 'fibonacci' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md p-4 space-y-4 text-xs text-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-              <div className="flex items-center gap-2 font-bold text-sm text-slate-100">
-                <Settings className="w-4 h-4 text-blue-400" />
-                <span>Pengaturan Level Fibonacci</span>
-              </div>
+            <div className="text-[10px] font-mono text-[#717182] hidden sm:flex items-center gap-2">
+              <span>SL: {selectedPendingOrder.slPrice > 0 ? `$${selectedPendingOrder.slPrice.toFixed(2)}` : 'None'}</span>
+              <span>•</span>
+              <span>TP: {selectedPendingOrder.tpPrice > 0 ? `$${selectedPendingOrder.tpPrice.toFixed(2)}` : 'None'}</span>
+              <span>•</span>
+              <span>{selectedPendingOrder.volume.toFixed(2)}L</span>
+            </div>
+
+            <div className="flex items-center gap-1.5 ml-auto">
+              {onEditPendingOrder && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onEditPendingOrder(selectedPendingOrder);
+                    setSelectedPendingOrderId(null);
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-[#1040C0] hover:bg-[#0D3399] text-white font-bold text-xs rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                  title="Edit Entry, SL, atau TP pada Chart"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Edit</span>
+                </button>
+              )}
+
+              {onCancelPendingOrder && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCancelPendingOrder(selectedPendingOrder.id);
+                    setSelectedPendingOrderId(null);
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-[#FEE2E2] hover:bg-[#FCA5A5] text-[#DC2626] font-bold text-xs rounded border border-[#DC2626] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                  title="Hapus / Batalkan Pending Order Ini"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus</span>
+                </button>
+              )}
+
               <button
-                onClick={() => setFibSettingsOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-200 rounded-md hover:bg-slate-800"
+                type="button"
+                onClick={() => setSelectedPendingOrderId(null)}
+                className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded cursor-pointer transition-colors"
+                title="Tutup Menu"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-            <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
-              {(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS).map((lvl, idx) => (
-                <div key={idx} className="flex items-center gap-2 bg-slate-950/50 p-1.5 rounded border border-slate-800/80">
-                  <input
-                    type="checkbox"
-                    checked={lvl.visible}
-                    onChange={(e) => {
-                      const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
-                      curLevels[idx] = { ...curLevels[idx], visible: e.target.checked };
-                      const updated = drawings.map((d) =>
-                        d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
-                      );
-                      onDrawingsChange?.(updated);
-                    }}
-                    className="rounded bg-slate-800 border-slate-700 text-blue-500 focus:ring-0 cursor-pointer"
-                  />
-                  <input
-                    type="number"
-                    step="0.001"
-                    value={lvl.value}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value);
-                      if (isNaN(val)) return;
-                      const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
-                      curLevels[idx] = { ...curLevels[idx], value: val };
-                      const updated = drawings.map((d) =>
-                        d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
-                      );
-                      onDrawingsChange?.(updated);
-                    }}
-                    className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-slate-100 font-mono text-xs focus:border-blue-500 outline-none"
-                  />
-                  <input
-                    type="color"
-                    value={lvl.color || '#F59E0B'}
-                    onChange={(e) => {
-                      const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
-                      curLevels[idx] = { ...curLevels[idx], color: e.target.value };
-                      const updated = drawings.map((d) =>
-                        d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
-                      );
-                      onDrawingsChange?.(updated);
-                    }}
-                    className="w-6 h-6 rounded bg-transparent border-0 cursor-pointer"
-                  />
-                  <span className="text-[11px] text-slate-400 font-mono flex-1">
-                    {(lvl.value * 100).toFixed(1)}%
-                  </span>
-                  <button
-                    onClick={() => {
-                      const curLevels = (selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS).filter((_, i) => i !== idx);
-                      const updated = drawings.map((d) =>
-                        d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
-                      );
-                      onDrawingsChange?.(updated);
-                    }}
-                    className="text-slate-500 hover:text-rose-400 p-1"
-                    title="Hapus level"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
+      {/* Floating Action Bar for Selected Active Position on Chart */}
+      <AnimatePresence>
+        {isActiveTradeSelected && activeTrade && (
+          <motion.div
+            initial={{ opacity: 0, y: -12, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.95 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm"
+          >
+            <div className="flex items-center gap-2 pr-3 border-r border-[#121212]/15">
+              <span
+                className={`px-2 py-0.5 text-[10px] rounded font-black font-mono border border-[#121212] ${
+                  activeTrade.side === 'LONG'
+                    ? 'bg-[#E7F9F0] text-[#059669]'
+                    : 'bg-[#FDECEC] text-[#DC2626]'
+                }`}
+              >
+                POSISI {activeTrade.side === 'LONG' ? 'BUY' : 'SELL'}
+              </span>
+              <span className="font-mono font-black text-xs text-[#121212]">
+                @{activeTrade.entryPrice.toFixed(2)} ({activeTrade.volume.toFixed(2)}L)
+              </span>
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-              <div className="flex items-center gap-2">
+            <div className="text-[10px] font-mono text-[#717182] hidden sm:flex items-center gap-2">
+              <span>SL: {activeTrade.slPrice > 0 ? `$${activeTrade.slPrice.toFixed(2)}` : 'None'}</span>
+              <span>•</span>
+              <span>TP: {activeTrade.tpPrice > 0 ? `$${activeTrade.tpPrice.toFixed(2)}` : 'None'}</span>
+            </div>
+
+            <div className="flex items-center gap-1.5 ml-auto">
+              {onCloseActiveTrade && (
                 <button
+                  type="button"
                   onClick={() => {
-                    const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
-                    curLevels.push({ value: 0.705, color: '#2962FF', visible: true });
-                    const updated = drawings.map((d) =>
-                      d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
-                    );
-                    onDrawingsChange?.(updated);
+                    onCloseActiveTrade();
+                    setIsActiveTradeSelected(false);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded text-xs font-semibold"
+                  className="flex items-center gap-1 px-2.5 py-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                  title="Tutup Posisi Ini Sekarang"
                 >
-                  <Plus className="w-3 h-3 text-emerald-400" />
-                  <span>Tambah Level</span>
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>Tutup Posisi</span>
                 </button>
-                <button
-                  onClick={() => {
-                    const updated = drawings.map((d) =>
-                      d.id === selectedDrawing.id ? { ...d, fibLevels: DEFAULT_FIBONACCI_LEVELS.map((l) => ({ ...l })) } : d
-                    );
-                    onDrawingsChange?.(updated);
-                  }}
-                  className="flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-slate-200 text-xs"
-                  title="Kembalikan ke level default TradingView"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Reset Default</span>
-                </button>
-              </div>
+              )}
+
               <button
-                onClick={() => setFibSettingsOpen(false)}
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-xs"
+                type="button"
+                onClick={() => setIsActiveTradeSelected(false)}
+                className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded cursor-pointer transition-colors"
+                title="Tutup Menu"
               >
-                Selesai
+                <X className="w-4 h-4" />
               </button>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Drawing Action Bar for Selected Drawing */}
+      <AnimatePresence>
+        {selectedDrawing && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-slate-900/95 border border-slate-700/80 shadow-lg rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs backdrop-blur-sm"
+          >
+            <span className="text-slate-300 font-semibold uppercase text-[10px] tracking-wider pr-2 border-r border-slate-700">
+              {selectedDrawing.type.replace('_', ' ')}
+            </span>
+            {(selectedDrawing.type === 'long_position' || selectedDrawing.type === 'short_position') && onExecutePlannedTrade && (
+              <button
+                onClick={() => onExecutePlannedTrade(selectedDrawing)}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase rounded transition-colors shadow-xs"
+                title="Buka Posisi Langsung dari Tool Ini"
+              >
+                <Zap className="w-3.5 h-3.5 fill-current" />
+                <span>Buka Posisi</span>
+              </button>
+            )}
+            {selectedDrawing.type === 'fibonacci' && (
+              <button
+                onClick={() => setFibSettingsOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs uppercase border border-slate-700 rounded transition-colors"
+                title="Pengaturan Level Fibonacci"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>Settings</span>
+              </button>
+            )}
+            <button
+              onClick={() => {
+                onDrawingsChange?.(drawings.filter((d) => d.id !== selectedDrawing.id));
+                onSelectDrawing?.(null);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white font-semibold text-xs uppercase border border-rose-500/30 rounded transition-colors"
+              title="Hapus Gambar (Del / Backspace)"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-current" />
+              <span>Hapus</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Fibonacci Settings Modal */}
+      <AnimatePresence>
+        {fibSettingsOpen && selectedDrawing && selectedDrawing.type === 'fibonacci' && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.14 }}
+              className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+              onClick={() => setFibSettingsOpen(false)}
+              aria-hidden="true"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 8 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              className="relative z-10 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md p-4 space-y-4 text-xs text-slate-200"
+            >
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <div className="flex items-center gap-2 font-bold text-sm text-slate-100">
+                  <Settings className="w-4 h-4 text-blue-400" />
+                  <span>Pengaturan Level Fibonacci</span>
+                </div>
+                <button
+                  onClick={() => setFibSettingsOpen(false)}
+                  className="p-1 text-slate-400 hover:text-slate-200 rounded-md hover:bg-slate-800"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                {(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS).map((lvl, idx) => (
+                  <div key={idx} className="flex items-center gap-2 bg-slate-950/50 p-1.5 rounded border border-slate-800/80">
+                    <input
+                      type="checkbox"
+                      checked={lvl.visible}
+                      onChange={(e) => {
+                        const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
+                        curLevels[idx] = { ...curLevels[idx], visible: e.target.checked };
+                        const updated = drawings.map((d) =>
+                          d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
+                        );
+                        onDrawingsChange?.(updated);
+                      }}
+                      className="rounded bg-slate-800 border-slate-700 text-blue-500 focus:ring-0 cursor-pointer"
+                    />
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={lvl.value}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (isNaN(val)) return;
+                        const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
+                        curLevels[idx] = { ...curLevels[idx], value: val };
+                        const updated = drawings.map((d) =>
+                          d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
+                        );
+                        onDrawingsChange?.(updated);
+                      }}
+                      className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-slate-100 font-mono text-xs focus:border-blue-500 outline-none"
+                    />
+                    <input
+                      type="color"
+                      value={lvl.color || '#F59E0B'}
+                      onChange={(e) => {
+                        const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
+                        curLevels[idx] = { ...curLevels[idx], color: e.target.value };
+                        const updated = drawings.map((d) =>
+                          d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
+                        );
+                        onDrawingsChange?.(updated);
+                      }}
+                      className="w-6 h-6 rounded bg-transparent border-0 cursor-pointer"
+                    />
+                    <span className="text-[11px] text-slate-400 font-mono flex-1">
+                      {(lvl.value * 100).toFixed(1)}%
+                    </span>
+                    <button
+                      onClick={() => {
+                        const curLevels = (selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS).filter((_, i) => i !== idx);
+                        const updated = drawings.map((d) =>
+                          d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
+                        );
+                        onDrawingsChange?.(updated);
+                      }}
+                      className="text-slate-500 hover:text-rose-400 p-1"
+                      title="Hapus level"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
+                      curLevels.push({ value: 0.705, color: '#2962FF', visible: true });
+                      const updated = drawings.map((d) =>
+                        d.id === selectedDrawing.id ? { ...d, fibLevels: curLevels } : d
+                      );
+                      onDrawingsChange?.(updated);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded text-xs font-semibold"
+                  >
+                    <Plus className="w-3 h-3 text-emerald-400" />
+                    <span>Tambah Level</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      const updated = drawings.map((d) =>
+                        d.id === selectedDrawing.id ? { ...d, fibLevels: DEFAULT_FIBONACCI_LEVELS.map((l) => ({ ...l })) } : d
+                      );
+                      onDrawingsChange?.(updated);
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-slate-200 text-xs"
+                    title="Kembalikan ke level default TradingView"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset Default</span>
+                  </button>
+                </div>
+                <button
+                  onClick={() => setFibSettingsOpen(false)}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-xs"
+                >
+                  Selesai
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 };

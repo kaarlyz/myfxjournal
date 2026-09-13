@@ -45,3 +45,31 @@ export const formatPnL = (value: any, currency = "USD"): string => {
   if (currency === 'USD') return `${sign}$${formatted}`;
   return `${sign}${formatted} ${currency}`;
 };
+
+export const formatCompactPnL = (value: any, currency = "USD"): string => {
+  if (value === null || value === undefined || Number.isNaN(Number(value)) || !isFinite(Number(value))) {
+    return currency === 'USD' ? '$0' : '0';
+  }
+  const num = Number(value);
+  if (num === 0) {
+    return currency === 'USD' ? '$0' : '0';
+  }
+  const sign = num > 0 ? '+' : '-';
+  const abs = Math.abs(num);
+  let str = '';
+  if (abs >= 1000000) {
+    str = (abs / 1000000).toFixed(abs % 1000000 === 0 ? 0 : 1).replace(/\.0$/, '') + 'M';
+  } else if (abs >= 1000) {
+    str = (abs / 1000).toFixed(abs % 1000 === 0 ? 0 : 1).replace(/\.0$/, '') + 'k';
+  } else if (abs >= 100) {
+    str = Math.round(abs).toString();
+  } else if (abs % 1 === 0) {
+    str = abs.toString();
+  } else {
+    str = abs.toFixed(2).replace(/\.?0+$/, '');
+  }
+
+  if (currency === 'USD') return `${sign}$${str}`;
+  return `${sign}${str} ${currency}`;
+};
+

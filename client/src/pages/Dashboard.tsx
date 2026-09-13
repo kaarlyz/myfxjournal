@@ -417,128 +417,116 @@ export default function Dashboard() {
       {activeTab === 'PAIR' && <PairBreakdownTab metrics={metrics} />}
 
       {activeTab === 'OVERVIEW' && (
-        <div className="grid grid-cols-12 gap-5 w-full">
+        <div className="grid grid-cols-12 gap-4 w-full">
 
-          {/* ── HERO & RIGHT RAIL ── */}
-          <div className="col-span-12 lg:col-span-8 flex flex-col gap-5">
-            <div className="card-hero p-6 md:p-8 relative overflow-hidden group h-full min-h-[220px] flex flex-col justify-between">
-              {/* Note: card-hero already handles the top accent line and thick border */}
-              <div className="absolute top-0 right-0 w-64 h-64 bg-[#1040C0] opacity-[0.04] rounded-full pointer-events-none" />
-              <p className="text-[#717182] text-[10px] font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
-                {displayMode === 'RAW' ? <Wallet className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
-                {displayMode === 'RAW' ? t('current_broker_equity', 'Current Broker Equity') : t('simulated_equity_model', 'Simulated Equity Model')}
-              </p>
+          {/* ── HEADER DIAGNOSTIC MICRO-STRIP ── */}
+          <div className="col-span-12 flex flex-wrap items-center justify-between gap-2 pb-0.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[#F0F0F0] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212] rounded-md text-[10px] font-mono font-black uppercase tracking-wider text-[#121212]">
+                <Info className="w-3 h-3 text-[#1040C0]" />
+                <span>{displayMode === 'RAW' ? t('raw_broker_pnl_active', 'Raw Broker Data') : t('risk_simulation_active', 'Risk Simulation')}</span>
+              </div>
+              <div
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212] rounded-md text-[10px] font-mono font-black uppercase tracking-wider ${
+                  metrics.usedAssumedRR
+                    ? 'bg-[#FEF3C7] text-[#92400E]'
+                    : 'bg-[#E7F9F0] text-[#059669]'
+                }`}
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                <span>{metrics.usedAssumedRR ? t('low_confidence', 'Assumed RR (Low Conf)') : t('high_confidence', 'High Confidence')}</span>
+              </div>
+            </div>
 
-              <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 relative z-10 flex-1">
-                <div className="flex-1">
-                  <div className="flex flex-wrap items-baseline gap-4 mb-2">
-                    <h2 className="text-4xl lg:text-6xl font-extrabold text-[#121212] tracking-tight font-number">
-                      {formatUsd(currentEndingBalance)}
-                    </h2>
-                    <div className={`flex items-center gap-1 text-lg font-bold font-number px-2.5 py-1 border-2 ${currentPnl >= 0 ? 'bg-[var(--profit-dim)] text-[var(--profit)] border-[var(--profit)]' : 'bg-[var(--loss-dim)] text-[var(--loss)] border-[var(--loss)]'}`}>
-                      {currentPnl >= 0 ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-                      {currentPnl >= 0 ? '+' : ''}{formatPercent(currentGrowth)}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 mt-4">
-                    <Badge variant={displayMode === 'RAW' ? 'neutral' : 'blue'}>
-                      {displayMode === 'RAW' ? t('raw_market_data', 'Raw Market Data') : metrics.usedAssumedRR ? `Assumed RR ${metrics.assumedRRValue} Active` : 'Fixed Risk Active'}
-                    </Badge>
-                    <span className="text-xs text-[#717182] font-bold uppercase tracking-wider">
-                      {t('home:trades_plural', { count: metrics.totalTrades })}
-                    </span>
-                  </div>
-                </div>
+            <div className="text-[11px] font-mono text-[#717182] font-bold hidden sm:flex items-center gap-2">
+              <span>Ending Equity: <strong className="text-[#121212]">{formatUsd(currentEndingBalance)}</strong></span>
+              <span>•</span>
+              <span>Growth: <strong className={currentGrowth >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}>{currentGrowth >= 0 ? '+' : ''}{formatPercent(currentGrowth)}</strong></span>
+            </div>
+          </div>
 
-                <div className="text-right flex flex-col items-end md:items-end w-full md:w-auto p-4 bg-white border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212]">
-                  <p className="text-[#717182] text-[9px] font-bold uppercase tracking-widest mb-1">{t('net_profit', 'Net Profit')}</p>
-                  <p className={`text-3xl font-bold font-number ${currentPnl >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
-                    {currentPnl >= 0 ? '+' : ''}{formatUsd(currentPnl)}
-                  </p>
-                  <div className="mt-2 text-[10px] text-[#717182] font-bold uppercase tracking-wider flex items-center gap-1">
-                    <Activity className="w-3 h-3" />
-                    {t('realized_pnl', 'Realized PnL')}
-                  </div>
-                </div>
+          {/* ── COMPACT 5-TILE PRIMARY PERFORMANCE ROW ── */}
+          <div className="col-span-12 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
+            {/* Tile 1: Net PnL (Hero Tile — featured double-column on mobile) */}
+            <div className="col-span-2 md:col-span-1 lg:col-span-1 bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider">
+                <span>{t('net_profit', 'Net Profit')}</span>
+                <DollarSign className="w-3.5 h-3.5 text-[#121212]" />
+              </div>
+              <div className={`text-xl sm:text-2xl font-black font-number mt-1 ${currentPnl >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
+                {currentPnl >= 0 ? '+' : ''}{formatUsd(currentPnl)}
+              </div>
+              <div className="text-[10px] font-mono font-semibold text-[#717182] mt-1 truncate">
+                Equity: {formatUsd(currentEndingBalance)} ({currentGrowth >= 0 ? '+' : ''}{formatPercent(currentGrowth)})
+              </div>
+            </div>
+
+            {/* Tile 2: Win Rate */}
+            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider">
+                <span>{t('metric_win_rate', 'Win Rate')}</span>
+                <TrendingUp className="w-3.5 h-3.5 text-[#059669]" />
+              </div>
+              <div className="text-xl sm:text-2xl font-black font-number text-[#059669] mt-1">
+                {formatPercent(metrics.winrate)}
+              </div>
+              <div className="text-[10px] font-mono font-semibold text-[#717182] mt-1 truncate">
+                {metrics.totalTrades} Trades • Loss: {formatPercent(metrics.lossrate)}
+              </div>
+            </div>
+
+            {/* Tile 3: Profit Factor */}
+            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider">
+                <span>{t('metric_profit_factor', 'Profit Factor')}</span>
+                <Target className="w-3.5 h-3.5 text-[#1040C0]" />
+              </div>
+              <div className={`text-xl sm:text-2xl font-black font-number mt-1 ${currentProfitFactor >= 1.0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
+                {currentProfitFactor === Infinity ? '∞' : formatNumber(currentProfitFactor, 2)}
+              </div>
+              <div className="text-[10px] font-mono font-semibold text-[#717182] mt-1 truncate">
+                Gross Profit / Loss
+              </div>
+            </div>
+
+            {/* Tile 4: Max Drawdown */}
+            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider">
+                <span>{t('metric_max_dd', 'Max Drawdown')}</span>
+                <TrendingDown className="w-3.5 h-3.5 text-[#DC2626]" />
+              </div>
+              <div className="text-xl sm:text-2xl font-black font-number text-[#DC2626] mt-1 truncate">
+                {formatUsd(-currentDrawdown)}
+              </div>
+              <div className="text-[10px] font-mono font-semibold text-[#DC2626] mt-1 truncate">
+                {formatPercent(-currentDrawdownPct)}
+              </div>
+            </div>
+
+            {/* Tile 5: Avg R:R */}
+            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider">
+                <span>{t('metric_avg_rr', 'Avg R:R')}</span>
+                <Target className="w-3.5 h-3.5 text-[#121212]" />
+              </div>
+              <div className={`text-xl sm:text-2xl font-black font-number mt-1 ${avgRR !== null ? (avgRR >= 1 ? 'text-[#059669]' : 'text-[#DC2626]') : 'text-[#717182]'}`}>
+                {avgRR !== null ? formatR(avgRR) : 'N/A'}
+              </div>
+              <div className="text-[10px] font-mono font-semibold text-[#717182] mt-1 truncate">
+                {tradesWithR.length} Trades with SL
               </div>
             </div>
           </div>
 
-          <div className="col-span-12 lg:col-span-4 flex flex-col gap-5">
-            <div className="bg-white border-2 border-[#121212] p-5 relative">
-              <div className="absolute top-0 left-0 bottom-0 w-[4px] bg-[#1040C0]" />
-              <h4 className="text-[10px] font-bold text-[#717182] uppercase tracking-widest mb-1 flex items-center gap-1.5 ml-2">
-                <Info className="w-3.5 h-3.5" /> {t('mode_status', 'Mode Status')}
-              </h4>
-              <p className="text-sm font-extrabold text-[#121212] ml-2">
-                {displayMode === 'RAW' ? t('raw_broker_pnl_active', 'Raw Broker PnL Active') : t('risk_simulation_active', 'Risk Simulation Active')}
-              </p>
-              <p className="text-xs text-[#717182] mt-1 ml-2 font-medium">
-                {displayMode === 'RAW'
-                  ? t('display_mode_raw_desc', 'Menampilkan performa berdasarkan data riil dari broker/sumber asli.')
-                  : t('display_mode_simulated_desc', 'Menampilkan performa berdasarkan model risiko statis (Fixed Risk/Assumed RR).')}
-              </p>
-            </div>
-
-            <div className="bg-white border-2 border-[#121212] p-5 relative">
-              <div className={`absolute top-0 left-0 bottom-0 w-[4px] ${metrics.usedAssumedRR ? 'bg-[var(--warning)]' : 'bg-[var(--profit)]'}`} />
-              <h4 className="text-[10px] font-bold text-[#717182] uppercase tracking-widest mb-1 flex items-center gap-1.5 ml-2">
-                <CheckCircle2 className="w-3.5 h-3.5" /> {t('calculation_confidence', 'Calculation Confidence')}
-              </h4>
-              <p className={`text-sm font-extrabold ml-2 ${metrics.usedAssumedRR ? 'text-[var(--warning)]' : 'text-[var(--profit)]'}`}>
-                {metrics.usedAssumedRR ? t('low_confidence', 'Low Confidence (Assumed RR)') : t('high_confidence', 'High Confidence')}
-              </p>
-              <p className="text-xs text-[#717182] mt-1 ml-2 font-medium">
-                {metrics.usedAssumedRR
-                  ? t('calculation_confidence_low_desc', 'Data import tidak memiliki Stop Loss. Menggunakan rasio asumsi untuk simulasi risiko.')
-                  : t('calculation_confidence_high_desc', 'Data lengkap dengan rasio Reward:Risk yang presisi.')}
-              </p>
-            </div>
-          </div>
-
-          {/* ── PRIMARY PERFORMANCE ROW ── */}
-          <div className="col-span-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
-            <MetricCard title={t('initial_balance', 'Initial Balance')} value={formatUsd(metrics.initialBalance)} icon={DollarSign} accent="dark" />
-            <MetricCard
-              title={t('metric_max_dd')}
-              value={formatUsd(-currentDrawdown)}
-              subtitle={formatPercent(-currentDrawdownPct)}
-              valueColorClass="loss"
-              icon={TrendingDown}
-              accent="loss"
-            />
-            <MetricCard
-              title={t('metric_profit_factor')}
-              value={currentProfitFactor === Infinity ? '∞' : formatNumber(currentProfitFactor, 2)}
-              valueColorClass={currentProfitFactor >= 1.5 ? 'profit' : currentProfitFactor >= 1.0 ? 'profit' : 'loss'}
-              subtitle="Gross Profit / Gross Loss"
-              accent={currentProfitFactor >= 1.0 ? 'profit' : 'loss'}
-            />
-            <MetricCard
-              title={t('metric_win_rate')}
-              value={formatPercent(metrics.winrate)}
-              valueColorClass="profit"
-              subtitle={`Loss Rate: ${formatPercent(metrics.lossrate)}`}
-              accent="profit"
-            />
-            <MetricCard
-              title={t('metric_avg_rr')}
-              value={avgRR !== null ? formatR(avgRR) : 'N/A'}
-              valueColorClass={avgRR !== null ? (avgRR >= 1 ? 'profit' : 'loss') : 'neutral'}
-              icon={Target}
-              accent={avgRR !== null && avgRR >= 1 ? 'profit' : avgRR !== null ? 'loss' : 'dark'}
-            />
-          </div>
-
           {/* ── PERFORMANCE VISUALIZER GRID ── */}
-          <div className="col-span-12 w-full mt-4">
+          <div className="col-span-12 w-full mt-2">
             <DashboardCharts session={session} trades={trades} onSelectionChange={setAnalyticsSelection} />
           </div>
 
           {/* ── SECONDARY METRICS GRID ── */}
           <div className="col-span-12 mt-6 space-y-4">
             <SectionLabel label={t('distribution_expectation', 'Distribusi & Harapan Imbal Balik')} shape="diamond" color="yellow" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 sm:gap-3">
               <MetricCard title={t('gross_profit', 'Gross Profit')} value={formatUsd(metrics.grossProfit)} valueColorClass="profit" />
               <MetricCard title={t('gross_loss', 'Gross Loss')} value={formatUsd(-metrics.grossLoss)} valueColorClass="loss" />
               <MetricCard title={t('avg_trade_pnl', 'Avg Trade PnL')} value={`${metrics.averageTrade >= 0 ? '+' : ''}${formatUsd(metrics.averageTrade)}`} valueColorClass={metrics.averageTrade >= 0 ? 'profit' : 'loss'} />

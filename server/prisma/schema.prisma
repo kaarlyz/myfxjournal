@@ -814,6 +814,7 @@ model ManualBacktestTrade {
   sessionId   String
   session     ManualBacktestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   tradeNumber Int
+  orderType   String?               // MARKET_BUY, MARKET_SELL, BUY_LIMIT, SELL_LIMIT, BUY_STOP, SELL_STOP
   side        String                // LONG | SHORT
   entryPrice  Float
   entryTime   DateTime
@@ -826,7 +827,7 @@ model ManualBacktestTrade {
   riskAmount  Float
   pnl         Float?
   rr          Float?
-  status      String                @default("OPEN") // OPEN | CLOSED | CANCELLED
+  status      String                @default("OPEN") // PENDING | OPEN | CLOSED | CANCELLED
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
 

@@ -205,7 +205,7 @@ export class MarketAnalyticsService {
       _max: { time: true },
     });
 
-    return groups.map(g => ({
+    const coverages: CandleCoverage[] = groups.map(g => ({
       symbol: baseSymbol,
       timeframe: g.timeframe,
       provider: g.provider,
@@ -213,10 +213,26 @@ export class MarketAnalyticsService {
       lastCandle: g._max.time,
       totalCandles: g._count.id,
     }));
+
+    if (baseSymbol === 'XAUUSD' && (!provider || provider.toUpperCase() === 'PARQUET' || provider.toUpperCase() === 'DUKASCOPY')) {
+      const bounds = await parquetProvider.getTimelineBounds();
+      if (bounds) {
+        coverages.unshift({
+          symbol: baseSymbol,
+          timeframe: 'TICKS',
+          provider: 'PARQUET',
+          firstCandle: new Date(bounds.dateFrom),
+          lastCandle: new Date(bounds.dateTo),
+          totalCandles: bounds.totalTicks,
+        });
+      }
+    }
+
+    return coverages;
   }
 
   /**
-   * Strict 10-step validation & replay execution pipeline for a single trade.
+   * Strict validation & replay execution pipeline for a single trade using canonical tick data.
    */
   async runTradeReplayPipeline(
     tradeIdOrTrade: string | any,
@@ -238,6 +254,7 @@ export class MarketAnalyticsService {
     }
 
     if (!trade) {
+      console.log(`[ANALYTICS][INVALID] id=${typeof tradeIdOrTrade === 'string' ? tradeIdOrTrade : 'unknown'} reason="Trade not found in database"`);
       return {
         tradeId: typeof tradeIdOrTrade === 'string' ? tradeIdOrTrade : 'unknown',
         status: 'FAILED',
@@ -247,11 +264,12 @@ export class MarketAnalyticsService {
 
     const tradeId = trade.id;
     const { symbol, entryPrice, exitPrice, side, rMultiple, result: brokerResult } = trade;
-    let entryTime: Date = trade.entryTime;
-    let exitTime: Date = trade.exitTime;
-    const session = trade.session || {};
+    let entryTime: Date = trade.entryTime ? new Date(trade.entryTime) : trade.entryTime;
+    let exitTime: Date = trade.exitTime ? new Date(trade.exitTime) : trade.exitTime;
 
-    if (!entryTime || !entryPrice || !side) {
+    // 1. Validate required fields
+    if (!entryTime || entryPrice == null || !side) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Trade missing entryTime, entryPrice, or side" entryTime=${entryTime ? entryTime.toISOString() : 'N/A'} exitTime=${exitTime ? exitTime.toISOString() : 'N/A'} entryPrice=${entryPrice ?? 'N/A'} exitPrice=${exitPrice ?? 'N/A'} tickCount=0`);
       return {
         tradeId,
         status: 'NO_SL_INFERABLE',
@@ -259,381 +277,298 @@ export class MarketAnalyticsService {
       };
     }
 
+    if (!exitTime || exitPrice == null) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Trade missing exitTime or exitPrice" entryTime=${entryTime.toISOString()} exitTime=${exitTime ? exitTime.toISOString() : 'N/A'} entryPrice=${entryPrice} exitPrice=${exitPrice ?? 'N/A'} tickCount=0`);
+      return {
+        tradeId,
+        status: 'NO_SL_INFERABLE',
+        statusReason: 'Trade missing exitTime or exitPrice.',
+      };
+    }
+
+    // 2. Validate timestamps
+    const entryMs = entryTime.getTime();
+    const exitMs = exitTime.getTime();
+    if (isNaN(entryMs) || isNaN(exitMs)) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Invalid timestamp format" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
+      return {
+        tradeId,
+        status: 'FAILED',
+        statusReason: 'Invalid entryTime or exitTime timestamp.',
+      };
+    }
+
+    if (exitMs < entryMs) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="exitTime < entryTime" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
+      return {
+        tradeId,
+        status: 'FAILED',
+        statusReason: 'Exit time cannot be before entry time (exitTime < entryTime).',
+      };
+    }
+
     // Apply timezone offset to convert trade times to UTC if specified
     if (timezoneOffsetHours !== 0) {
       entryTime = new Date(entryTime.getTime() - timezoneOffsetHours * 3600000);
-      if (exitTime) {
-        exitTime = new Date(exitTime.getTime() - timezoneOffsetHours * 3600000);
-      }
+      exitTime = new Date(exitTime.getTime() - timezoneOffsetHours * 3600000);
     }
 
+    // 3. Direction validation
+    const isLong = side === 'LONG' || side === 'BUY';
+    const isShort = side === 'SHORT' || side === 'SELL';
+    if (!isLong && !isShort) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Invalid side '${side}'" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
+      return {
+        tradeId,
+        status: 'FAILED',
+        statusReason: `Invalid trade direction '${side}'. Must be LONG, BUY, SHORT, or SELL.`,
+      };
+    }
+
+    // 4. Price validation
+    if (typeof entryPrice !== 'number' || isNaN(entryPrice) || entryPrice <= 0 || typeof exitPrice !== 'number' || isNaN(exitPrice) || exitPrice <= 0) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Invalid entryPrice (${entryPrice}) or exitPrice (${exitPrice})" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
+      return {
+        tradeId,
+        status: 'FAILED',
+        statusReason: `Invalid trade prices: entryPrice=${entryPrice}, exitPrice=${exitPrice}.`,
+      };
+    }
+
+    // 5. Symbol Normalization
     const symbolInfo = normalizeSymbol(symbol);
     if (!symbolInfo.known) {
-      console.warn(`[ANALYTICS] Unknown symbol "${symbol}". Rejecting trade ${tradeId}.`);
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Unknown symbol '${symbol}'" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
       return {
         tradeId,
         status: 'SYMBOL_NOT_FOUND',
         statusReason: `Unknown symbol "${symbol}" cannot be mapped to canonical market catalog.`,
       };
     }
-
     const baseSymbol = symbolInfo.canonical;
-    const requestedProvider = marketDataSource ? marketDataSource.toUpperCase() : undefined;
     const tf = (requestedTimeframe || 'M1').toUpperCase();
 
-    // Step 1: DATASET CHECK (Exclude explicitly SYNTHETIC datasets for financial replay)
-    let catalogItem = cachedCatalogItem;
-    if (!catalogItem) {
-      // First attempt: exact timeframe
-      catalogItem = await prisma.marketDataCatalog.findFirst({
-        where: {
-          symbol: { startsWith: baseSymbol },
-          dataType: 'CANDLE',
+    // 6. SL / TP Resolution & Validation
+    let slPrice = trade.slPrice;
+    let tpPrice = trade.tpPrice;
+    let slSource: 'ACTUAL' | 'INFERRED' = 'ACTUAL';
+
+    if (slPrice != null && slPrice > 0) {
+      if (tpPrice == null || tpPrice <= 0) {
+        const risk = Math.abs(entryPrice - slPrice);
+        tpPrice = isLong ? entryPrice + risk * backtestRR : entryPrice - risk * backtestRR;
+      }
+    } else {
+      const sltpResult = inferSLTP(
+        side,
+        entryPrice,
+        exitPrice,
+        brokerResult,
+        backtestRR,
+        trade.slPrice,
+        trade.tpPrice
+      );
+      if (!sltpResult) {
+        console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Unable to determine Stop Loss price" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
+        return {
+          tradeId,
+          status: 'NO_SL_INFERABLE',
+          statusReason: 'Unable to back-calculate Stop Loss price.',
           timeframe: tf,
-          NOT: { dataSourceType: 'SYNTHETIC' },
-          ...(requestedProvider ? { provider: requestedProvider } : {}),
-        },
-        orderBy: { candleCount: 'desc' },
-      });
-
-      // Second attempt: if higher timeframe requested but not stored directly, fallback to M1 catalog for on-the-fly resampling
-      if (!catalogItem && tf !== 'M1') {
-        catalogItem = await prisma.marketDataCatalog.findFirst({
-          where: {
-            symbol: { startsWith: baseSymbol },
-            dataType: 'CANDLE',
-            timeframe: 'M1',
-            NOT: { dataSourceType: 'SYNTHETIC' },
-            ...(requestedProvider ? { provider: requestedProvider } : {}),
-          },
-          orderBy: { candleCount: 'desc' },
-        });
+          alignedEntryTime: entryTime,
+          alignedExitTime: exitTime,
+        };
       }
-
-      // Third attempt: any REAL catalog for this provider/symbol
-      if (!catalogItem) {
-        catalogItem = await prisma.marketDataCatalog.findFirst({
-          where: {
-            symbol: { startsWith: baseSymbol },
-            dataType: 'CANDLE',
-            NOT: { dataSourceType: 'SYNTHETIC' },
-            ...(requestedProvider ? { provider: requestedProvider } : {}),
-          },
-          orderBy: { candleCount: 'desc' },
-        });
-      }
+      slPrice = sltpResult.slPrice;
+      tpPrice = sltpResult.tpPrice;
+      slSource = 'INFERRED';
     }
 
-    if (!catalogItem) {
-      if (requestedProvider) {
+    if (isLong && slPrice >= entryPrice) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="For LONG trade, SL (${slPrice}) must be below entryPrice (${entryPrice})" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
+      return {
+        tradeId,
+        status: 'FAILED',
+        statusReason: `For LONG, Stop Loss (${slPrice}) must be below entry price (${entryPrice}).`,
+      };
+    }
+    if (isShort && slPrice <= entryPrice) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="For SHORT trade, SL (${slPrice}) must be above entryPrice (${entryPrice})" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
+      return {
+        tradeId,
+        status: 'FAILED',
+        statusReason: `For SHORT, Stop Loss (${slPrice}) must be above entry price (${entryPrice}).`,
+      };
+    }
+
+    // 7. Query Canonical Historical Tick Data
+    const tickResult = await parquetProvider.getTicks({
+      symbol: baseSymbol,
+      fromTime: entryTime,
+      toTime: exitTime,
+    });
+
+    const ticks = tickResult?.ticks || [];
+    if (ticks.length === 0) {
+      const bounds = await parquetProvider.getTimelineBounds();
+      if (bounds && (entryTime.getTime() < new Date(bounds.dateFrom).getTime() || entryTime.getTime() > new Date(bounds.dateTo).getTime())) {
+        console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Trade entry time outside dataset bounds [${bounds.dateFrom} - ${bounds.dateTo}]" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
         return {
           tradeId,
           status: 'MISSING_MARKET_DATA',
-          statusReason: `No REAL market data catalog found for provider '${requestedProvider}' and symbol '${baseSymbol}'.`,
+          statusReason: `Trade entry time ${entryTime.toISOString()} is outside dataset bounds [${bounds.dateFrom} - ${bounds.dateTo}].`,
+          timeframe: tf,
+          alignedEntryTime: entryTime,
+          alignedExitTime: exitTime,
         };
       }
 
-      return {
-        tradeId,
-        status: 'SYMBOL_NOT_FOUND',
-        statusReason: `No market data catalog found for symbol '${symbol}' (canonical: ${baseSymbol}).`,
-      };
-    }
-
-    const provider = catalogItem.provider;
-
-    // Step 2: PROVIDER CHECK (Only enforce if not explicitly requested by user)
-    if (!requestedProvider && session.priceFeedBroker && catalogItem.broker && session.priceFeedBroker.toUpperCase() !== catalogItem.broker.toUpperCase()) {
-      return {
-        tradeId,
-        status: 'INVALID_FEED',
-        statusReason: `Price feed broker mismatch: Session is from '${session.priceFeedBroker}' but market data is from '${catalogItem.broker}'.`,
-        datasetId: catalogItem.id,
-        provider: catalogItem.provider,
-        broker: catalogItem.broker,
-        priceFeedId: catalogItem.priceFeedId || undefined,
-      };
-    }
-
-    // Step 3: BROKER/FEED CHECK (Only enforce if not explicitly requested by user)
-    if (!requestedProvider && session.priceFeedId && catalogItem.priceFeedId && session.priceFeedId !== catalogItem.priceFeedId) {
-      return {
-        tradeId,
-        status: 'DATASET_NOT_COMPATIBLE',
-        statusReason: `Feed ID mismatch: Session feed '${session.priceFeedId}' vs Market data feed '${catalogItem.priceFeedId}'.`,
-        datasetId: catalogItem.id,
-        provider: catalogItem.provider,
-        broker: catalogItem.broker || undefined,
-        priceFeedId: catalogItem.priceFeedId || undefined,
-      };
-    }
-
-    // Step 4: SYMBOL CHECK
-    const catalogSymbolNorm = this.normalizeSymbol(catalogItem.symbol);
-    const aliasNorm = catalogItem.symbolAlias ? this.normalizeSymbol(catalogItem.symbolAlias) : null;
-    if (catalogSymbolNorm !== baseSymbol && aliasNorm !== baseSymbol) {
-      return {
-        tradeId,
-        status: 'SYMBOL_NOT_FOUND',
-        statusReason: `Symbol mismatch: Trade symbol '${baseSymbol}' vs Catalog symbol '${catalogSymbolNorm}'.`,
-        datasetId: catalogItem.id,
-      };
-    }
-
-    // Step 5: TIMEFRAME & BOUNDED WINDOW QUERY
-    const alignedEntryTime = this.entryBarStart(entryTime, tf);
-    const alignedExitTime = exitTime && exitTime >= entryTime
-      ? exitTime
-      : new Date(entryTime.getTime() + 14 * 24 * 60 * 60 * 1000);
-
-    const isZeroDuration = alignedExitTime.getTime() === alignedEntryTime.getTime();
-    // For MFE / excursion exploration before SL is hit, query forward up to 14 days, but respect zero-duration trades.
-    // Zero-duration: extend by 1 minute so strict [entry, entry+1min] captures exactly 1 candle bucket.
-    const queryEndTime = isZeroDuration
-      ? new Date(alignedEntryTime.getTime() + 60 * 1000)
-      : new Date(entryTime.getTime() + 14 * 24 * 60 * 60 * 1000);
-
-    // If target timeframe is stored in DB directly
-    const storedTf = catalogItem.timeframe;
-    const rawCandles = await prisma.mt5CandleData.findMany({
-      where: {
-        provider,
-        symbol: catalogItem.symbol,
-        timeframe: storedTf,
-        time: { gte: alignedEntryTime, lte: queryEndTime },
-      },
-      orderBy: { time: 'asc' },
-      take: 100000,
-    });
-
-    let ohlcCandles: OHLCCandle[] = [];
-    if (rawCandles.length > 0) {
-      ohlcCandles = rawCandles.map(c => ({
-        time: c.time,
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-        tickVolume: c.tickVolume ?? undefined,
-        realVolume: c.realVolume ?? undefined,
-      }));
-    } else if (catalogItem.provider === 'DUKASCOPY' || catalogItem.provider === 'PARQUET') {
-      // Use strict fromTime+toTime — NOT replayTime (adaptive lookback pulls data
-      // from before alignedEntryTime, defeating the empty-window check).
-      const pqCandles = await parquetProvider.getCandles({
-        symbol: catalogItem.symbol,
-        timeframe: storedTf,
-        fromTime: alignedEntryTime,
-        toTime: queryEndTime,
-        limit: isZeroDuration ? 1 : 100000,
-      });
-      ohlcCandles = pqCandles.map(c => ({
-        time: c.time,
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-        tickVolume: c.tickVolume,
-      }));
-    }
-
-    if (ohlcCandles.length === 0) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="No historical tick data found in window [${entryTime.toISOString()} to ${exitTime.toISOString()}]" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
       return {
         tradeId,
         status: 'MISSING_MARKET_DATA',
-        statusReason: `No ${provider} ${storedTf} candles found in window [${alignedEntryTime.toISOString()} to ${queryEndTime.toISOString()}].`,
-        datasetId: catalogItem.id,
-        provider,
+        statusReason: `No historical tick data found in window [${entryTime.toISOString()} to ${exitTime.toISOString()}].`,
         timeframe: tf,
-        alignedEntryTime,
-        alignedExitTime,
+        alignedEntryTime: entryTime,
+        alignedExitTime: exitTime,
       };
     }
 
-    // Resample if stored timeframe is M1 but target timeframe is higher (e.g. M5, M15, H1)
-    const candles: OHLCCandle[] = (storedTf === 'M1' && tf !== 'M1')
-      ? resampleCandles(ohlcCandles, tf)
-      : ohlcCandles;
-
-    // Step 6: CANDLE COUNT CHECK
-    const tfMinutes: Record<string, number> = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440 };
-    const resMins = tfMinutes[tf] || 1;
-    const durationMins = Math.max(1, (alignedExitTime.getTime() - alignedEntryTime.getTime()) / 60000);
-    const expectedCandles = Math.max(1, Math.ceil(durationMins / resMins));
-    const minRequired = expectedCandles <= 2 ? 1 : Math.min(3, Math.ceil(expectedCandles * 0.5));
-
-    if (candles.length < minRequired) {
-      return {
-        tradeId,
-        status: 'INSUFFICIENT_HISTORY',
-        statusReason: `Insufficient candles in window (${candles.length} found, minimum ${minRequired} required for expected ${expectedCandles}).`,
-        datasetId: catalogItem.id,
-        provider,
-        timeframe: tf,
-        candlesUsed: candles.length,
-        alignedEntryTime,
-        alignedExitTime,
-      };
+    // 8. Price scale sanity check
+    let tickPriceMin = Infinity;
+    let tickPriceMax = -Infinity;
+    for (const t of ticks) {
+      const p = t.bid;
+      if (p < tickPriceMin) tickPriceMin = p;
+      if (p > tickPriceMax) tickPriceMax = p;
     }
-
-    // Step 7: PRICE SANITY CHECK
-    let candlePriceMin = Infinity;
-    let candlePriceMax = -Infinity;
-    for (const c of candles) {
-      if (c.low < candlePriceMin) candlePriceMin = c.low;
-      if (c.high > candlePriceMax) candlePriceMax = c.high;
-    }
-
-    const candleMid = (candlePriceMin + candlePriceMax) / 2;
-    const priceGapPct = (Math.abs(entryPrice - candleMid) / candleMid) * 100;
-
-    const metadataVerified = !!(session.priceFeedBroker && catalogItem.broker && session.priceFeedBroker.toUpperCase() === catalogItem.broker.toUpperCase());
-
-    if (priceGapPct > 20 && !metadataVerified) {
+    const midPrice = (tickPriceMin + tickPriceMax) / 2;
+    const priceGapPct = (Math.abs(entryPrice - midPrice) / midPrice) * 100;
+    if (priceGapPct > 20) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Price scale mismatch: entry ${entryPrice} deviates ${priceGapPct.toFixed(1)}% from tick range [${tickPriceMin} - ${tickPriceMax}]" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=${ticks.length}`);
       return {
         tradeId,
         status: 'PRICE_SCALE_MISMATCH',
-        statusReason: `Price scale mismatch: Trade entry price ${entryPrice} deviates by ${priceGapPct.toFixed(1)}% from market candles range [${candlePriceMin.toFixed(2)} - ${candlePriceMax.toFixed(2)}].`,
-        datasetId: catalogItem.id,
-        provider: catalogItem.provider,
-        broker: catalogItem.broker || undefined,
-        priceFeedId: catalogItem.priceFeedId || undefined,
+        statusReason: `Price scale mismatch: Trade entry price ${entryPrice} deviates by ${priceGapPct.toFixed(1)}% from market ticks range [${tickPriceMin.toFixed(2)} - ${tickPriceMax.toFixed(2)}].`,
         timeframe: tf,
-        candlesUsed: candles.length,
-        alignedEntryTime,
-        alignedExitTime,
-        candlePriceMin,
-        candlePriceMax,
+        candlesUsed: ticks.length,
+        alignedEntryTime: entryTime,
+        alignedExitTime: exitTime,
+        candlePriceMin: tickPriceMin,
+        candlePriceMax: tickPriceMax,
         priceGapPct,
       };
     }
 
-    // Step 8: SL & TP INFERENCE USING MICRO-UNITS
-    const sltpResult = inferSLTP(
-      side,
-      entryPrice,
-      exitPrice ?? entryPrice,
-      brokerResult,
-      backtestRR,
-      trade.slPrice,
-      trade.tpPrice
-    );
-
-    if (!sltpResult) {
-      return {
-        tradeId,
-        status: 'NO_SL_INFERABLE',
-        statusReason: 'Unable to back-calculate Stop Loss price.',
-        datasetId: catalogItem.id,
-        provider: catalogItem.provider,
-        timeframe: tf,
-        candlesUsed: candles.length,
-        alignedEntryTime,
-        alignedExitTime,
-        candlePriceMin,
-        candlePriceMax,
-        priceGapPct,
-      };
-    }
-
-    const slPrice = sltpResult.slPrice;
-    const tpPrice = sltpResult.tpPrice;
-
-    // Step 9: REPLAY EXECUTION & EXCURSION MATH USING MICRO-UNITS
+    // 9. Strict Tick-by-Tick Simulation & Metrics (No Look-Ahead, Chronologically Ordered)
     try {
-      const isLong = side === 'LONG' || side === 'BUY';
-      const digits = sltpResult.priceDigits;
-      const entryMicro = priceToMicro(entryPrice, digits);
-      const slMicro = priceToMicro(slPrice, digits);
+      let mfe = entryPrice;
+      let mae = entryPrice;
+      let firstHit: 'TP' | 'SL' | 'NONE' = 'NONE';
 
-      let mfeMicro = entryMicro;
-      let maeMicro = entryMicro;
-
-      // Micro-safe iteration
-      for (const candle of candles) {
-        const highMicro = priceToMicro(candle.high, digits);
-        const lowMicro = priceToMicro(candle.low, digits);
-
+      for (const tick of ticks) {
+        const p = isLong ? tick.bid : tick.ask;
         if (isLong) {
-          if (lowMicro < maeMicro) maeMicro = lowMicro;
-          // Micro-safe SL check: lowMicro <= slMicro
-          if (lowMicro <= slMicro) break;
-          if (highMicro > mfeMicro) mfeMicro = highMicro;
+          if (p < mae) mae = p;
+          if (p > mfe) mfe = p;
+          if (slPrice > 0 && p <= slPrice) {
+            firstHit = 'SL';
+            break;
+          }
+          if (tpPrice > 0 && p >= tpPrice) {
+            firstHit = 'TP';
+            break;
+          }
         } else {
-          if (highMicro > maeMicro) maeMicro = highMicro;
-          // Micro-safe SL check: highMicro >= slMicro
-          if (highMicro >= slMicro) break;
-          if (lowMicro < mfeMicro) mfeMicro = lowMicro;
+          if (p > mae) mae = p;
+          if (p < mfe) mfe = p;
+          if (slPrice > 0 && p >= slPrice) {
+            firstHit = 'SL';
+            break;
+          }
+          if (tpPrice > 0 && p <= tpPrice) {
+            firstHit = 'TP';
+            break;
+          }
         }
       }
 
-      const mfePrice = microToPrice(mfeMicro, digits);
-      const maePrice = microToPrice(maeMicro, digits);
-
-      const riskDistance = sltpResult.riskDistance;
-      const mfeDistance = isLong
-        ? microToPrice(mfeMicro > entryMicro ? mfeMicro - entryMicro : 0n, digits)
-        : microToPrice(entryMicro > mfeMicro ? entryMicro - mfeMicro : 0n, digits);
-      const maeDistance = isLong
-        ? microToPrice(entryMicro > maeMicro ? entryMicro - maeMicro : 0n, digits)
-        : microToPrice(maeMicro > entryMicro ? maeMicro - entryMicro : 0n, digits);
-
+      const riskDistance = isLong ? (entryPrice - slPrice) : (slPrice - entryPrice);
+      const priceCaptured = isLong ? (exitPrice - entryPrice) : (entryPrice - exitPrice);
+      const mfeDistance = isLong ? Math.max(0, mfe - entryPrice) : Math.max(0, entryPrice - mfe);
+      const maeDistance = isLong ? Math.max(0, entryPrice - mae) : Math.max(0, mae - entryPrice);
       const maxPotentialRR = riskDistance > 0 ? mfeDistance / riskDistance : 0;
-      const capturedRR = rMultiple !== null && rMultiple !== undefined ? rMultiple : undefined;
+
+      let capturedRR: number | undefined;
+      if (rMultiple !== null && rMultiple !== undefined) {
+        capturedRR = rMultiple;
+      } else if (riskDistance > 0) {
+        capturedRR = priceCaptured / riskDistance;
+      }
+
       const exitEfficiency = (capturedRR !== undefined && maxPotentialRR > 0)
         ? (capturedRR / maxPotentialRR) * 100
         : undefined;
 
-      // Hit detection simulation
-      const isActual = sltpResult.source === 'ACTUAL';
-      const targetRR = isActual ? (sltpResult.actualRR ?? backtestRR) : backtestRR;
+      const targetRR = slSource === 'ACTUAL' && riskDistance > 0 && tpPrice > 0
+        ? Math.abs(tpPrice - entryPrice) / riskDistance
+        : backtestRR;
 
-      const sim = runRRSimulation(side, entryPrice, slPrice, tpPrice, alignedExitTime, candles);
-      const simulatedResult: 'WIN' | 'LOSS' = (sim.firstHit === 'TP' || (sim.firstHit !== 'SL' && sim.firstHit !== 'AMBIGUOUS' && maxPotentialRR >= targetRR)) ? 'WIN' : 'LOSS';
+      const simulatedResult: 'WIN' | 'LOSS' = (firstHit === 'TP' || (firstHit !== 'SL' && maxPotentialRR >= targetRR)) ? 'WIN' : 'LOSS';
       const simulatedR = simulatedResult === 'WIN' ? targetRR : -1;
+
+      console.log(`[ANALYTICS][TRADE]
+id=${tradeId}
+direction=${side}
+entryTime=${entryTime.toISOString()}
+exitTime=${exitTime.toISOString()}
+entryPrice=${entryPrice}
+exitPrice=${exitPrice}
+tickCount=${ticks.length}
+dataStart=${tickResult?.dataStart ?? 'N/A'}
+dataEnd=${tickResult?.dataEnd ?? 'N/A'}
+valid=true`);
 
       return {
         tradeId,
         status: 'VALID',
-        statusReason: 'Replay completed successfully.',
-        datasetId: catalogItem.id,
-        provider: catalogItem.provider,
-        broker: catalogItem.broker || undefined,
-        priceFeedId: catalogItem.priceFeedId || undefined,
+        statusReason: 'Replay completed successfully from canonical tick data.',
+        provider: 'PARQUET',
         timeframe: tf,
-        candlesUsed: candles.length,
+        candlesUsed: ticks.length,
         slUsed: slPrice,
         tpUsed: tpPrice,
-        mfePrice,
-        maePrice,
+        mfePrice: mfe,
+        maePrice: mae,
         mfeDistance,
         maeDistance,
         riskDistance,
         maxPotentialRR,
         capturedRR,
         exitEfficiency,
-        alignedEntryTime,
-        alignedExitTime,
-        candlePriceMin,
-        candlePriceMax,
+        alignedEntryTime: entryTime,
+        alignedExitTime: exitTime,
+        candlePriceMin: tickPriceMin,
+        candlePriceMax: tickPriceMax,
         priceGapPct,
-        firstHit: sim.firstHit,
+        firstHit,
         simulatedResult,
         simulatedR,
       };
     } catch (e: any) {
+      console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Replay execution error: ${e?.message || e}" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=${ticks.length}`);
       return {
         tradeId,
         status: 'FAILED',
         statusReason: `Replay execution error: ${e?.message || e}`,
-        datasetId: catalogItem.id,
+        candlesUsed: ticks.length,
       };
     }
   }
 
   /**
    * Rebuild Replay Operation:
-   * Optimized high-performance batch processing with multi-timeframe & timezone support.
+   * Batch processing using canonical tick historical data.
    */
   async rebuildSessionReplay(
     sessionId: string,
@@ -658,7 +593,7 @@ export class MarketAnalyticsService {
       candleCoverage: CandleCoverage[];
     };
   }> {
-    console.log(`[ANALYTICS] session analyze started: sessionId=${sessionId}, timeframe=${timeframe}, provider=${marketDataSource || 'AUTO'}, tzOffset=${timezoneOffsetHours}h`);
+    console.log(`[ANALYTICS] session analyze started: sessionId=${sessionId}, timeframe=${timeframe}, provider=${marketDataSource || 'PARQUET'}, tzOffset=${timezoneOffsetHours}h`);
 
     // Pre-fetch all closed trades in session
     const trades = await prisma.trade.findMany({
@@ -707,29 +642,10 @@ export class MarketAnalyticsService {
       startedAt: Date.now(),
     });
 
-    const catalogCache = new Map<string, any>();
     const tf = (timeframe || 'M1').toUpperCase();
-    const requestedProvider = marketDataSource ? marketDataSource.toUpperCase() : undefined;
 
     for (let i = 0; i < trades.length; i++) {
       const t = trades[i];
-
-      const baseSymbol = this.normalizeSymbol(t.symbol);
-      const cacheKey = `${baseSymbol}_${requestedProvider || 'ANY'}_${tf}`;
-
-      let catalogItem = catalogCache.get(cacheKey);
-      if (!catalogItem && !catalogCache.has(cacheKey)) {
-        catalogItem = await prisma.marketDataCatalog.findFirst({
-          where: {
-            symbol: { startsWith: baseSymbol },
-            dataType: 'CANDLE',
-            NOT: { dataSourceType: 'SYNTHETIC' },
-            ...(requestedProvider ? { provider: requestedProvider } : {}),
-          },
-          orderBy: { candleCount: 'desc' },
-        });
-        catalogCache.set(cacheKey, catalogItem);
-      }
 
       if (i === 0 || (i + 1) % 200 === 0 || i === trades.length - 1) {
         console.log(`[ANALYTICS] processing trade=${i + 1}/${trades.length} id=${t.id}`);
@@ -739,9 +655,9 @@ export class MarketAnalyticsService {
         t,
         backtestRR,
         engineVersion,
-        marketDataSource,
+        marketDataSource || 'PARQUET',
         tf,
-        catalogItem,
+        null,
         timezoneOffsetHours
       );
 
@@ -773,7 +689,6 @@ export class MarketAnalyticsService {
       ...(this.replayProgress.get(sessionId)!),
       phase: 'persisting',
     });
-
 
     // Batch persist TradeReplayAnalysis rows
     const analysisRows = results.map(res => ({

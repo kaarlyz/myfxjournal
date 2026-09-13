@@ -247,13 +247,13 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-2 pb-2">
+      <div className="flex overflow-x-auto no-scrollbar gap-2 pb-2 whitespace-nowrap scroll-smooth">
         {(['equity', 'pnl', 'time', 'excursion'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveChartTab(tab)}
             className={`
-              px-4 py-2 text-[11px] font-bold uppercase tracking-wider transition-all
+              px-4 py-2 text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 whitespace-nowrap
               border-2 border-[var(--border-color)] 
               ${activeChartTab === tab ? 'bg-[var(--bg-dark)] text-white shadow-[3px_3px_0px_0px_var(--accent-blue)]' : 'bg-white text-[var(--text-primary)] hover:bg-[var(--bg-base)] hover:-translate-y-0.5'}
             `}

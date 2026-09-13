@@ -14,6 +14,22 @@ export interface ParquetCandle {
   tickVolume: number;
 }
 
+export interface ParquetTick {
+  time: string;
+  bid: number;
+  ask: number;
+  volume: number;
+}
+
+export interface GetTicksResult {
+  symbol: string;
+  count: number;
+  dataStart: string | null;
+  dataEnd: string | null;
+  ticks: ParquetTick[];
+  latencyMs?: number;
+}
+
 export interface TimelineBounds {
   dateFrom: string;
   dateTo: string;
@@ -196,6 +212,21 @@ export async function getNextCandle(opts: {
     afterTime: toIso(opts.afterTime),
   });
   return res?.candle ? mapRawCandle(res.candle) : null;
+}
+
+export async function getTicks(opts: {
+  symbol?: string;
+  fromTime: Date | string;
+  toTime: Date | string;
+  limit?: number;
+}): Promise<GetTicksResult | null> {
+  const res = await query<GetTicksResult>('ticks', {
+    symbol: opts.symbol ?? 'XAUUSD',
+    fromTime: toIso(opts.fromTime),
+    toTime: toIso(opts.toTime),
+    limit: opts.limit ?? 100000,
+  });
+  return res && Array.isArray(res.ticks) ? res : null;
 }
 
 export async function getTimelineBounds(): Promise<TimelineBounds | null> {

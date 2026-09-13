@@ -19,6 +19,10 @@ import {
   ChartTimeframe,
   calculateCandleMetrics,
   getSymbolContractSize,
+  getEffectiveOrderType,
+  getSymbolPriceTolerance,
+  evaluatePendingOrderTrigger,
+  OrderExecutionType,
 } from '../services/backtestEngine';
 
 const router = Router();
@@ -71,7 +75,25 @@ router.get('/candles', async (req: Request, res: Response) => {
     const symbol = (req.query.symbol as string) || 'XAUUSD';
     const targetTF = ((req.query.timeframe as string) || 'M1').toUpperCase() as ChartTimeframe;
     const provider = (req.query.provider as string) || 'DUKASCOPY';
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string, 10) || 1500), 5000);
+
+    // Adaptive limits based on timeframe
+    let defaultLimit = 1200;
+    let maxLimit = 1200;
+    if (targetTF === 'M1' || targetTF === 'M5') {
+      defaultLimit = 1200;
+      maxLimit = 1200;
+    } else if (targetTF === 'M15' || targetTF === 'M30') {
+      defaultLimit = 800;
+      maxLimit = 800;
+    } else if (targetTF === 'H1' || targetTF === 'H4') {
+      defaultLimit = 600;
+      maxLimit = 600;
+    } else if (targetTF === 'D1') {
+      defaultLimit = 700;
+      maxLimit = 700;
+    }
+
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string, 10) || defaultLimit), maxLimit);
     const replayTimeStr = req.query.replayTime as string;
     const beforeTimeStr = req.query.beforeTime as string;
     const afterTimeStr = req.query.afterTime as string;
@@ -635,18 +657,7 @@ router.post('/sessions/:id/trades', async (req: Request, res: Response) => {
       return res.status(404).json({ ok: false, error: 'Session not found' });
     }
 
-    // Guard against stacked positions: ONLY 1 open position allowed per session
-    const existingOpenTrade = await prisma.manualBacktestTrade.findFirst({
-      where: { sessionId, status: 'OPEN' },
-    });
-    if (existingOpenTrade) {
-      return res.status(409).json({
-        ok: false,
-        error: `Tidak dapat membuka posisi baru: Posisi #${existingOpenTrade.tradeNumber} masih terbuka. Tutup posisi aktif terlebih dahulu.`,
-      });
-    }
-
-    const { side, entryPrice, slPrice, tpPrice, volume, riskAmount, entryTime } = req.body;
+    const { side, entryPrice, slPrice, tpPrice, volume, riskAmount, entryTime, orderType, status } = req.body;
     if (!side || (side !== 'LONG' && side !== 'SHORT')) {
       return res.status(400).json({ ok: false, error: 'Valid side (LONG or SHORT) is required' });
     }
@@ -686,6 +697,63 @@ router.post('/sessions/:id/trades', async (req: Request, res: Response) => {
       tradeTime = sessionReplayTime;
     }
 
+    // Determine current market price at or before tradeTime
+    let marketPrice = numEntry;
+    const lastCandle = await prisma.mt5CandleData.findFirst({
+      where: {
+        provider: session.provider,
+        symbol: session.symbol,
+        timeframe: 'M1',
+        time: { lte: tradeTime },
+      },
+      orderBy: { time: 'desc' },
+    });
+    if (lastCandle) {
+      marketPrice = lastCandle.close;
+    }
+
+    const tolerance = getSymbolPriceTolerance(session.symbol);
+    const isWithinCandleRange = lastCandle
+      ? (lastCandle.low - tolerance <= numEntry && numEntry <= lastCandle.high + tolerance)
+      : false;
+    const isAtCurrentClose = Math.abs(numEntry - marketPrice) <= tolerance;
+    const isTradeableAtMarket = isAtCurrentClose || isWithinCandleRange;
+
+    const direction = side === 'LONG' ? 'BUY' : 'SELL';
+    const effective = getEffectiveOrderType({
+      direction,
+      entryPrice: numEntry,
+      marketPrice,
+      symbol: session.symbol,
+    });
+
+    // Check if requested to place as PENDING or if it is effectively a pending order
+    const isPendingOrder = status === 'PENDING' || (orderType && orderType !== 'MARKET_BUY' && orderType !== 'MARKET_SELL') || (status !== 'OPEN' && !isTradeableAtMarket && effective.isPending);
+
+    // Guard: If trying to execute immediately as OPEN, but entry price is outside market tolerance and candle range:
+    if (!isPendingOrder && !isTradeableAtMarket && effective.isPending) {
+      return res.status(422).json({
+        ok: false,
+        error: `Eksekusi Market tidak valid: Harga Entry ($${numEntry.toFixed(2)}) berada di luar jangkauan harga market saat ini ($${marketPrice.toFixed(2)}). Order harus ditempatkan sebagai ${effective.orderType.replace('_', ' ')} (Pending Order).`,
+      });
+    }
+
+    // Guard against stacked positions: ONLY 1 OPEN position allowed per session
+    if (!isPendingOrder) {
+      const existingOpenTrade = await prisma.manualBacktestTrade.findFirst({
+        where: { sessionId, status: 'OPEN' },
+      });
+      if (existingOpenTrade) {
+        return res.status(409).json({
+          ok: false,
+          error: `Tidak dapat membuka posisi baru: Posisi #${existingOpenTrade.tradeNumber} masih terbuka. Tutup posisi aktif terlebih dahulu.`,
+        });
+      }
+    }
+
+    const finalOrderType = (orderType as OrderExecutionType) || effective.orderType;
+    const finalStatus = isPendingOrder ? 'PENDING' : 'OPEN';
+
     const tradeCount = await prisma.manualBacktestTrade.count({
       where: { sessionId },
     });
@@ -694,6 +762,7 @@ router.post('/sessions/:id/trades', async (req: Request, res: Response) => {
       data: {
         sessionId,
         tradeNumber: tradeCount + 1,
+        orderType: finalOrderType,
         side: side as TradeSide,
         entryTime: tradeTime,
         entryPrice: numEntry,
@@ -701,13 +770,79 @@ router.post('/sessions/:id/trades', async (req: Request, res: Response) => {
         tpPrice: numTP,
         volume: numVol,
         riskAmount: numRisk,
-        status: 'OPEN',
+        status: finalStatus,
       },
     });
 
     return res.json({ ok: true, data: trade });
   } catch (error: any) {
     console.error('Error opening manual backtest trade:', error);
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Trigger a PENDING trade to become OPEN
+router.post('/sessions/:id/trades/:tradeId/trigger', async (req: Request, res: Response) => {
+  try {
+    const { id: sessionId, tradeId } = req.params;
+    const trade = await prisma.manualBacktestTrade.findUnique({
+      where: { id: tradeId },
+    });
+    if (!trade || trade.sessionId !== sessionId) {
+      return res.status(404).json({ ok: false, error: 'Trade not found' });
+    }
+    if (trade.status !== 'PENDING') {
+      return res.status(400).json({ ok: false, error: `Trade is not pending (status: ${trade.status})` });
+    }
+
+    // Check if there is already an open trade
+    const existingOpen = await prisma.manualBacktestTrade.findFirst({
+      where: { sessionId, status: 'OPEN' },
+    });
+    if (existingOpen) {
+      return res.status(409).json({
+        ok: false,
+        error: `Cannot trigger pending order: Position #${existingOpen.tradeNumber} is already open.`,
+      });
+    }
+
+    const { triggerTime, triggerPrice } = req.body;
+    const numTriggerPrice = triggerPrice ? parseFloat(triggerPrice) : trade.entryPrice;
+    const newEntryTime = triggerTime ? new Date(triggerTime) : new Date();
+
+    const updated = await prisma.manualBacktestTrade.update({
+      where: { id: tradeId },
+      data: {
+        status: 'OPEN',
+        entryTime: newEntryTime,
+        entryPrice: numTriggerPrice,
+      },
+    });
+
+    return res.json({ ok: true, data: updated });
+  } catch (error: any) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Cancel and delete a pending trade
+router.delete('/sessions/:id/trades/:tradeId', async (req: Request, res: Response) => {
+  try {
+    const { id: sessionId, tradeId } = req.params;
+    const trade = await prisma.manualBacktestTrade.findUnique({
+      where: { id: tradeId },
+    });
+    if (!trade || trade.sessionId !== sessionId) {
+      return res.status(404).json({ ok: false, error: 'Trade not found' });
+    }
+    if (trade.status === 'OPEN') {
+      return res.status(400).json({ ok: false, error: 'Cannot delete an OPEN trade; use close trade instead.' });
+    }
+    await prisma.manualBacktestTrade.delete({
+      where: { id: tradeId },
+    });
+    return res.json({ ok: true, message: 'Trade cancelled and deleted' });
+  } catch (error: any) {
     return res.status(500).json({ ok: false, error: error.message });
   }
 });
