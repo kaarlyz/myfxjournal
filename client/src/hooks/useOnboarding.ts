@@ -2,9 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { getOnboardingCompleted, getUserName, saveOnboardingCompleted, saveUserName } from '../utils/localStorage';
 
 export function useOnboarding() {
-  const [completed, setCompleted] = useState<boolean>(true);
-  const [name, setName] = useState<string>('');
-  const [isReady, setIsReady] = useState(false);
+  const [completed, setCompleted] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return getOnboardingCompleted();
+  });
+  const [name, setName] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return getUserName();
+  });
+  const [isReady, setIsReady] = useState(true);
 
   useEffect(() => {
     const onboardingCompleted = getOnboardingCompleted();

@@ -244,17 +244,24 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const [panOffsetX, setPanOffsetX] = useState<number>(0);
   const [priceZoom, setPriceZoom] = useState<number>(1.0);
   const [pricePanOffset, setPricePanOffset] = useState<number>(0);
+  const [isAutoScale, setIsAutoScale] = useState<boolean>(true);
+  const [manualPriceRange, setManualPriceRange] = useState<{ min: number; max: number } | null>(null);
 
   const cwRef = useRef<number>(8);
   const panXRef = useRef<number>(0);
   const pzRef = useRef<number>(1.0);
   const poRef = useRef<number>(0);
+  const isAutoScaleRef = useRef<boolean>(true);
+  const manualPriceRangeRef = useRef<{ min: number; max: number } | null>(null);
+  const lastAutoBoundsRef = useRef<{ min: number; max: number }>({ min: 0, max: 100 });
   const lastFetchCheckRef = useRef<number>(0);
 
   cwRef.current = candleWidth;
   panXRef.current = panOffsetX;
   pzRef.current = priceZoom;
   poRef.current = pricePanOffset;
+  isAutoScaleRef.current = isAutoScale;
+  manualPriceRangeRef.current = manualPriceRange;
 
   // Multi-Touch & Pinch Zoom Tracking
   const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
@@ -264,9 +271,26 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   // Interaction Drag States
   const dragModeRef = useRef<'NONE' | 'PAN_CHART' | 'SCALE_PRICE' | 'SCALE_TIME' | 'DRAWING_HANDLE' | 'PINCH_ZOOM' | 'PLANNED_ORDER_HANDLE'>('NONE');
-  const panStartRef = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
-  const priceScaleStartRef = useRef<{ startY: number; startPZ: number } | null>(null);
+  const panStartRef = useRef<{
+    startX: number;
+    startY: number;
+    startPanX: number;
+    startPanY: number;
+    startMin?: number;
+    startMax?: number;
+  } | null>(null);
+  const priceScaleStartRef = useRef<{
+    startY: number;
+    anchorPrice: number;
+    startMin: number;
+    startMax: number;
+    startPZ: number;
+  } | null>(null);
   const timeScaleStartRef = useRef<{ startX: number; startCW: number } | null>(null);
+  const lastTouchRef = useRef<{ x: number; y: number } | null>(null);
+  const axisDragStartRef = useRef<{ y: number; isDragging: boolean } | null>(null);
+  const lastAxisDragEndTimeRef = useRef<number>(0);
+  const lastTouchMoveTimeRef = useRef<number>(0);
 
   // Drawings in ref for real-time pointer interactions
   const drawingsRef = useRef<DrawingItem[]>(drawings);
@@ -317,8 +341,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const [isActiveTradeSelected, setIsActiveTradeSelected] = useState<boolean>(false);
   const selectedPendingOrder = pendingOrders.find((p) => p.id === selectedPendingOrderId) || null;
 
-  // Draggable order overlay state
-  const [overlayPos, setOverlayPos] = useState<{ x: number; y: number } | null>(null);
+  // Draggable order overlay state (GPU-Accelerated Ref-Based Dragging)
+  const overlayPosRef = useRef<{ x: number; y: number } | null>(null);
+  const overlayDragState = useRef({
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+    currentX: 0,
+    currentY: 0,
+  });
   const [overlayCollapsed, setOverlayCollapsed] = useState<boolean>(false);
   const [lotInputStr, setLotInputStr] = useState<string>('0.01');
   useEffect(() => {
@@ -326,7 +357,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       setLotInputStr(plannedOrder.lotSize.toFixed(2));
     }
   }, [plannedOrder?.lotSize]);
-  const overlayDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const overlayContainerRef = useRef<HTMLDivElement>(null);
 
   const candlesRef = useRef<ChartCandle[]>(candles);
@@ -348,7 +378,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // Reset overlay position and collapse when order panel is closed
   useEffect(() => {
     if (!isVisualOrderActive) {
-      setOverlayPos(null);
+      overlayPosRef.current = null;
       setOverlayCollapsed(false);
     }
   }, [isVisualOrderActive]);
@@ -555,13 +585,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const priceRange = Math.max(rawMax - rawMin, 0.01);
     const bufferedMax = rawMax + priceRange * 0.15;
     const bufferedMin = rawMin - priceRange * 0.15;
+    lastAutoBoundsRef.current = { min: bufferedMin, max: bufferedMax };
 
-    // Apply manual price scale zoom (pz) and price pan offset (po)
-    const baseSpan = bufferedMax - bufferedMin;
-    const scaledSpan = baseSpan / Math.max(0.1, pz);
-    const midPrice = (bufferedMax + bufferedMin) / 2;
-    const paddedMin = midPrice - scaledSpan / 2 + po;
-    const paddedMax = midPrice + scaledSpan / 2 + po;
+    // When auto-scale is ON, the buffered range from visible candles IS the final viewport range.
+    // When auto-scale is OFF, use the frozen manualPriceRange for independent Y scaling and free panning.
+    let paddedMin: number, paddedMax: number;
+    if (isAutoScaleRef.current || !manualPriceRangeRef.current) {
+      paddedMin = bufferedMin;
+      paddedMax = bufferedMax;
+    } else {
+      paddedMin = manualPriceRangeRef.current.min;
+      paddedMax = manualPriceRangeRef.current.max;
+    }
     const totalRange = Math.max(0.01, paddedMax - paddedMin);
 
     const getY = (price: number) => {
@@ -630,7 +665,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       priceZoom: pz, pricePanOffset: po, panOffsetX: panX,
       getX, getY, timeToGIdx, timeToX, xToGIdx, xToTime, yToPrice,
     };
-  }, [candles, activeTrade, activeTrades, plannedOrder]);
+  }, [candles, activeTrade, activeTrades, plannedOrder, isAutoScale, manualPriceRange]);
 
   // ── Main Render Loop ──
   useEffect(() => {
@@ -1499,7 +1534,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   }, [
     candles, candleWidth, panOffsetX, priceZoom, pricePanOffset, dimensions,
     activeTrade, activeTrades, plannedOrder, indicators, drawings, drawingDraft, selectedDrawingId, mousePos,
-    sma20v, sma50v, sma200v, buildVP, appMode,
+    sma20v, sma50v, sma200v, buildVP, appMode, isAutoScale, manualPriceRange,
   ]);
 
   // Wheel Zoom & Touchpad Pan Listener (Cursor-Centered Zoom without heuristic flaws)
@@ -1824,8 +1859,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   // ── Reset Auto-Scale & View ──
   const handleResetAutoScale = () => {
+    setIsAutoScale(true);
+    isAutoScaleRef.current = true;
+    setManualPriceRange(null);
+    manualPriceRangeRef.current = null;
     setPriceZoom(1.0);
     setPricePanOffset(0);
+    pzRef.current = 1.0;
+    poRef.current = 0;
   };
 
   const handleResetView = () => {
@@ -1839,8 +1880,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
     cwRef.current = defaultCw;
     setCandleWidth(defaultCw);
+    setIsAutoScale(true);
+    isAutoScaleRef.current = true;
+    setManualPriceRange(null);
+    manualPriceRangeRef.current = null;
     setPriceZoom(1.0);
     setPricePanOffset(0);
+    pzRef.current = 1.0;
+    poRef.current = 0;
   };
 
   // ── Pointer Down Handler ──
@@ -1883,6 +1930,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     // Touch Long-Press detection for Mobile
     if (e.pointerType === 'touch' && activePointersRef.current.size === 1) {
       touchStartPosRef.current = { x: e.clientX, y: e.clientY };
+      lastTouchRef.current = { x: e.clientX, y: e.clientY };
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = setTimeout(() => {
         if (!touchStartPosRef.current) return;
@@ -1903,7 +1951,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     // 1. Right Price Scale Dragging (Vertical Price Stretch / Zoom)
     if (x >= vp.chartW) {
       dragModeRef.current = 'SCALE_PRICE';
-      priceScaleStartRef.current = { startY: y, startPZ: pzRef.current };
+      axisDragStartRef.current = { y: e.clientY, isDragging: false };
+      const baseRange = manualPriceRangeRef.current || lastAutoBoundsRef.current;
+      priceScaleStartRef.current = {
+        startY: y,
+        anchorPrice: Math.round(vp.yToPrice(y) * 1000) / 1000,
+        startMin: baseRange.min,
+        startMax: baseRange.max,
+        startPZ: pzRef.current,
+      };
       return;
     }
 
@@ -1976,7 +2032,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       setSelectedPendingOrderId(null);
       setIsActiveTradeSelected(false);
       dragModeRef.current = 'PAN_CHART';
-      panStartRef.current = { startX: x, startY: y, startPanX: panXRef.current, startPanY: poRef.current };
+      const currentBounds = manualPriceRangeRef.current || lastAutoBoundsRef.current;
+      panStartRef.current = {
+        startX: x,
+        startY: y,
+        startPanX: panXRef.current,
+        startPanY: poRef.current,
+        startMin: currentBounds.min,
+        startMax: currentBounds.max,
+      };
       return;
     }
 
@@ -2065,7 +2129,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // ── Pointer Move Handler ──
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const { x, y } = clientToCanvas(e.clientX, e.clientY);
-    setMousePos({ x, y });
+    if (e.pointerType !== 'touch') {
+      setMousePos({ x, y });
+    }
     activePointersRef.current.set(e.pointerId, { x, y });
 
     // Cancel long-press timer if movement exceeds threshold (> 8px) or multiple pointers
@@ -2154,10 +2220,34 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     // 1. Right Price Scale Dragging (Scale Y)
     if (dragModeRef.current === 'SCALE_PRICE' && priceScaleStartRef.current) {
-      const dy = y - priceScaleStartRef.current.startY;
+      if (axisDragStartRef.current) {
+        const deltaY = e.clientY - axisDragStartRef.current.y;
+        if (Math.abs(deltaY) > 5) {
+          axisDragStartRef.current.isDragging = true;
+        }
+      }
+      // Require > 5px movement before turning off auto-scale or modifying price scale
+      if (axisDragStartRef.current && !axisDragStartRef.current.isDragging) {
+        return;
+      }
+
+      if (isAutoScaleRef.current) {
+        setIsAutoScale(false);
+        isAutoScaleRef.current = false;
+      }
+      const pss = priceScaleStartRef.current;
+      const dy = y - pss.startY;
+      // Moving pointer down (dy > 0) compresses price scale; moving up (dy < 0) expands it
       const factor = 1 - dy * 0.008;
-      const newPZ = Math.min(8.0, Math.max(0.15, priceScaleStartRef.current.startPZ * factor));
-      setPriceZoom(newPZ);
+      const clampedFactor = Math.min(8.0, Math.max(0.15, factor));
+      const startSpan = pss.startMax - pss.startMin;
+      const newSpan = startSpan / clampedFactor;
+      const anchorRatio = (pss.anchorPrice - pss.startMin) / Math.max(0.001, startSpan);
+      const newMin = pss.anchorPrice - anchorRatio * newSpan;
+      const newMax = newMin + newSpan;
+      const newRange = { min: newMin, max: newMax };
+      manualPriceRangeRef.current = newRange;
+      setManualPriceRange(newRange);
       return;
     }
 
@@ -2315,6 +2405,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     // 5. Chart Pan (X and Y)
     if (dragModeRef.current === 'PAN_CHART' && panStartRef.current) {
+      // If touchmove event already handled this touch frame, skip to prevent double pan
+      if (e.pointerType === 'touch' && Date.now() - lastTouchMoveTimeRef.current < 50) {
+        return;
+      }
       const dx = x - panStartRef.current.startX;
       const dy = y - panStartRef.current.startY;
 
@@ -2331,9 +2425,30 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         onDisableFollowReplay();
       }
 
-      // Y Shift: Drag down -> shift price pan offset
-      const priceShift = (dy / vp.drawableHeight) * vp.totalRange;
-      setPricePanOffset(panStartRef.current.startPanY + priceShift);
+      // Vertical Pan / Mode Breaker
+      if (isAutoScaleRef.current) {
+        // Mode breaker: if vertical movement > 5px, transition to manual mode!
+        if (Math.abs(dy) > 5) {
+          setIsAutoScale(false);
+          isAutoScaleRef.current = false;
+          // Smooth seamless transition to manual pan without visual jump
+          const currentBounds = lastAutoBoundsRef.current;
+          panStartRef.current.startY = y;
+          panStartRef.current.startMin = currentBounds.min;
+          panStartRef.current.startMax = currentBounds.max;
+          manualPriceRangeRef.current = { ...currentBounds };
+          setManualPriceRange({ ...currentBounds });
+        }
+      } else if (panStartRef.current.startMin !== undefined && panStartRef.current.startMax !== undefined) {
+        const span = panStartRef.current.startMax - panStartRef.current.startMin;
+        const priceShift = (dy / vp.drawableHeight) * span;
+        const newRange = {
+          min: panStartRef.current.startMin + priceShift,
+          max: panStartRef.current.startMax + priceShift,
+        };
+        manualPriceRangeRef.current = newRange;
+        setManualPriceRange(newRange);
+      }
 
       // Debounced Prefetch: trigger only when approaching boundaries and not spamming during active drag
       const now = Date.now();
@@ -2349,29 +2464,30 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       return;
     }
 
-    // 6. Update hover cursor style
-    if (x >= vp.chartW) {
-      setHoverCursor('ns-resize');
-    } else if (y >= vp.mainH) {
-      setHoverCursor('ew-resize');
-    } else if (activeTool === 'cursor') {
-      const plannedHit = hitTestPlannedOrder(e.clientX, e.clientY);
-      if (plannedHit) {
+    // 6. Update hover cursor style (desktop mouse only)
+    if (e.pointerType !== 'touch') {
+      if (x >= vp.chartW) {
         setHoverCursor('ns-resize');
-      } else {
-        const hit = hitTestDrawing(e.clientX, e.clientY);
-        if (hit) {
-          if (hit.handleType === 'TP' || hit.handleType === 'SL' || hit.handleType === 'ENTRY') setHoverCursor('ns-resize');
-          else if (hit.handleType === 'WIDTH') setHoverCursor('ew-resize');
-          else if (hit.handleType === 'P1' || hit.handleType === 'P2') setHoverCursor('crosshair');
-          else setHoverCursor('move');
+      } else if (y >= vp.mainH) {
+        setHoverCursor('ew-resize');
+      } else if (activeTool === 'cursor') {
+        const plannedHit = hitTestPlannedOrder(e.clientX, e.clientY);
+        if (plannedHit) {
+          setHoverCursor('ns-resize');
         } else {
-          setHoverCursor('default');
+          const hit = hitTestDrawing(e.clientX, e.clientY);
+          if (hit) {
+            if (hit.handleType === 'TP' || hit.handleType === 'SL' || hit.handleType === 'ENTRY') setHoverCursor('ns-resize');
+            else if (hit.handleType === 'WIDTH') setHoverCursor('ew-resize');
+            else if (hit.handleType === 'P1' || hit.handleType === 'P2') setHoverCursor('crosshair');
+            else setHoverCursor('move');
+          } else {
+            setHoverCursor('default');
+          }
         }
+      } else {
+        setHoverCursor('crosshair');
       }
-    } else {
-      setHoverCursor('crosshair');
-    }
 
       // 7. Update hovered candle for HUD
       if (x <= vp.chartW && y <= vp.mainH) {
@@ -2380,7 +2496,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       } else {
         setHoveredCandle(null);
       }
-
+    }
   };
 
   // ── Pointer Up Handler ──
@@ -2390,6 +2506,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       longPressTimerRef.current = null;
     }
     touchStartPosRef.current = null;
+    lastTouchRef.current = null;
+
+    if (axisDragStartRef.current?.isDragging) {
+      lastAxisDragEndTimeRef.current = Date.now();
+      e.stopPropagation();
+      if (e.cancelable) e.preventDefault();
+    }
+    axisDragStartRef.current = null;
 
     activePointersRef.current.delete(e.pointerId);
     if (activePointersRef.current.size < 2 && dragModeRef.current === 'PINCH_ZOOM') {
@@ -2414,6 +2538,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     if (!vp) return;
 
     if (x >= vp.chartW) {
+      if (axisDragStartRef.current?.isDragging || Date.now() - lastAxisDragEndTimeRef.current < 400) {
+        return;
+      }
       handleResetAutoScale();
       return;
     }
@@ -2482,6 +2609,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const x = touch.clientX - rect.left;
       const y = touch.clientY - rect.top;
       touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+      lastTouchRef.current = { x: touch.clientX, y: touch.clientY };
+
+      const vp = vpRef.current;
+      if (vp && x >= vp.chartW) {
+        axisDragStartRef.current = { y: touch.clientY, isDragging: false };
+      }
 
       // Start 500ms timer:
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
@@ -2506,10 +2639,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         longPressTimerRef.current = null;
       }
       touchStartPosRef.current = null;
+      lastTouchRef.current = null;
+      axisDragStartRef.current = null;
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.cancelable) e.preventDefault(); // Stop browser scrolling entirely
+
     // If finger moves more than 8px (scrolling/panning), cancel long-press:
     if (touchStartPosRef.current && e.touches.length > 0) {
       const touch = e.touches[0];
@@ -2522,6 +2659,107 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         longPressTimerRef.current = null;
       }
     }
+
+    if (e.touches.length === 1 && lastTouchRef.current) {
+      const touch = e.touches[0];
+      const deltaX = touch.clientX - lastTouchRef.current.x;
+      const deltaY = touch.clientY - lastTouchRef.current.y;
+      lastTouchRef.current = { x: touch.clientX, y: touch.clientY };
+      lastTouchMoveTimeRef.current = Date.now();
+
+      const vp = vpRef.current;
+      if (!vp) return;
+
+      // 1. Right Price Scale Dragging (Vertical Price Stretch / Zoom)
+      if ((dragModeRef.current === 'SCALE_PRICE' || axisDragStartRef.current) && priceScaleStartRef.current) {
+        if (axisDragStartRef.current) {
+          const totalDy = touch.clientY - axisDragStartRef.current.y;
+          if (Math.abs(totalDy) > 5) {
+            axisDragStartRef.current.isDragging = true;
+          }
+        }
+        if (axisDragStartRef.current && !axisDragStartRef.current.isDragging) {
+          return;
+        }
+
+        if (isAutoScaleRef.current) {
+          setIsAutoScale(false);
+          isAutoScaleRef.current = false;
+        }
+        const pss = priceScaleStartRef.current;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const canvasY = touch.clientY - rect.top;
+        const dy = canvasY - pss.startY;
+        const factor = 1 - dy * 0.008;
+        const clampedFactor = Math.min(8.0, Math.max(0.15, factor));
+        const startSpan = pss.startMax - pss.startMin;
+        const newSpan = startSpan / clampedFactor;
+        const anchorRatio = (pss.anchorPrice - pss.startMin) / Math.max(0.001, startSpan);
+        const newMin = pss.anchorPrice - anchorRatio * newSpan;
+        const newMax = newMin + newSpan;
+        const newRange = { min: newMin, max: newMax };
+        manualPriceRangeRef.current = newRange;
+        setManualPriceRange(newRange);
+        return;
+      }
+
+      // 2. Chart Pan (X and Y)
+      if (dragModeRef.current === 'PAN_CHART') {
+        const newPanX = panXRef.current + deltaX;
+        const minPanX = -Math.round(vp.chartW * 0.35);
+        const maxPanX = Math.max(0, (candles.length - 2) * vp.slot);
+        const clampedPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
+
+        panXRef.current = clampedPanX;
+        setPanOffsetX(clampedPanX);
+
+        if (appMode === 'replay' && clampedPanX > 20 && onDisableFollowReplay) {
+          onDisableFollowReplay();
+        }
+
+        // Vertical Pan / Mode Breaker
+        if (isAutoScaleRef.current) {
+          if (panStartRef.current) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const canvasY = touch.clientY - rect.top;
+            const totalDy = canvasY - panStartRef.current.startY;
+            if (Math.abs(totalDy) > 5) {
+              setIsAutoScale(false);
+              isAutoScaleRef.current = false;
+              const currentBounds = lastAutoBoundsRef.current;
+              panStartRef.current.startY = canvasY;
+              panStartRef.current.startMin = currentBounds.min;
+              panStartRef.current.startMax = currentBounds.max;
+              manualPriceRangeRef.current = { ...currentBounds };
+              setManualPriceRange({ ...currentBounds });
+            }
+          }
+        } else if (panStartRef.current?.startMin !== undefined && panStartRef.current?.startMax !== undefined) {
+          const span = panStartRef.current.startMax - panStartRef.current.startMin;
+          const priceShift = (deltaY / vp.drawableHeight) * span;
+          const prevMin = manualPriceRangeRef.current?.min ?? panStartRef.current.startMin;
+          const prevMax = manualPriceRangeRef.current?.max ?? panStartRef.current.startMax;
+          const newRange = {
+            min: prevMin + priceShift,
+            max: prevMax + priceShift,
+          };
+          manualPriceRangeRef.current = newRange;
+          setManualPriceRange(newRange);
+        }
+
+        // Debounced Prefetch:
+        const now = Date.now();
+        if (now - lastFetchCheckRef.current > 400) {
+          lastFetchCheckRef.current = now;
+          if (vp.startIdx < 40) {
+            onLoadOlderCandles?.();
+          }
+          if (appMode === 'analysis' && vp.endIdx >= candles.length - 10) {
+            onLoadNewerCandles?.();
+          }
+        }
+      }
+    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -2530,6 +2768,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       longPressTimerRef.current = null;
     }
     touchStartPosRef.current = null;
+    lastTouchRef.current = null;
+
+    if (axisDragStartRef.current?.isDragging) {
+      lastAxisDragEndTimeRef.current = Date.now();
+    }
+    axisDragStartRef.current = null;
+
     if (isLongPressTriggeredRef.current) {
       if (e.cancelable) {
         e.preventDefault();
@@ -2542,7 +2787,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   const latestC = candles[candles.length - 1];
   const activeC = hoveredCandle || latestC;
-  const isCustomScaled = priceZoom !== 1.0 || pricePanOffset !== 0;
+  const isCustomScaled = !isAutoScale || manualPriceRange !== null || priceZoom !== 1.0 || pricePanOffset !== 0;
 
   const m = activeC ? (() => {
     const diff = activeC.close - activeC.open;
@@ -2698,6 +2943,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           ref={canvasRef}
           className="w-full h-full touch-none overscroll-none block min-w-0 min-h-0 select-none"
           style={{
+            touchAction: 'none',
             cursor: dragModeRef.current === 'SCALE_PRICE'
               ? 'ns-resize'
               : dragModeRef.current === 'SCALE_TIME'
@@ -2992,75 +3238,127 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           const sideColor = isBuy ? '#059669' : '#DC2626';
           const sideBg = isBuy ? '#E7F9F0' : '#FDECEC';
 
-          const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+          const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+          const winW = typeof window !== 'undefined' ? window.innerWidth : 800;
+          const winH = typeof window !== 'undefined' ? window.innerHeight : 600;
+          const defaultW = overlayCollapsed ? 320 : 340;
+          const defaultH = overlayCollapsed ? 48 : 240;
+          const defaultX = Math.max(8, Math.min(winW - defaultW - 8, Math.round((winW - defaultW) / 2)));
+          const defaultY = isMobile ? 65 : 20;
+
+          const handleOverlayPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+            if (e.button !== 0) return;
+            // Don't initiate drag if user tapped an interactive button, input, or link
+            if ((e.target as HTMLElement).closest('button, input, select, textarea, a')) return;
+
             e.stopPropagation();
             const el = overlayContainerRef.current;
             if (!el) return;
+
+            try {
+              e.currentTarget.setPointerCapture(e.pointerId);
+            } catch {}
+
             const rect = el.getBoundingClientRect();
-            const parentRect = el.offsetParent?.getBoundingClientRect();
-            if (!parentRect) return;
-            overlayDragRef.current = {
-              startX: e.clientX,
-              startY: e.clientY,
-              origX: rect.left - parentRect.left,
-              origY: rect.top - parentRect.top,
+            overlayDragState.current = {
+              isDragging: true,
+              startX: e.clientX - rect.left,
+              startY: e.clientY - rect.top,
+              currentX: rect.left,
+              currentY: rect.top,
             };
-            el.setPointerCapture(e.pointerId);
           };
 
-          const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+          const handleOverlayPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+            if (!overlayDragState.current.isDragging || !overlayContainerRef.current) return;
+            if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
             e.stopPropagation();
-            if (!overlayDragRef.current || !overlayContainerRef.current) return;
-            const { startX, startY, origX, origY } = overlayDragRef.current;
+            e.preventDefault(); // Stop mobile scroll and pull-to-refresh
+
             const el = overlayContainerRef.current;
-            const parent = el.offsetParent as HTMLElement | null;
-            if (!parent) return;
-            const pW = parent.clientWidth;
-            const pH = parent.clientHeight;
-            const elW = el.offsetWidth;
-            const elH = el.offsetHeight;
-            const newX = Math.max(8, Math.min(pW - elW - 8, origX + (e.clientX - startX)));
-            const newY = Math.max(8, Math.min(pH - elH - 8, origY + (e.clientY - startY)));
-            setOverlayPos({ x: newX, y: newY });
+            const elW = el.offsetWidth || 340;
+            const elH = el.offsetHeight || 180;
+            const currentWinW = typeof window !== 'undefined' ? window.innerWidth : 800;
+            const currentWinH = typeof window !== 'undefined' ? window.innerHeight : 600;
+
+            const rawX = e.clientX - overlayDragState.current.startX;
+            const rawY = e.clientY - overlayDragState.current.startY;
+
+            const minX = 8;
+            const maxX = Math.max(minX, currentWinW - elW - 8);
+            const minY = 8;
+            const maxY = Math.max(minY, currentWinH - elH - 8);
+
+            const clampedX = Math.max(minX, Math.min(maxX, rawX));
+            const clampedY = Math.max(minY, Math.min(maxY, rawY));
+
+            overlayDragState.current.currentX = clampedX;
+            overlayDragState.current.currentY = clampedY;
+
+            // DIRECT GPU ACCELERATED DOM TRANSFORM (ZERO REACT RE-RENDERS)
+            el.style.transform = `translate3d(${clampedX}px, ${clampedY}px, 0)`;
           };
 
-          const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+          const handleOverlayPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+            if (!overlayDragState.current.isDragging) return;
             e.stopPropagation();
-            overlayDragRef.current = null;
+            overlayDragState.current.isDragging = false;
+
+            try {
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+              }
+            } catch {}
+
+            const el = overlayContainerRef.current;
+            if (el) {
+              const rect = el.getBoundingClientRect();
+              overlayPosRef.current = { x: rect.left, y: rect.top };
+            }
           };
 
-          const posStyle: React.CSSProperties = overlayPos
-            ? { position: 'absolute', left: `${overlayPos.x}px`, top: `${overlayPos.y}px` }
-            : { position: 'absolute', top: 16, left: 0, right: 0, margin: '0 auto' };
+          const curPos = overlayPosRef.current || { x: defaultX, y: defaultY };
+          const posStyle: React.CSSProperties = {
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            transform: `translate3d(${curPos.x}px, ${curPos.y}px, 0)`,
+            margin: 0,
+            touchAction: 'none',
+          };
 
           return (
-            <motion.div
+            <div
               ref={overlayContainerRef}
-              initial={{ opacity: 0, y: -16, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -12, scale: 0.95 }}
-              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-              className={`z-50 bg-white/95 backdrop-blur-md border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl overflow-hidden pointer-events-auto select-none transition-all ${
+              style={posStyle}
+              className={`fixed z-50 pointer-events-auto select-none touch-none will-change-transform ${
                 overlayCollapsed ? 'w-auto max-w-[min(96vw,460px)]' : 'w-[min(92vw,340px)] max-w-[340px]'
               }`}
-              style={posStyle}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            {/* Collapsed single-row horizontal pill: [ ⠿ BUY | {lot}L | SL {sl} | TP {tp} | BATAL | KONFIRMASI | ⌵ ] */}
-            {overlayCollapsed ? (
-              <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/95">
-                {/* Drag Grip */}
-                <div
-                  className="cursor-grab active:cursor-grabbing p-1 text-[#717182] hover:text-[#121212] select-none touch-none"
-                  onPointerDown={handlePointerDown}
-                  title="Geser posisi bar"
-                >
-                  <GripHorizontal className="w-3.5 h-3.5" />
-                </div>
+              onPointerDown={handleOverlayPointerDown}
+              onPointerMove={handleOverlayPointerMove}
+              onPointerUp={handleOverlayPointerUp}
+              onPointerCancel={handleOverlayPointerUp}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                className="w-full bg-white/95 backdrop-blur-md border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl overflow-hidden"
+              >
+                {/* Collapsed single-row horizontal pill: [ ⠿ BUY | {lot}L | SL {sl} | TP {tp} | BATAL | KONFIRMASI | ⌵ ] */}
+                {overlayCollapsed ? (
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/95">
+                    {/* Drag Grip */}
+                    <div
+                      className="cursor-grab active:cursor-grabbing p-1 text-[#717182] hover:text-[#121212] select-none touch-none"
+                      title="Geser posisi bar"
+                    >
+                      <GripHorizontal className="w-3.5 h-3.5 pointer-events-none" />
+                    </div>
 
                 {/* Side badge */}
                 <span
@@ -3124,13 +3422,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               </div>
             ) : (
               <>
-                {/* Drag handle — the only interactive-drag area */}
+                {/* Drag handle */}
                 <div
                   className="flex items-center justify-between px-2.5 py-1.5 bg-[#F0F0F0] border-b-2 border-[#121212] cursor-grab active:cursor-grabbing select-none touch-none"
-                  onPointerDown={handlePointerDown}
                 >
                   <div className="flex items-center gap-1.5">
-                    <GripHorizontal className="w-3.5 h-3.5 text-[#717182]" />
+                    <GripHorizontal className="w-3.5 h-3.5 text-[#717182] pointer-events-none" />
                     <span
                       className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 border border-[#121212] rounded"
                       style={{ background: sideBg, color: sideColor }}
@@ -3315,9 +3612,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                 </div>
               </>
             )}
-          </motion.div>
-        );
-      })()}
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* Floating Action Bar for Selected Pending Order on Chart (Edit or Delete) */}
@@ -3328,7 +3626,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -12, scale: 0.95 }}
             transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm"
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-40 w-[min(94vw,520px)] max-w-[520px] bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm"
           >
             <div className="flex items-center gap-2 pr-3 border-r border-[#121212]/15">
               <span
@@ -3405,7 +3703,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -12, scale: 0.95 }}
             transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm"
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-40 w-[min(94vw,520px)] max-w-[520px] bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm"
           >
             <div className="flex items-center gap-2 pr-3 border-r border-[#121212]/15">
               <span
@@ -3457,55 +3755,119 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Floating Drawing Action Bar for Selected Drawing */}
+      {/* Floating Drawing Action Bar for Selected Drawing with Boundary Clamping */}
       <AnimatePresence>
-        {selectedDrawing && (
-          <motion.div
-            initial={{ opacity: 0, y: -10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.95 }}
-            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-slate-900/95 border border-slate-700/80 shadow-lg rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs backdrop-blur-sm"
-          >
-            <span className="text-slate-300 font-semibold uppercase text-[10px] tracking-wider pr-2 border-r border-slate-700">
-              {selectedDrawing.type.replace('_', ' ')}
-            </span>
-            {(selectedDrawing.type === 'long_position' || selectedDrawing.type === 'short_position') && onExecutePlannedTrade && (
-              <button
-                onClick={() => onExecutePlannedTrade(selectedDrawing)}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs uppercase rounded transition-colors shadow-xs"
-                title="Buka Posisi Langsung dari Tool Ini"
-              >
-                <Zap className="w-3.5 h-3.5 fill-current" />
-                <span>Buka Posisi</span>
-              </button>
-            )}
-            {selectedDrawing.type === 'fibonacci' && (
-              <button
-                onClick={() => setFibSettingsOpen(true)}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs uppercase border border-slate-700 rounded transition-colors"
-                title="Pengaturan Level Fibonacci"
-              >
-                <Settings className="w-3.5 h-3.5" />
-                <span>Settings</span>
-              </button>
-            )}
-            <button
-              onClick={() => {
-                onDrawingsChange?.(drawings.filter((d) => d.id !== selectedDrawing.id));
-                onSelectDrawing?.(null);
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white font-semibold text-xs uppercase border border-rose-500/30 rounded transition-colors"
-              title="Hapus Gambar (Del / Backspace)"
+        {selectedDrawing && (() => {
+          const vp = vpRef.current;
+          let rawX = ((dimensions.width || 800) - 280) / 2;
+          let rawY = 48;
+
+          if (vp) {
+            const d = selectedDrawing;
+            if (d.type === 'hline' && d.price != null) {
+              rawX = (vp.chartW - 280) / 2;
+              rawY = vp.getY(d.price) - 52;
+            } else if (d.type === 'vline' && d.time != null) {
+              rawX = vp.timeToX(d.time) - 140;
+              rawY = 48;
+            } else if (d.startTime != null && d.startPrice != null) {
+              const x1 = vp.timeToX(d.startTime);
+              const y1 = vp.getY(d.startPrice);
+              if (d.endTime != null && d.endPrice != null) {
+                const x2 = vp.timeToX(d.endTime);
+                const y2 = vp.getY(d.endPrice);
+                const midX = (x1 + x2) / 2;
+                const minY = Math.min(y1, y2);
+                rawX = midX - 140;
+                rawY = minY - 52;
+                if (rawY < 48) {
+                  rawY = Math.max(y1, y2) + 18;
+                }
+              } else {
+                rawX = x1 - 140;
+                rawY = y1 - 52;
+              }
+            } else if (d.type === 'long_position' || d.type === 'short_position') {
+              if (d.startTime != null) {
+                const x1 = vp.timeToX(d.startTime);
+                const x2 = d.endTime ? vp.timeToX(d.endTime) : x1 + 180;
+                rawX = (x1 + x2) / 2 - 140;
+                const topPrice = Math.max(d.startPrice || 0, d.slPrice || 0, d.tpPrice || 0);
+                rawY = vp.getY(topPrice) - 52;
+              }
+            }
+          }
+
+          const TOOLBAR_WIDTH = 280;
+          const TOOLBAR_HEIGHT = 45;
+
+          const containerW = dimensions.width || (typeof window !== 'undefined' ? window.innerWidth : 800);
+          const containerH = dimensions.height || (typeof window !== 'undefined' ? window.innerHeight : 500);
+          const winW = typeof window !== 'undefined' ? window.innerWidth : containerW;
+          const winH = typeof window !== 'undefined' ? window.innerHeight : containerH;
+          const maxSafeW = Math.min(containerW, winW);
+          const maxSafeH = Math.min(containerH, winH);
+
+          // Clamp X to ensure it never bleeds past the right edge (leaving a 12px safe margin)
+          const safeX = Math.min(Math.max(12, rawX), maxSafeW - TOOLBAR_WIDTH - 12);
+          // Clamp Y to ensure it doesn't bleed off the top or bottom
+          const safeY = Math.min(Math.max(12, rawY), maxSafeH - TOOLBAR_HEIGHT - 12);
+
+          return (
+            <motion.div
+              initial={{ opacity: 0, y: -8, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.96 }}
+              transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+              style={{ left: `${safeX}px`, top: `${safeY}px` }}
+              className="absolute z-50 bg-white border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] rounded-lg p-1 flex items-center gap-1 text-slate-900 select-none whitespace-nowrap"
             >
-              <Trash2 className="w-3.5 h-3.5 text-current" />
-              <span>Hapus</span>
-            </button>
-          </motion.div>
-        )}
+              <span className="px-2 py-1 text-[10px] font-black tracking-wider uppercase text-slate-500 border-r-2 border-slate-200 shrink-0">
+                {selectedDrawing.type.replace('_', ' ')}
+              </span>
+
+              {(selectedDrawing.type === 'long_position' || selectedDrawing.type === 'short_position') && onExecutePlannedTrade && (
+                <button
+                  type="button"
+                  onClick={() => onExecutePlannedTrade(selectedDrawing)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md bg-[#121212] text-white hover:bg-[#2a2a2a] transition-colors cursor-pointer"
+                  title="Buka Posisi Langsung dari Tool Ini"
+                >
+                  <Zap className="w-3.5 h-3.5 fill-current text-amber-400" />
+                  <span>Buka Posisi</span>
+                </button>
+              )}
+
+              {selectedDrawing.type === 'fibonacci' && (
+                <button
+                  type="button"
+                  onClick={() => setFibSettingsOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md hover:bg-slate-100 transition-colors text-[#121212] cursor-pointer"
+                  title="Pengaturan Level Fibonacci"
+                >
+                  <Settings className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Settings</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  onDrawingsChange?.(drawings.filter((d) => d.id !== selectedDrawing.id));
+                  onSelectDrawing?.(null);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                title="Hapus Gambar (Del / Backspace)"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Hapus</span>
+              </button>
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
 
-      {/* Fibonacci Settings Modal */}
+      {/* Fibonacci Settings Modal (Neo-Brutalist Bauhaus) */}
       <AnimatePresence>
         {fibSettingsOpen && selectedDrawing && selectedDrawing.type === 'fibonacci' && (
           <div className="absolute inset-0 z-50 flex items-center justify-center p-4">
@@ -3514,7 +3876,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.14 }}
-              className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/40 backdrop-blur-xs"
               onClick={() => setFibSettingsOpen(false)}
               aria-hidden="true"
             />
@@ -3523,16 +3885,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.94, y: 8 }}
               transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-              className="relative z-10 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md p-4 space-y-4 text-xs text-slate-200"
+              className="relative z-10 bg-white border-2 border-[#121212] rounded-xl shadow-[6px_6px_0px_0px_#121212] w-full max-w-md p-4 space-y-4 text-xs text-[#121212]"
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                <div className="flex items-center gap-2 font-bold text-sm text-slate-100">
-                  <Settings className="w-4 h-4 text-blue-400" />
+              <div className="flex items-center justify-between border-b-2 border-[#121212] pb-2.5">
+                <div className="flex items-center gap-2 font-black text-sm text-[#121212]">
+                  <Settings className="w-4 h-4 text-[#1040C0]" />
                   <span>Pengaturan Level Fibonacci</span>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setFibSettingsOpen(false)}
-                  className="p-1 text-slate-400 hover:text-slate-200 rounded-md hover:bg-slate-800"
+                  className="p-1 text-slate-500 hover:text-[#121212] rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
+                  aria-label="Tutup"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -3540,7 +3904,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
               <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
                 {(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS).map((lvl, idx) => (
-                  <div key={idx} className="flex items-center gap-2 bg-slate-950/50 p-1.5 rounded border border-slate-800/80">
+                  <div key={idx} className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
                     <input
                       type="checkbox"
                       checked={lvl.visible}
@@ -3552,7 +3916,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                         );
                         onDrawingsChange?.(updated);
                       }}
-                      className="rounded bg-slate-800 border-slate-700 text-blue-500 focus:ring-0 cursor-pointer"
+                      className="w-4 h-4 rounded border-2 border-[#121212] text-[#1040C0] focus:ring-0 cursor-pointer"
                     />
                     <input
                       type="number"
@@ -3568,7 +3932,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                         );
                         onDrawingsChange?.(updated);
                       }}
-                      className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-slate-100 font-mono text-xs focus:border-blue-500 outline-none"
+                      className="w-20 bg-white border-2 border-[#121212] rounded px-2 py-0.5 text-[#121212] font-mono font-bold text-xs focus:border-[#1040C0] outline-none"
                     />
                     <input
                       type="color"
@@ -3583,10 +3947,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                       }}
                       className="w-6 h-6 rounded bg-transparent border-0 cursor-pointer"
                     />
-                    <span className="text-[11px] text-slate-400 font-mono flex-1">
+                    <span className="text-[11px] text-slate-600 font-mono font-bold flex-1">
                       {(lvl.value * 100).toFixed(1)}%
                     </span>
                     <button
+                      type="button"
                       onClick={() => {
                         const curLevels = (selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS).filter((_, i) => i !== idx);
                         const updated = drawings.map((d) =>
@@ -3594,7 +3959,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                         );
                         onDrawingsChange?.(updated);
                       }}
-                      className="text-slate-500 hover:text-rose-400 p-1"
+                      className="text-slate-400 hover:text-rose-600 p-1 transition-colors cursor-pointer"
                       title="Hapus level"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -3603,9 +3968,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                 ))}
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+              <div className="flex items-center justify-between pt-2 border-t-2 border-[#121212]">
                 <div className="flex items-center gap-2">
                   <button
+                    type="button"
                     onClick={() => {
                       const curLevels = [...(selectedDrawing.fibLevels || DEFAULT_FIBONACCI_LEVELS)];
                       curLevels.push({ value: 0.705, color: '#2962FF', visible: true });
@@ -3614,28 +3980,30 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                       );
                       onDrawingsChange?.(updated);
                     }}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded text-xs font-semibold"
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-slate-50 text-[#121212] border-2 border-[#121212] rounded-lg font-bold text-xs shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
                   >
-                    <Plus className="w-3 h-3 text-emerald-400" />
+                    <Plus className="w-3.5 h-3.5 text-[#059669]" />
                     <span>Tambah Level</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       const updated = drawings.map((d) =>
                         d.id === selectedDrawing.id ? { ...d, fibLevels: DEFAULT_FIBONACCI_LEVELS.map((l) => ({ ...l })) } : d
                       );
                       onDrawingsChange?.(updated);
                     }}
-                    className="flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-slate-200 text-xs"
+                    className="flex items-center gap-1 px-2 py-1 text-slate-600 hover:text-[#121212] text-xs font-bold transition-colors cursor-pointer"
                     title="Kembalikan ke level default TradingView"
                   >
-                    <RotateCcw className="w-3 h-3" />
+                    <RotateCcw className="w-3.5 h-3.5" />
                     <span>Reset Default</span>
                   </button>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setFibSettingsOpen(false)}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-xs"
+                  className="px-4 py-1.5 bg-[#121212] hover:bg-[#2a2a2a] text-white border-2 border-[#121212] rounded-lg font-black text-xs shadow-[2px_2px_0px_0px_#717182] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
                 >
                   Selesai
                 </button>

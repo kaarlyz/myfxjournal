@@ -1,21 +1,22 @@
 import React, { useState, useMemo } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Home, PlusCircle, UploadCloud, BarChart3, Settings as SettingsIcon,
   BookOpen, Zap, Layers, Wallet, Calculator, Link2,
-  FileSearch, Bot, Shield, Dices, Trophy, Flame, Wifi, Database, PlayCircle
+  FileSearch, Bot, Shield, Dices, Trophy, Flame, Wifi, Database, PlayCircle, Globe, LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useJournalStore } from '../store/useJournalStore';
 import { formatPnL } from '../utils/numberUtils';
 import { BrandLogo } from './ui/BrandLogo';
 import { useOnboarding } from '../hooks/useOnboarding';
+import { useAuth } from '../context/AuthContext';
 import LanguageSwitcher from './LanguageSwitcher';
 
 import { useTranslation } from 'react-i18next';
 
 const menuItems = [
-  { path: '/',                name: 'Sesi Backtest',    icon: Home,          group: 'BACKTEST', key: 'sessions_home' },
+  { path: '/sessions',        name: 'Sesi Backtest',    icon: Home,          group: 'BACKTEST', key: 'sessions_home' },
   { path: '/backtest',        name: 'Chart Replay',     icon: PlayCircle,    group: 'BACKTEST', key: 'bar_replay' },
 
   { path: '/create-session',  name: 'Buat Sesi',        icon: PlusCircle,    group: 'BACKTEST', key: 'create_session' },
@@ -33,6 +34,7 @@ const menuItems = [
   { path: '/monte-carlo',     name: 'Monte Carlo',      icon: Dices,         group: 'TOOLS',    key: 'monte_carlo' },
   { path: '/ea-control',      name: 'EA Control',       icon: Bot,           group: 'TOOLS',    key: 'ea_control' },
   { path: '/integrations',    name: 'Integrations',     icon: Link2,         group: 'TOOLS',    key: 'integrations' },
+  { path: '/landing',         name: 'Landing Page',     icon: Globe,         group: 'SYSTEM',   key: 'landing_page' },
   { path: '/settings',        name: 'Pengaturan',       icon: SettingsIcon,  group: 'SYSTEM',   key: 'settings' },
 ];
 
@@ -52,7 +54,14 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
   const { t } = useTranslation(['sidebar', 'common']);
   const { sessions, activeSessionId, activeSessionDetails, selectSession } = useJournalStore();
   const { greeting } = useOnboarding();
+  const { logout, user } = useAuth();
+  const navigate = useNavigate();
   const [internalMobileOpen, setInternalMobileOpen] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/landing', { replace: true });
+  };
 
   const mobileOpen = externalMobileOpen !== undefined ? externalMobileOpen : internalMobileOpen;
   const setMobileOpen = externalSetMobileOpen || setInternalMobileOpen;
@@ -117,7 +126,7 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
         <BrandLogo size={50} compact className="text-left" />
         <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
           <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#717182]">{t('welcome')}</p>
-          <p className="mt-1 text-sm font-semibold text-[#121212]">{greeting}</p>
+          <p className="mt-1 text-sm font-semibold text-[#121212]">{user?.name || greeting}</p>
         </div>
       </div>
 
@@ -255,7 +264,7 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
                   className="block font-black font-number text-[12px] mt-0.5"
                   style={{ color: sessionStats.todayPnl >= 0 ? '#059669' : '#DC2626' }}
                 >
-                  {sessionStats.todayCount > 0 ? formatPnL(sessionStats.todayPnl, 'USD') : '—'}
+                  {sessionStats.todayCount > 0 ? formatPnL(sessionStats.todayPnl, 'USD') : '-'}
                 </span>
                 <span className="block text-[8px] font-bold text-[#717182] mt-0.5" style={{ fontFamily: 'Outfit' }}>
                   {t('common:trades', { count: sessionStats.todayCount })}
@@ -306,13 +315,24 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
 
       {/* Footer */}
       <div
-        className="px-5 py-3 flex-shrink-0 flex flex-col gap-2"
+        className="px-4 py-3 flex-shrink-0 flex flex-col gap-2.5"
         style={{ borderTop: '1px solid rgba(148, 163, 184, 0.7)', background: '#F8FAFC' }}
       >
-        <LanguageSwitcher compact />
-        <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 600, color: '#717182' }}>
-          {t('version')}
-        </p>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="w-full py-1.5 px-2 bg-white hover:bg-[#FFF0F0] text-[#DC2626] border border-slate-200 hover:border-[#DC2626] rounded text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          <span>Sign Out</span>
+        </button>
+
+        <div className="flex items-center justify-between pt-1">
+          <LanguageSwitcher compact />
+          <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 600, color: '#717182' }}>
+            {t('version')}
+          </p>
+        </div>
       </div>
     </>
   );
@@ -324,7 +344,7 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
         {sidebarContent}
       </aside>
 
-      {/* Mobile Sidebar — animated slide-in, triggered only by bottom nav Menu button */}
+      {/* Mobile Sidebar: animated slide-in, triggered only by bottom nav Menu button */}
       <AnimatePresence>
         {mobileOpen && (
           <>

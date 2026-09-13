@@ -24,6 +24,7 @@ import RiskCalculator from './components/RiskCalculator';
 import PropFirmSimulator from './pages/PropFirmSimulator';
 import MonteCarlo from './pages/MonteCarlo';
 import Backtest from './pages/Backtest';
+import Landing from './pages/Landing';
 import { useJournalStore } from './store/useJournalStore';
 import { useLiveJournalStore } from './store/useLiveJournalStore';
 import { AlertTriangle, Clock, Wifi, WifiOff, RefreshCw } from 'lucide-react';
@@ -31,10 +32,17 @@ import WidgetErrorBoundary from './components/WidgetErrorBoundary';
 import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import { useOnboarding } from './hooks/useOnboarding';
 import { MobileBottomNav } from './components/MobileBottomNav';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 
-function AnimatedRoutes() {
+interface AnimatedRoutesProps {
+  isAuthenticated: boolean;
+}
+
+function AnimatedRoutes({ isAuthenticated }: AnimatedRoutesProps) {
   const location = useLocation();
-  const isBacktest = location.pathname === '/backtest';
+  const isLanding = location.pathname === '/landing' || (location.pathname === '/' && !isAuthenticated);
+  const isFullBleed = location.pathname === '/backtest' || isLanding;
 
   return (
     <AnimatePresence mode="wait">
@@ -45,38 +53,48 @@ function AnimatedRoutes() {
         exit={{ opacity: 0, y: -15 }}
         transition={{ duration: 0.25, ease: 'easeOut' }}
         className={
-          isBacktest
+          isFullBleed
             ? "w-full max-w-none p-0 flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden"
             : "w-full max-w-none px-3.5 sm:px-6 lg:px-8 2xl:px-12 py-4 md:py-6 pb-24 md:pb-8"
         }
       >
         <WidgetErrorBoundary>
           <Routes location={location} key={location.pathname}>
-            <Route path="/"                              element={<Home />} />
-            <Route path="/sessions"                     element={<Home />} />
-            <Route path="/dashboard"                    element={<Dashboard />} />
-            <Route path="/create-session"               element={<CreateSession />} />
-            <Route path="/csv-import"                   element={<CSVImport />} />
-            <Route path="/mt5-import"                   element={<MT5ReportImport />} />
-            <Route path="/mt5-report"                   element={<MT5ReportDashboard />} />
-            <Route path="/reports/mt5/:reportId/print"     element={<ReportPrint kind="mt5" />} />
-            <Route path="/reports/session/:sessionId/print" element={<ReportPrint kind="session" />} />
-            <Route path="/reports/live/:accountId/print"   element={<ReportPrint kind="live" />} />
-            <Route path="/quick-logger"                 element={<QuickLogger />} />
-            <Route path="/compare-sessions"             element={<CompareSessions />} />
-            <Route path="/webhook-monitor"              element={<WebhookMonitor />} />
-            <Route path="/settings"                     element={<Settings />} />
-            <Route path="/live-journal"                 element={<LiveJournal />} />
-            <Route path="/accounts"                     element={<Accounts />} />
-            <Route path="/mt5-connections"              element={<MT5Connections />} />
-            <Route path="/market-data"                  element={<MarketData />} />
-            <Route path="/integrations"                 element={<Integrations />} />
-            <Route path="/ea-control"                   element={<EAControlCenter />} />
-            <Route path="/setup-review"                 element={<SetupReview />} />
-            <Route path="/risk-calculator"              element={<RiskCalculator />} />
-            <Route path="/prop-sim"                     element={<PropFirmSimulator />} />
-            <Route path="/monte-carlo"                  element={<MonteCarlo />} />
-            <Route path="/backtest"                     element={<Backtest />} />
+            <Route
+              path="/"
+              element={
+                isAuthenticated ? (
+                  <Navigate to="/dashboard" replace />
+                ) : (
+                  <Landing />
+                )
+              }
+            />
+            <Route path="/landing"                       element={<Landing />} />
+            <Route path="/sessions"                     element={<ProtectedRoute><Home /></ProtectedRoute>} />
+            <Route path="/dashboard"                    element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/create-session"               element={<ProtectedRoute><CreateSession /></ProtectedRoute>} />
+            <Route path="/csv-import"                   element={<ProtectedRoute><CSVImport /></ProtectedRoute>} />
+            <Route path="/mt5-import"                   element={<ProtectedRoute><MT5ReportImport /></ProtectedRoute>} />
+            <Route path="/mt5-report"                   element={<ProtectedRoute><MT5ReportDashboard /></ProtectedRoute>} />
+            <Route path="/reports/mt5/:reportId/print"     element={<ProtectedRoute><ReportPrint kind="mt5" /></ProtectedRoute>} />
+            <Route path="/reports/session/:sessionId/print" element={<ProtectedRoute><ReportPrint kind="session" /></ProtectedRoute>} />
+            <Route path="/reports/live/:accountId/print"   element={<ProtectedRoute><ReportPrint kind="live" /></ProtectedRoute>} />
+            <Route path="/quick-logger"                 element={<ProtectedRoute><QuickLogger /></ProtectedRoute>} />
+            <Route path="/compare-sessions"             element={<ProtectedRoute><CompareSessions /></ProtectedRoute>} />
+            <Route path="/webhook-monitor"              element={<ProtectedRoute><WebhookMonitor /></ProtectedRoute>} />
+            <Route path="/settings"                     element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/live-journal"                 element={<ProtectedRoute><LiveJournal /></ProtectedRoute>} />
+            <Route path="/accounts"                     element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
+            <Route path="/mt5-connections"              element={<ProtectedRoute><MT5Connections /></ProtectedRoute>} />
+            <Route path="/market-data"                  element={<ProtectedRoute><MarketData /></ProtectedRoute>} />
+            <Route path="/integrations"                 element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
+            <Route path="/ea-control"                   element={<ProtectedRoute><EAControlCenter /></ProtectedRoute>} />
+            <Route path="/setup-review"                 element={<ProtectedRoute><SetupReview /></ProtectedRoute>} />
+            <Route path="/risk-calculator"              element={<ProtectedRoute><RiskCalculator /></ProtectedRoute>} />
+            <Route path="/prop-sim"                     element={<ProtectedRoute><PropFirmSimulator /></ProtectedRoute>} />
+            <Route path="/monte-carlo"                  element={<ProtectedRoute><MonteCarlo /></ProtectedRoute>} />
+            <Route path="/backtest"                     element={<ProtectedRoute><Backtest /></ProtectedRoute>} />
             <Route path="*"                             element={<Navigate to="/" replace />} />
           </Routes>
         </WidgetErrorBoundary>
@@ -85,26 +103,24 @@ function AnimatedRoutes() {
   );
 }
 
-export default function App() {
+function AppContent() {
+  const location = useLocation();
+  const isPublicRoute = location.pathname === '/' || location.pathname === '/landing';
   const { error, fetchSettings, fetchSessions } = useJournalStore();
   const { listenToSSE, sseStatus } = useLiveJournalStore();
   const { completed, isReady, completeOnboarding } = useOnboarding();
+  const { isAuthenticated } = useAuth();
   const [time, setTime] = useState(new Date());
-  const [showOnboarding, setShowOnboarding] = useState(!completed);
   const [transitioning, setTransitioning] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
-    if (isReady) {
-      setShowOnboarding(!completed);
+    if (isAuthenticated) {
+      fetchSettings();
+      fetchSessions();
+      listenToSSE();
     }
-  }, [completed, isReady]);
-
-  useEffect(() => {
-    fetchSettings();
-    fetchSessions();
-    listenToSSE();
-  }, [fetchSettings, fetchSessions, listenToSSE]);
+  }, [isAuthenticated, fetchSettings, fetchSessions, listenToSSE]);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -115,7 +131,6 @@ export default function App() {
     completeOnboarding(userName);
     setTransitioning(true);
     window.setTimeout(() => {
-      setShowOnboarding(false);
       setTransitioning(false);
     }, 240);
   };
@@ -124,42 +139,52 @@ export default function App() {
   const timeStr = `${padZ(time.getHours())}:${padZ(time.getMinutes())}:${padZ(time.getSeconds())}`;
   const dateStr = time.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 
-  if (!isReady) {
-    return null;
-  }
+  // Onboarding guard: only intercept internal protected routes when authenticated
+  if (!isPublicRoute && isAuthenticated) {
+    if (!isReady) {
+      return <div className="min-h-screen bg-[#FAF9F6]" />;
+    }
 
-  if (showOnboarding) {
-    return (
-      <MotionConfig reducedMotion="user">
-        <div className="min-h-screen bg-[#FCFCFC]">
+    if (!completed) {
+      return (
+        <div className="min-h-screen bg-[#FAF9F6]">
           <OnboardingFlow onComplete={handleOnboardingComplete} />
           {transitioning && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.24, ease: 'easeOut' }}
-              className="fixed inset-0 z-50 bg-[#FCFCFC]"
+              className="fixed inset-0 z-50 bg-[#FAF9F6]"
             />
           )}
         </div>
-      </MotionConfig>
-    );
+      );
+    }
   }
 
   const isBacktestPath = (pathname: string) => pathname === '/backtest';
 
   return (
+    <AppShell
+      mobileNavOpen={mobileNavOpen}
+      setMobileNavOpen={setMobileNavOpen}
+      isBacktestPath={isBacktestPath}
+      sseStatus={sseStatus}
+      error={error}
+      timeStr={timeStr}
+      dateStr={dateStr}
+      isAuthenticated={isAuthenticated}
+    />
+  );
+}
+
+export default function App() {
+  return (
     <MotionConfig reducedMotion="user">
       <Router>
-        <AppShell
-          mobileNavOpen={mobileNavOpen}
-          setMobileNavOpen={setMobileNavOpen}
-          isBacktestPath={isBacktestPath}
-          sseStatus={sseStatus}
-          error={error}
-          timeStr={timeStr}
-          dateStr={dateStr}
-        />
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
       </Router>
     </MotionConfig>
   );
@@ -173,17 +198,21 @@ interface AppShellProps {
   error: string | null;
   timeStr: string;
   dateStr: string;
+  isAuthenticated: boolean;
 }
 
-function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, error, timeStr, dateStr }: AppShellProps) {
+function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, error, timeStr, dateStr, isAuthenticated }: AppShellProps) {
   const location = useLocation();
-  const hideChrome = isBacktestPath(location.pathname);
+  const isLanding = location.pathname === '/landing' || (location.pathname === '/' && !isAuthenticated);
+  const hideChrome = isBacktestPath(location.pathname) || isLanding;
 
   return (
-    <div className="app-shell">
-      <Sidebar mobileOpen={mobileNavOpen} setMobileOpen={setMobileNavOpen} />
+    <div className={`app-shell ${isLanding ? '!block min-h-screen bg-white' : ''}`}>
+      {!isLanding && (
+        <Sidebar mobileOpen={mobileNavOpen} setMobileOpen={setMobileNavOpen} />
+      )}
 
-      <main className="main-shell relative z-10">
+      <main className={`main-shell relative z-10 ${isLanding ? '!overflow-y-auto !h-auto !min-h-screen bg-white' : ''}`}>
         {!hideChrome && (
           <div className="topbar" aria-label="Application toolbar">
             <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold" style={{ fontFamily: 'Outfit, sans-serif' }}>
@@ -250,7 +279,7 @@ function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, 
           </div>
         )}
 
-        <AnimatedRoutes />
+        <AnimatedRoutes isAuthenticated={isAuthenticated} />
       </main>
 
       {!hideChrome && (

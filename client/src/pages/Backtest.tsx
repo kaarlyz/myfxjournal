@@ -137,14 +137,22 @@ export default function Backtest() {
   const handleOpenTradeRef = useRef<any>(null);
   const [isSyncingDashboard, setIsSyncingDashboard] = useState<boolean>(false);
   const [isQuickTradeCollapsed, setIsQuickTradeCollapsed] = useState<boolean>(false);
-  const [pillPos, setPillPos] = useState<{ x: number; y: number } | null>(null);
-  const pillDragRef = useRef<{
-    startX: number;
-    startY: number;
-    origX: number;
-    origY: number;
-    hasMoved: boolean;
-  } | null>(null);
+  const getInitialPillPos = () => {
+    if (typeof window === 'undefined') return { x: 20, y: 500 };
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const defaultW = 180;
+    const x = Math.max(10, Math.round((winW - defaultW) / 2));
+    const y = Math.max(50, winH - 110);
+    return { x, y };
+  };
+  const pillPosRef = useRef<{ x: number; y: number }>(getInitialPillPos());
+  const pillDragStartRef = useRef<{ isDragging: boolean; offsetX: number; offsetY: number }>({
+    isDragging: false,
+    offsetX: 0,
+    offsetY: 0,
+  });
+  const pillDragHasMovedRef = useRef<boolean>(false);
   const pillRef = useRef<HTMLDivElement | null>(null);
   const [symbol, setSymbol] = useState<string>('XAUUSD');
   const [availableSymbols, setAvailableSymbols] = useState<Array<{ symbol: string; provider: string; candleCount: number }>>([]);
@@ -1302,13 +1310,9 @@ export default function Backtest() {
   };
 
   const executeSmartBack = useCallback(() => {
-    if (window.history.state && typeof window.history.state.idx === 'number' && window.history.state.idx > 0) {
-      navigate(-1);
-    } else if (window.history.length > 2) {
-      navigate(-1);
-    } else {
-      navigate('/sessions');
-    }
+    // Structural exit route: always return to internal session hub (/sessions)
+    // Never allow falling back to public routes like /landing via navigate(-1)
+    navigate('/sessions', { replace: true });
   }, [navigate]);
 
   const handleSmartBack = useCallback(() => {
@@ -1599,77 +1603,116 @@ export default function Backtest() {
     ? () => { void initReplaySession(replayStartTime, timeframe); }
     : undefined;
 
-  // ── Draggable Quick Trade Floating Action Pill ──
+  // ── Draggable Quick Trade Floating Action Pill (GPU-Accelerated Ref-Based Dragging) ──
+  // On mount and window resize: keep pill positioned via translate3d within safe viewport bounds
+  useEffect(() => {
+    if (pillRef.current) {
+      pillRef.current.style.transform = `translate3d(${pillPosRef.current.x}px, ${pillPosRef.current.y}px, 0)`;
+    }
+
+    const handleResize = () => {
+      const el = pillRef.current;
+      if (!el) return;
+      const elW = el.offsetWidth || 180;
+      const elH = el.offsetHeight || 44;
+      const winW = window.innerWidth;
+      const winH = window.innerHeight;
+      const minX = 8;
+      const maxX = Math.max(minX, winW - elW - 8);
+      const minY = 42;
+      const maxY = Math.max(minY, winH - elH - 36);
+
+      const clampedX = Math.max(minX, Math.min(maxX, pillPosRef.current.x));
+      const clampedY = Math.max(minY, Math.min(maxY, pillPosRef.current.y));
+      pillPosRef.current = { x: clampedX, y: clampedY };
+      el.style.transform = `translate3d(${clampedX}px, ${clampedY}px, 0)`;
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const handlePillPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    e.stopPropagation();
-    const el = pillRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const parent = el.offsetParent as HTMLElement | null;
-    const parentRect = parent ? parent.getBoundingClientRect() : { left: 0, top: 0 };
+    if ((e.target as HTMLElement).closest('button, input, select, textarea, a')) return;
 
-    pillDragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: rect.left - parentRect.left,
-      origY: rect.top - parentRect.top,
-      hasMoved: false,
-    };
-    el.setPointerCapture(e.pointerId);
+    e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+
+    pillDragStartRef.current.isDragging = true;
+    pillDragHasMovedRef.current = false;
+
+    // CRITICAL FIX: Calculate the offset between the pointer and the CURRENT transform position
+    pillDragStartRef.current.offsetX = e.clientX - pillPosRef.current.x;
+    pillDragStartRef.current.offsetY = e.clientY - pillPosRef.current.y;
   };
 
   const handlePillPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!pillDragRef.current || !pillRef.current) return;
-    e.stopPropagation();
-    const { startX, startY, origX, origY } = pillDragRef.current;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
+    if (!pillDragStartRef.current.isDragging || !pillRef.current) return;
+    let hasCapture = true;
+    try {
+      hasCapture = e.currentTarget.hasPointerCapture(e.pointerId);
+    } catch {}
+    if (!hasCapture) return;
 
-    if (Math.hypot(dx, dy) > 5) {
-      pillDragRef.current.hasMoved = true;
+    e.stopPropagation();
+    if (e.cancelable) e.preventDefault(); // Stop mobile scroll and pull-to-refresh
+
+    // Calculate new raw position based on pointer offset
+    let newX = e.clientX - pillDragStartRef.current.offsetX;
+    let newY = e.clientY - pillDragStartRef.current.offsetY;
+
+    if (Math.hypot(newX - pillPosRef.current.x, newY - pillPosRef.current.y) > 4) {
+      pillDragHasMovedRef.current = true;
     }
 
     const el = pillRef.current;
-    const parent = el.offsetParent as HTMLElement | null;
-    const pW = parent ? parent.clientWidth : window.innerWidth;
-    const pH = parent ? parent.clientHeight : window.innerHeight;
-    const elW = el.offsetWidth;
-    const elH = el.offsetHeight;
+    const elW = el.offsetWidth || 180;
+    const elH = el.offsetHeight || 44;
+    const winW = typeof window !== 'undefined' ? window.innerWidth : 800;
+    const winH = typeof window !== 'undefined' ? window.innerHeight : 600;
 
-    // Clamped coordinates:
-    // clampedX between 10px and windowWidth - pillWidth - 10px
-    // clampedY between 50px (below top header) and windowHeight - pillHeight - 36px (above bottom time scale)
-    const minX = 10;
-    const maxX = Math.max(minX, pW - elW - 10);
-    const minY = 45;
-    const maxY = Math.max(minY, pH - elH - 36);
+    // Viewport clamping
+    const minX = 8;
+    const maxX = Math.max(minX, winW - elW - 8);
+    const minY = 42;
+    const maxY = Math.max(minY, winH - elH - 36);
 
-    const nextX = Math.max(minX, Math.min(maxX, origX + dx));
-    const nextY = Math.max(minY, Math.min(maxY, origY + dy));
-    setPillPos({ x: nextX, y: nextY });
+    newX = Math.max(minX, Math.min(maxX, newX));
+    newY = Math.max(minY, Math.min(maxY, newY));
+
+    // Update ref and DOM directly (Zero React re-renders during active drag)
+    pillPosRef.current = { x: newX, y: newY };
+    el.style.transform = `translate3d(${newX}px, ${newY}px, 0)`;
   };
 
   const handlePillPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (pillDragRef.current) {
-      e.stopPropagation();
-      try {
-        pillRef.current?.releasePointerCapture(e.pointerId);
-      } catch {
-        // ignore
+    if (!pillDragStartRef.current.isDragging) return;
+    e.stopPropagation();
+    pillDragStartRef.current.isDragging = false;
+
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
       }
-      setTimeout(() => {
-        if (pillDragRef.current) {
-          pillDragRef.current = null;
-        }
-      }, 50);
-    }
+    } catch {}
+
+    setTimeout(() => {
+      pillDragHasMovedRef.current = false;
+    }, 60);
   };
 
   const renderQuickTradePill = () => {
-    const pillStyle: React.CSSProperties = pillPos
-      ? { position: 'absolute', left: `${pillPos.x}px`, top: `${pillPos.y}px` }
-      : { position: 'absolute', bottom: '48px', left: 0, right: 0, margin: '0 auto' };
+    const pillStyle: React.CSSProperties = {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      transform: `translate3d(${pillPosRef.current.x}px, ${pillPosRef.current.y}px, 0)`,
+      touchAction: 'none',
+      margin: 0,
+    };
 
     return (
       <AnimatePresence>
@@ -1677,10 +1720,7 @@ export default function Backtest() {
           <div
             ref={pillRef}
             style={pillStyle}
-            className="z-30 w-fit pointer-events-auto select-none touch-none"
-            onPointerMove={handlePillPointerMove}
-            onPointerUp={handlePillPointerUp}
-            onPointerCancel={handlePillPointerUp}
+            className="fixed top-0 left-0 z-40 w-fit pointer-events-auto select-none touch-none will-change-transform"
           >
             {isQuickTradeCollapsed ? (
               <motion.div
@@ -1691,22 +1731,28 @@ export default function Backtest() {
                 transition={{ duration: 0.15 }}
                 className="flex items-center gap-1 p-0.5 bg-white/95 backdrop-blur-sm rounded-full border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212]"
               >
-                {/* Drag handle */}
+                {/* Drag handle with generous mobile touch target */}
                 <div
                   onPointerDown={handlePillPointerDown}
-                  className="cursor-grab active:cursor-grabbing pl-1.5 pr-0.5 text-[#717182] hover:text-[#121212] transition-colors"
+                  onPointerMove={handlePillPointerMove}
+                  onPointerUp={handlePillPointerUp}
+                  onPointerCancel={handlePillPointerUp}
+                  className="flex items-center justify-center pl-3 pr-2 py-2 cursor-grab active:cursor-grabbing touch-none text-[#717182] hover:text-[#121212] active:bg-slate-100 transition-colors select-none rounded-l-full -ml-0.5 -my-0.5"
+                  style={{ touchAction: 'none' }}
                   title="Geser posisi widget"
+                  aria-label="Geser posisi widget"
                 >
-                  <GripVertical className="w-3 h-3" />
+                  <GripVertical className="w-4 h-4 pointer-events-none text-[#717182]" />
                 </div>
 
                 <button
                   type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => {
-                    if (pillDragRef.current?.hasMoved) return;
+                    if (pillDragHasMovedRef.current) return;
                     setIsQuickTradeCollapsed(false);
                   }}
-                  className="flex items-center gap-1.5 pr-2 py-0.5 text-[#121212] text-[10px] font-black tracking-wider uppercase cursor-pointer transition-all active:translate-x-[1px] active:translate-y-[1px] select-none"
+                  className="touch-auto flex items-center gap-1.5 pr-3 py-1.5 text-[#121212] text-[10px] font-black tracking-wider uppercase cursor-pointer transition-all active:translate-x-[1px] active:translate-y-[1px] select-none"
                   title="Buka Tombol Order Cepat"
                   aria-label="Buka Tombol Order Cepat"
                 >
@@ -1724,42 +1770,50 @@ export default function Backtest() {
                 transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                 className="flex items-center gap-1.5 p-1 bg-white/95 backdrop-blur-sm rounded-xl border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212]"
               >
-                {/* Dedicated Drag Handle */}
+                {/* Dedicated Drag Handle with Large Hitbox */}
                 <div
                   onPointerDown={handlePillPointerDown}
-                  className="cursor-grab active:cursor-grabbing p-1 text-[#717182] hover:text-[#121212] transition-colors select-none"
+                  onPointerMove={handlePillPointerMove}
+                  onPointerUp={handlePillPointerUp}
+                  onPointerCancel={handlePillPointerUp}
+                  className="flex items-center justify-center px-3.5 py-2.5 sm:px-4 sm:py-3 cursor-grab active:cursor-grabbing touch-none text-[#717182] hover:text-[#121212] active:bg-slate-100 transition-colors select-none rounded-l-lg -ml-1 -my-1"
+                  style={{ touchAction: 'none' }}
                   title="Geser posisi widget"
+                  aria-label="Geser posisi widget"
                 >
-                  <GripVertical className="w-3.5 h-3.5" />
+                  <GripVertical className="w-5 h-5 pointer-events-none text-[#717182]" />
                 </div>
 
                 <button
                   type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => {
-                    if (pillDragRef.current?.hasMoved) return;
+                    if (pillDragHasMovedRef.current) return;
                     handleChartOrderOpen('LONG');
                   }}
-                  className="bg-[#059669] hover:bg-[#047857] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none text-white font-mono font-black text-xs px-3.5 py-1.5 rounded-lg border-2 border-[#121212] shadow-[1.5px_1.5px_0px_0px_#121212] transition-all cursor-pointer select-none"
+                  className="touch-auto bg-[#059669] hover:bg-[#047857] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none text-white font-mono font-black text-xs px-3.5 py-1.5 rounded-lg border-2 border-[#121212] shadow-[1.5px_1.5px_0px_0px_#121212] transition-all cursor-pointer select-none"
                 >
                   BUY
                 </button>
                 <button
                   type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => {
-                    if (pillDragRef.current?.hasMoved) return;
+                    if (pillDragHasMovedRef.current) return;
                     handleChartOrderOpen('SHORT');
                   }}
-                  className="bg-[#DC2626] hover:bg-[#B91C1C] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none text-white font-mono font-black text-xs px-3.5 py-1.5 rounded-lg border-2 border-[#121212] shadow-[1.5px_1.5px_0px_0px_#121212] transition-all cursor-pointer select-none"
+                  className="touch-auto bg-[#DC2626] hover:bg-[#B91C1C] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none text-white font-mono font-black text-xs px-3.5 py-1.5 rounded-lg border-2 border-[#121212] shadow-[1.5px_1.5px_0px_0px_#121212] transition-all cursor-pointer select-none"
                 >
                   SELL
                 </button>
                 <button
                   type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => {
-                    if (pillDragRef.current?.hasMoved) return;
+                    if (pillDragHasMovedRef.current) return;
                     setIsQuickTradeCollapsed(true);
                   }}
-                  className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-900 transition-colors cursor-pointer select-none"
+                  className="touch-auto p-1.5 hover:bg-slate-100 rounded-md text-slate-500 hover:text-slate-900 transition-colors cursor-pointer select-none"
                   title="Sembunyikan Tombol Order (Minimize)"
                   aria-label="Sembunyikan Tombol Order"
                 >
@@ -1900,9 +1954,6 @@ export default function Backtest() {
           floatingR={liveFloatingR}
           hasOpenPositions={Boolean(activeTrade && activeTrade.status === 'OPEN')}
         />
-
-        {/* Quick Trade Floating Actions - Elevated cleanly above time axis */}
-        {renderQuickTradePill()}
       </div>
 
       {/* Context line: compact price + session trades + active trade info. */}
@@ -2652,9 +2703,6 @@ export default function Backtest() {
               floatingR={liveFloatingR}
               hasOpenPositions={Boolean(activeTrade && activeTrade.status === 'OPEN')}
             />
-
-            {/* Quick Trade Floating Actions on Desktop - Elevated cleanly above time axis */}
-            {renderQuickTradePill()}
           </div>
         </div>
 
@@ -2807,6 +2855,9 @@ export default function Backtest() {
     >
       {mobileTerminal}
       {desktopWorkspace}
+
+      {/* Quick Trade Floating Actions - Rendered once at root to prevent multi-mount ref hijacking */}
+      {renderQuickTradePill()}
 
       {/* ── Konfirmasi Keluar Replay Dialog ── */}
       <AnimatePresence>

@@ -352,13 +352,19 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
                     {renderGrid()}
                     <XAxis dataKey="tradeNum" hide />
                     <YAxis
-                      tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
-                      tickFormatter={(val) => `${val}%`}
+                      stroke="#64748b"
+                      tick={{ fill: 'var(--text-muted)', fontSize: 11, fontWeight: 500 }}
+                      tickFormatter={(val) => {
+                        const num = Number(val);
+                        if (!Number.isFinite(num) || Math.abs(num) < 0.005) return '0.00%';
+                        return `${num.toFixed(2)}%`;
+                      }}
                       domain={drawdownDomain}
                       tickLine={false}
                       axisLine={false}
                       orientation="right"
                       tickCount={5}
+                      width={55}
                       padding={{ top: 10, bottom: 10 }}
                     />
                     <Tooltip content={<PremiumTooltip formatMode="percent" />} cursor={{ stroke: 'rgba(16,64,192,0.18)', strokeWidth: 1, strokeDasharray: '3 3' }} />
