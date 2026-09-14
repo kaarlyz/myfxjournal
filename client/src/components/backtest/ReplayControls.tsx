@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { SymbolPicker, SymbolOption } from './SymbolPicker';
 
 export type ReplaySpeed = 1 | 2 | 5 | 10;
 export type ChartTimeframe = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1';
@@ -38,7 +39,7 @@ interface ReplayControlsProps {
   onTimeframeChange?: (tf: ChartTimeframe) => void;
   symbol?: string;
   onSymbolChange?: (symbol: string) => void;
-  availableSymbols?: Array<{ symbol: string; provider: string; candleCount: number }>;
+  availableSymbols?: SymbolOption[];
   replayTime: Date | null;
   candleCount: number;
   followReplay?: boolean;
@@ -109,28 +110,12 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
               <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
             </button>
           )}
-          <div className="flex items-center gap-1.5 bg-[#F0F0F0] border-2 border-[#121212] px-2.5 py-1 text-xs font-black shadow-[1px_1px_0px_0px_#121212]">
-            <span className="text-[#1040C0] font-black">{symbol}</span>
-            {(availableSymbols && availableSymbols.length > 0) ? (
-              <select
-                value={symbol}
-                onChange={(e) => onSymbolChange?.(e.target.value)}
-                aria-label="Pilih Instrumen Trading"
-                className="bg-transparent text-[#121212] text-xs font-mono font-bold outline-hidden cursor-pointer"
-              >
-                {availableSymbols.map((s) => (
-                  <option key={`${s.symbol}-${s.provider}`} value={s.symbol} className="bg-white text-[#121212]">
-                    {s.symbol} ({s.provider})
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <>
-                <span className="text-[#717182]">•</span>
-                <span className="text-[10px] text-[#717182] font-mono font-bold">XAUUSD · EURUSD · NSXUSD</span>
-              </>
-            )}
-          </div>
+          <SymbolPicker
+            value={symbol}
+            onChange={(s) => onSymbolChange?.(s)}
+            symbols={availableSymbols}
+            disabled={loading}
+          />
 
           <div className="flex items-center gap-0.5 bg-[#F0F0F0] p-0.5 border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]">
             {TFS.map((tf) => (

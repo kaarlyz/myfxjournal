@@ -254,7 +254,7 @@ body {
 /* ── Metric Numbers ── */
 .metric-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 22px;
+  font-size: clamp(16px, 1.8vw, 22px);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.1;
@@ -262,7 +262,7 @@ body {
 
 .metric-value-lg {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 32px;
+  font-size: clamp(18px, 2.2vw, 26px);
   font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1;
@@ -270,7 +270,7 @@ body {
 
 .metric-value-xl {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 44px;
+  font-size: clamp(24px, 3vw, 36px);
   font-weight: 900;
   letter-spacing: -0.04em;
   line-height: 1;
@@ -471,6 +471,8 @@ body {
   text-transform: uppercase;
   padding: 3px 8px;
   border: 1px solid transparent;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .badge-profit  { background: var(--profit);  color: var(--text-inverted);  border-color: var(--bg-dark); }
@@ -1051,6 +1053,8 @@ textarea:focus-visible {
 }
 
 .mobile-terminal-context {
+  position: relative;
+  z-index: 30;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1058,6 +1062,11 @@ textarea:focus-visible {
   padding: 5px 8px;
   background: #FFFFFF;
   border-top: 2px solid #121212;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.mobile-terminal-context::-webkit-scrollbar {
+  display: none;
 }
 
 .mobile-terminal-actions {

@@ -35,7 +35,7 @@ export function Badge({ variant = 'neutral', children, className = '', dot }: Ba
   };
 
   return (
-    <span className={`${variantMap[variant]} ${className}`}>
+    <span className={`${variantMap[variant]} shrink-0 whitespace-nowrap ${className}`}>
       {dot && (
         <span
           className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"

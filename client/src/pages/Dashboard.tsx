@@ -161,14 +161,14 @@ export default function Dashboard() {
                 className="absolute top-0 left-0 right-0 h-[3px]"
                 style={{ backgroundColor: s.sourceMode === 'CSV' ? '#D02020' : s.sourceMode === 'MT5_REPORT' ? '#1040C0' : '#121212' }}
               />
-              <div className="flex items-start justify-between mt-1">
-                <div>
-                  <h3 className="font-bold text-[#121212] text-lg font-display truncate">{s.name}</h3>
-                  <p className="text-xs text-[#717182] font-medium mt-1">
+              <div className="flex items-start justify-between gap-3 mt-1 min-w-0">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-[#121212] text-lg font-display truncate" title={s.name}>{s.name}</h3>
+                  <p className="text-xs text-[#717182] font-medium mt-1 truncate">
                     {s.symbol} · {s.timeframe} · {s.marketType}
                   </p>
                 </div>
-                <Badge variant="neutral">{t('home:trades_plural', { count: s.tradeCount })}</Badge>
+                <Badge variant="neutral" className="shrink-0 whitespace-nowrap">{t('home:trades_plural', { count: s.tradeCount })}</Badge>
               </div>
               <Button
                 variant="yellow"
@@ -448,26 +448,26 @@ export default function Dashboard() {
           {/* ── COMPACT 5-TILE PRIMARY PERFORMANCE ROW ── */}
           <div className="col-span-12 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
             {/* Tile 1: Net PnL (Hero Tile — featured double-column on mobile) */}
-            <div className="col-span-2 md:col-span-1 lg:col-span-1 bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between">
-              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider">
-                <span>{t('net_profit', 'Net Profit')}</span>
-                <DollarSign className="w-3.5 h-3.5 text-[#121212]" />
+            <div className="col-span-2 md:col-span-1 lg:col-span-1 bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between min-w-0">
+              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider gap-1">
+                <span className="truncate">{t('net_profit', 'Net Profit')}</span>
+                <DollarSign className="w-3.5 h-3.5 text-[#121212] shrink-0" />
               </div>
-              <div className={`text-xl sm:text-2xl font-black font-number mt-1 ${currentPnl >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
+              <div className={`text-xl sm:text-2xl font-black font-number mt-1 truncate ${currentPnl >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`} title={`${currentPnl >= 0 ? '+' : ''}${formatUsd(currentPnl)}`}>
                 {currentPnl >= 0 ? '+' : ''}{formatUsd(currentPnl)}
               </div>
-              <div className="text-[10px] font-mono font-semibold text-[#717182] mt-1 truncate">
+              <div className="text-[10px] font-mono font-semibold text-[#717182] mt-1 truncate" title={`Equity: ${formatUsd(currentEndingBalance)} (${currentGrowth >= 0 ? '+' : ''}{formatPercent(currentGrowth)})`}>
                 Equity: {formatUsd(currentEndingBalance)} ({currentGrowth >= 0 ? '+' : ''}{formatPercent(currentGrowth)})
               </div>
             </div>
 
             {/* Tile 2: Win Rate */}
-            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between">
-              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider">
-                <span>{t('metric_win_rate', 'Win Rate')}</span>
-                <TrendingUp className="w-3.5 h-3.5 text-[#059669]" />
+            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between min-w-0">
+              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider gap-1">
+                <span className="truncate">{t('metric_win_rate', 'Win Rate')}</span>
+                <TrendingUp className="w-3.5 h-3.5 text-[#059669] shrink-0" />
               </div>
-              <div className="text-xl sm:text-2xl font-black font-number text-[#059669] mt-1">
+              <div className="text-xl sm:text-2xl font-black font-number text-[#059669] mt-1 truncate" title={formatPercent(metrics.winrate)}>
                 {formatPercent(metrics.winrate)}
               </div>
               <div className="text-[10px] font-mono font-semibold text-[#717182] mt-1 truncate">
@@ -476,12 +476,12 @@ export default function Dashboard() {
             </div>
 
             {/* Tile 3: Profit Factor */}
-            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between">
-              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider">
-                <span>{t('metric_profit_factor', 'Profit Factor')}</span>
-                <Target className="w-3.5 h-3.5 text-[#1040C0]" />
+            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between min-w-0">
+              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider gap-1">
+                <span className="truncate">{t('metric_profit_factor', 'Profit Factor')}</span>
+                <Target className="w-3.5 h-3.5 text-[#1040C0] shrink-0" />
               </div>
-              <div className={`text-xl sm:text-2xl font-black font-number mt-1 ${currentProfitFactor >= 1.0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
+              <div className={`text-xl sm:text-2xl font-black font-number mt-1 truncate ${currentProfitFactor >= 1.0 ? 'text-[#059669]' : 'text-[#DC2626]'}`} title={currentProfitFactor === Infinity ? '∞' : formatNumber(currentProfitFactor, 2)}>
                 {currentProfitFactor === Infinity ? '∞' : formatNumber(currentProfitFactor, 2)}
               </div>
               <div className="text-[10px] font-mono font-semibold text-[#717182] mt-1 truncate">
@@ -490,12 +490,12 @@ export default function Dashboard() {
             </div>
 
             {/* Tile 4: Max Drawdown */}
-            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between">
-              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider">
-                <span>{t('metric_max_dd', 'Max Drawdown')}</span>
-                <TrendingDown className="w-3.5 h-3.5 text-[#DC2626]" />
+            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between min-w-0">
+              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider gap-1">
+                <span className="truncate">{t('metric_max_dd', 'Max Drawdown')}</span>
+                <TrendingDown className="w-3.5 h-3.5 text-[#DC2626] shrink-0" />
               </div>
-              <div className="text-xl sm:text-2xl font-black font-number text-[#DC2626] mt-1 truncate">
+              <div className="text-xl sm:text-2xl font-black font-number text-[#DC2626] mt-1 truncate" title={formatUsd(-currentDrawdown)}>
                 {formatUsd(-currentDrawdown)}
               </div>
               <div className="text-[10px] font-mono font-semibold text-[#DC2626] mt-1 truncate">
@@ -504,12 +504,12 @@ export default function Dashboard() {
             </div>
 
             {/* Tile 5: Avg R:R */}
-            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between">
-              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider">
-                <span>{t('metric_avg_rr', 'Avg R:R')}</span>
-                <Target className="w-3.5 h-3.5 text-[#121212]" />
+            <div className="bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] p-3 rounded-lg flex flex-col justify-between min-w-0">
+              <div className="flex items-center justify-between text-[#717182] text-[10px] font-black uppercase tracking-wider gap-1">
+                <span className="truncate">{t('metric_avg_rr', 'Avg R:R')}</span>
+                <Target className="w-3.5 h-3.5 text-[#121212] shrink-0" />
               </div>
-              <div className={`text-xl sm:text-2xl font-black font-number mt-1 ${avgRR !== null ? (avgRR >= 1 ? 'text-[#059669]' : 'text-[#DC2626]') : 'text-[#717182]'}`}>
+              <div className={`text-xl sm:text-2xl font-black font-number mt-1 truncate ${avgRR !== null ? (avgRR >= 1 ? 'text-[#059669]' : 'text-[#DC2626]') : 'text-[#717182]'}`} title={avgRR !== null ? formatR(avgRR) : 'N/A'}>
                 {avgRR !== null ? formatR(avgRR) : 'N/A'}
               </div>
               <div className="text-[10px] font-mono font-semibold text-[#717182] mt-1 truncate">

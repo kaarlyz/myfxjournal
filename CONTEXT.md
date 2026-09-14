@@ -95,6 +95,7 @@ myfxjournal/
 │   │   │   ├── backtest/
 │   │   │   │   ├── CandlestickChart.tsx  # Core Canvas 2D Charting & Interaction Engine
 │   │   │   │   ├── OrderPanel.tsx        # Buy/Sell order form & Pending Orders manager
+│   │   │   │   ├── SymbolPicker.tsx        # Custom symbol picker (mobile bottom-sheet + desktop popover)
 │   │   │   │   └── OrderTypes.ts         # TypeScript interfaces for orders & positions
 │   │   │   ├── AnalyticsTabs/
 │   │   │   │   └── RRLabTab.tsx          # R-Multiple simulation & validation diagnostics tab
@@ -390,11 +391,30 @@ When analyzing a session, `rebuildSessionReplay` processes all closed trades:
 - **Press Micro-Interaction:** `active:translate-x-[1px] active:translate-y-[1px] active:shadow-none`.
 - **Typography:** Bold, geometric sans-serif fonts with heavy weights (`font-black`, `font-extrabold`, uppercase tracking).
 - **Modern Floating Overlays:** Floating confirm panels and action bars utilize soft modern aesthetics (`rounded-xl border border-slate-200 bg-white/95 shadow-xl backdrop-blur-sm`) to distinguish interactive controls from the brutalist chart borders.
+- **Symbol Picker & Mobile Chart UX:** custom picker (SymbolPicker.tsx, no
+  native select; desktop popover / mobile bottom-sheet with backdrop and
+  scroll-lock), compact 384px header, clamped GPU trade pill, atomic fill,
+  auto-recenter viewport (see 13.3).
 
 ### 13.2 Anti-Slop System Rules
 - **Contrast:** Minimum 4.5:1 text-to-background contrast ratio everywhere.
 - **Labels:** Crisp, professional trading terminology without generic AI boilerplate.
 - **Mobile First:** Responsive flexboxes that reflow gracefully down to small smartphone viewports.
+
+### 13.3 Symbol Picker & Mobile Chart UX (Detail)
+- **SymbolPicker.tsx:** custom picker, no native select. Desktop: absolute
+  popover w-64. Mobile (<md): fixed bottom-sheet (inset-x-4, top-20,
+  max-h-60vh) + backdrop click-away + body scroll-lock. Shows provider,
+  candle count, date range, checkmark. Full keyboard (Escape/Arrows/Enter).
+- **Compact mobile header (384px):** two-row layout, icon-only stats button,
+  truncating pair badge, zero horizontal scroll.
+- **Trade pill:** GPU-accelerated ref drag with locked default position and
+  clamped bounds, never overlaps PRICE/TRADES info row.
+- **Atomic fill:** pending-to-position transition in a single React batch
+  (optimistic trade), zero blank frames.
+- **Auto-recenter:** symbol/timeframe change resets viewport to latest with
+  NaN/range clamps; resume-session fetch shares the guarded loader
+  (no label/data race).
 
 ---
 
@@ -414,6 +434,35 @@ When analyzing a session, `rebuildSessionReplay` processes all closed trades:
 - **Status:** FIXED
 - **Root Cause:** `isFetchingNewerRef` in `Backtest.tsx` was deleted during a previous refactoring.
 - **Fix:** Restored `isFetchingNewerRef` definition.
+
+### BUG-004: Hardcoded Chart Symbol Label (`RESOLVED`)
+- **Status:** FIXED
+- **Root Cause:** `CandlestickChart.tsx` header hardcoded `XAUUSD`,
+  ignoring the `symbol` prop already wired from `Backtest.tsx`.
+- **Fix:** Header and canvas loading text use `{symbol}`.
+
+### BUG-005: Session-Resume Label/Data Race (`RESOLVED`)
+- **Status:** FIXED
+- **Root Cause:** `resumeSession` fetched candles via an unguarded raw fetch
+  racing the mount analysis load; last-writer-wins showed XAUUSD candles
+  under an NSXUSD label.
+- **Fix:** Shared guarded loader with abort/stale checks; mount analysis
+  load skipped when `?sessionId=` present; resume sets manual-select flag.
+
+### BUG-006: Metric Value Overflow (`RESOLVED`)
+- **Status:** FIXED
+- **Root Cause:** Fixed-size metric cards with large mono values broke
+  through card borders (Dashboard badges, Home portfolio, QuickLogger).
+- **Fix:** Shared `MetricCard`/`Badge` components with truncate, responsive
+  `clamp()` sizes, `min-w-0`.
+
+### BUG-007: Mobile Chart UX at 384px (`RESOLVED`)
+- **Status:** FIXED
+- **Root Cause:** Draggable trade pill overlapped PRICE/TRADES row with
+  unconstrained position; symbol dropdown used viewport-breaking absolute
+  positioning; header overflowed horizontally.
+- **Fix:** Locked pill default + clamped drag bounds; SymbolPicker mobile
+  bottom-sheet with backdrop and scroll-lock; compact two-row header.
 
 ---
 
@@ -436,6 +485,7 @@ When analyzing a session, `rebuildSessionReplay` processes all closed trades:
 | **Backtest Engine** | `server/src/tests/backtestEngine.test.ts` | 54 tests (lot sizing, hit evaluation, PnL, SMA calculations, micro-unit math) | ✅ UNIT & INTEGRATION VERIFIED (54/54 PASS) |
 | **Workspace & Bounds** | `server/src/tests/backtestWorkspace.test.ts` | Timeline bounds, next-candle stepping, replay bounds | ✅ INTEGRATION VERIFIED |
 | **Client Production Build** | `npm run build --prefix client` | TypeScript compilation, Vite bundling, asset minification | ✅ BUILD VERIFIED |
+| **QA Backtests (API-driven)** | honest backtest scripts | NSXUSD M1 SMA20 30T: +$998 (13W/17L) / XAUUSD M1 SMA20 200T RR1:2: -$502 (65W/135L) / XAUUSD M1 SMA20 vol-filter 150T: -$3,267 (39W/111L) / XAUUSD M5 big-candle 100T RR1:1: -$317 (48W/52L), all via website API | ✅ RUNTIME VERIFIED |
 | **Server Production Build** | `npm run build --prefix server` | TypeScript backend compilation | ✅ BUILD VERIFIED |
 
 ---
@@ -447,6 +497,7 @@ When analyzing a session, `rebuildSessionReplay` processes all closed trades:
 | [`CandlestickChart.tsx`](file:///home/vallencia/Documents/myfxjournal/client/src/components/backtest/CandlestickChart.tsx) | Complete Canvas 2D charting engine, drawing tools, order line overlays, coordinate math. | React, Lucide Icons, OrderTypes |
 | [`Backtest.tsx`](file:///home/vallencia/Documents/myfxjournal/client/src/pages/Backtest.tsx) | God orchestrator component managing replay state, pending orders, execution, stepping. | CandlestickChart, OrderPanel, API |
 | [`OrderPanel.tsx`](file:///home/vallencia/Documents/myfxjournal/client/src/components/backtest/OrderPanel.tsx) | Order placement form, risk calculator, pending order list manager. | OrderTypes, backtestEngine |
+| [`SymbolPicker.tsx`](file:///home/vallencia/Documents/myfxjournal/client/src/components/backtest/SymbolPicker.tsx) | Custom symbol picker (mobile bottom-sheet + desktop popover), canonical provider map. | React |
 | [`marketAnalytics.ts`](file:///home/vallencia/Documents/myfxjournal/server/src/services/marketAnalytics.ts) | Canonical tick-based RR analysis, simulation matrix generation, validation forensics. | parquetDataProvider, Prisma |
 | [`parquetTickService.py`](file:///home/vallencia/Documents/myfxjournal/server/src/services/parquetTickService.py) | High-speed DuckDB daemon querying 725M Parquet ticks in millisecond time windows. | duckdb, python3 |
 | [`parquetDataProvider.ts`](file:///home/vallencia/Documents/myfxjournal/server/src/integrations/mt5-sync/parquetDataProvider.ts) | Node.js child process manager & stdio RPC client for DuckDB daemon. | child_process, readline |

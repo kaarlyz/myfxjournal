@@ -82,6 +82,20 @@ function resolveParquetPath(): string {
   return anyParquet ? path.join(dataDir, anyParquet) : (env || 'XAUUSD_Tick_Parquet.parquet');
 }
 
+function resolvePythonBin(): string {
+  if (process.env.PYTHON_BIN && fs.existsSync(process.env.PYTHON_BIN)) return process.env.PYTHON_BIN;
+  const venvCandidates = [
+    path.join(SERVER_ROOT, '..', '.venv', 'bin', 'python3'),
+    path.join(SERVER_ROOT, '..', '.venv', 'bin', 'python'),
+    path.join(SERVER_ROOT, '.venv', 'bin', 'python3'),
+    path.join(SERVER_ROOT, '.venv', 'bin', 'python'),
+  ];
+  for (const v of venvCandidates) {
+    if (fs.existsSync(v)) return v;
+  }
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
 class ParquetDaemon {
   private proc: ChildProcessWithoutNullStreams | null = null;
   private pending = new Map<number, { resolve: (v: RpcResponse) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
@@ -92,7 +106,13 @@ class ParquetDaemon {
     if (this.proc && !this.proc.killed && this.startPromise) return this.startPromise;
     this.startPromise = new Promise((resolve, reject) => {
       const parquetPath = resolveParquetPath();
-      const pythonBin = process.platform === 'win32' ? 'python' : 'python3';
+      const pythonBin = resolvePythonBin();
+
+      // ponytail: 5s fail-fast timeout so daemon startup failure never hangs HTTP requests
+      const startupTimer = setTimeout(() => {
+        this.startPromise = null;
+        reject(new Error('Parquet daemon startup timeout (5s)'));
+      }, 5000);
 
       this.proc = spawn(pythonBin, [PYTHON_SCRIPT, '--daemon'], {
         cwd: SERVER_ROOT,
@@ -101,6 +121,7 @@ class ParquetDaemon {
       });
 
       this.proc.on('error', (err) => {
+        clearTimeout(startupTimer);
         this.startPromise = null;
         reject(err);
       });
@@ -110,7 +131,10 @@ class ParquetDaemon {
         if (!line.trim()) return;
         try {
           const msg: RpcResponse = JSON.parse(line);
-          if (msg.id === 0) return resolve(); // Startup ping ack
+          if (msg.id === 0) {
+            clearTimeout(startupTimer);
+            return resolve(); // Startup ping ack
+          }
           const h = this.pending.get(msg.id);
           if (h) {
             clearTimeout(h.timer);
@@ -120,8 +144,10 @@ class ParquetDaemon {
         } catch {}
       });
 
-      this.proc.on('close', () => {
+      this.proc.on('close', (code) => {
+        clearTimeout(startupTimer);
         this.startPromise = null;
+        reject(new Error(`Daemon process closed with code ${code}`));
         for (const [, h] of this.pending) {
           clearTimeout(h.timer);
           h.reject(new Error('Daemon process closed'));

@@ -38,12 +38,14 @@ import {
   GripVertical,
   Zap,
   Info,
+  BarChart2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { CandlestickChart, ChartCandle, ChartIndicators, DrawingItem, PlannedOrderPreview } from '../components/backtest/CandlestickChart';
 import { DrawingToolbar, DrawingTool } from '../components/backtest/DrawingToolbar';
 import { ReplayControls, ReplaySpeed, ChartTimeframe, AppMode } from '../components/backtest/ReplayControls';
+import { SymbolPicker, SymbolOption, getCanonicalProvider } from '../components/backtest/SymbolPicker';
 import { ReplayTimeline } from '../components/backtest/ReplayTimeline';
 import { JumpToDateDialog } from '../components/backtest/JumpToDateDialog';
 import { OrderPanel, type OrderPanelHandle } from '../components/backtest/OrderPanel';
@@ -78,8 +80,8 @@ const API_BASE = '/api/backtest';
 
 export default function Backtest() {
   // ── Mode State Machine ──
-  // 'analysis' = default, full history visible, no replay cutoff
   const [searchParams] = useSearchParams();
+  const urlSessionId = searchParams.get('sessionId');
   const SESSION_STORAGE_KEY = 'kafx_active_backtest_session';
   const [showAnalysisGuideModal, setShowAnalysisGuideModal] = useState<boolean>(false);
   const [resumePromptSession, setResumePromptSession] = useState<{
@@ -137,15 +139,62 @@ export default function Backtest() {
   const handleOpenTradeRef = useRef<any>(null);
   const [isSyncingDashboard, setIsSyncingDashboard] = useState<boolean>(false);
   const [isQuickTradeCollapsed, setIsQuickTradeCollapsed] = useState<boolean>(false);
-  const getInitialPillPos = () => {
-    if (typeof window === 'undefined') return { x: 20, y: 500 };
+  const getPillBounds = useCallback((elW: number, elH: number, winW: number, winH: number) => {
+    const isMobile = winW < 768;
+    const minX = 8;
+    const maxX = Math.max(minX, winW - elW - 8);
+
+    // Keep pill below top header strip
+    const topBar = isMobile
+      ? document.querySelector('.mobile-terminal-top')
+      : document.querySelector('header');
+    const topBottom = topBar ? topBar.getBoundingClientRect().bottom : (isMobile ? 54 : 46);
+    const minY = Math.max(isMobile ? 54 : 46, Math.round(topBottom + 8));
+
+    // Dynamic bounding: pill must strictly stay above .mobile-terminal-context with safe clearance
+    const contextBar = document.querySelector('.mobile-terminal-context');
+    const bottomDock = document.querySelector('.mobile-terminal-context + div');
+    const dockH = bottomDock ? bottomDock.getBoundingClientRect().height : 54;
+    const contextH = contextBar ? contextBar.getBoundingClientRect().height : 38;
+    const reservedBottom = isMobile ? Math.round(dockH + contextH + 16) : 46;
+
+    let maxY: number;
+    if (contextBar) {
+      const contextTop = contextBar.getBoundingClientRect().top;
+      maxY = Math.min(
+        Math.round(contextTop - elH - 16),
+        winH - elH - reservedBottom
+      );
+    } else {
+      maxY = winH - elH - reservedBottom;
+    }
+    maxY = Math.max(minY, maxY);
+
+    return { minX, maxX, minY, maxY };
+  }, []);
+
+  const getInitialPillPos = useCallback(() => {
+    if (typeof window === 'undefined') return { x: 20, y: 350 };
     const winW = window.innerWidth;
     const winH = window.innerHeight;
+    const isMobile = winW < 768;
     const defaultW = 180;
-    const x = Math.max(10, Math.round((winW - defaultW) / 2));
-    const y = Math.max(50, winH - 110);
-    return { x, y };
-  };
+    const defaultH = 44;
+    const { minX, maxX, minY, maxY } = getPillBounds(defaultW, defaultH, winW, winH);
+
+    if (isMobile) {
+      // On mobile 384px: centered horizontally, docked cleanly above context bar
+      const x = Math.max(minX, Math.min(maxX, Math.round((winW - defaultW) / 2)));
+      const y = maxY;
+      return { x, y };
+    } else {
+      // On desktop: safe left-middle viewport positioning
+      const x = Math.max(minX, Math.min(maxX, 24));
+      const y = Math.max(minY, Math.min(maxY, 200));
+      return { x, y };
+    }
+  }, [getPillBounds]);
+
   const pillPosRef = useRef<{ x: number; y: number }>(getInitialPillPos());
   const pillDragStartRef = useRef<{ isDragging: boolean; offsetX: number; offsetY: number }>({
     isDragging: false,
@@ -155,7 +204,18 @@ export default function Backtest() {
   const pillDragHasMovedRef = useRef<boolean>(false);
   const pillRef = useRef<HTMLDivElement | null>(null);
   const [symbol, setSymbol] = useState<string>('XAUUSD');
-  const [availableSymbols, setAvailableSymbols] = useState<Array<{ symbol: string; provider: string; candleCount: number }>>([]);
+  const [availableSymbols, setAvailableSymbols] = useState<SymbolOption[]>([]);
+  const availableSymbolsRef = useRef<SymbolOption[]>([]);
+  const currentBoundsSymbolRef = useRef<string>(symbol);
+
+  // Helper to find canonical provider from symbols catalog for a given symbol (single source of truth with SymbolPicker)
+  const getProviderForSymbol = useCallback((sym: string): string => {
+    return getCanonicalProvider(sym, availableSymbolsRef.current);
+  }, []);
+
+  const hasUserSelectedSymbolRef = useRef<boolean>(Boolean(urlSessionId));
+  const candlesAbortControllerRef = useRef<AbortController | null>(null);
+  const candleRequestSeqRef = useRef<number>(0);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -380,56 +440,118 @@ export default function Backtest() {
     return () => window.clearTimeout(timer);
   }, [systemBanner]);
 
+  // Helper to fetch timeline bounds for active symbol
+  const fetchTimelineBounds = useCallback(async (sym: string = symbol, tf: ChartTimeframe = timeframe) => {
+    currentBoundsSymbolRef.current = sym;
+    try {
+      const prov = getProviderForSymbol(sym);
+      const res = await fetch(`${API_BASE}/timeline-bounds?symbol=${sym}&timeframe=${tf}&provider=${prov}`);
+      const json = await res.json();
+      if (currentBoundsSymbolRef.current !== sym) return;
+      if (json.ok && json.data && json.data.dateFrom && json.data.dateTo) {
+        setTimelineBounds({
+          dateFrom: new Date(json.data.dateFrom),
+          dateTo: new Date(json.data.dateTo),
+        });
+      }
+    } catch (e) {
+      console.error('Failed to fetch timeline bounds:', e);
+    }
+  }, [symbol, timeframe, getProviderForSymbol]);
+
+  // ── 2. Analysis Mode: Load Latest Candles (NO replay cutoff) ──
+  const loadAnalysisCandles = useCallback(async (tf: ChartTimeframe = timeframe, sym: string = symbol) => {
+    if (candlesAbortControllerRef.current) {
+      candlesAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    candlesAbortControllerRef.current = controller;
+    const reqSeq = ++candleRequestSeqRef.current;
+    let isTimedOut = false;
+    const TIMEOUT_MS = 45000; // 45 dtk timeout untuk jaringan HP / ngrok
+    const timeoutId = window.setTimeout(() => {
+      isTimedOut = true;
+      controller.abort();
+    }, TIMEOUT_MS);
+
+    setLoading(true);
+    setError(null);
+    const fetchStartTime = Date.now();
+    try {
+      const prov = getProviderForSymbol(sym);
+      const res = await fetch(
+        `${API_BASE}/candles?symbol=${sym}&timeframe=${tf}&provider=${prov}&limit=1500`,
+        { signal: controller.signal }
+      );
+      window.clearTimeout(timeoutId);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || 'Gagal memuat candle');
+      const fetchedCandles = json.data?.candles || [];
+      if (candlesAbortControllerRef.current !== controller || candleRequestSeqRef.current !== reqSeq) return;
+      setCandles(fetchedCandles);
+      if (fetchedCandles.length > 0) {
+        setReplayTime(new Date(fetchedCandles[fetchedCandles.length - 1].time));
+      } else {
+        setError(`candles ${sym} kosong (${tf}). Silakan pilih instrumen lain.`);
+      }
+    } catch (err: any) {
+      window.clearTimeout(timeoutId);
+      // AbortError dari fetch sebelumnya (saat ganti symbol) atau superseding request harus diabaikan, bukan ditampilkan
+      if (err.name === 'AbortError' || controller.signal.aborted || candleRequestSeqRef.current !== reqSeq) {
+        if (isTimedOut && candlesAbortControllerRef.current === controller && candleRequestSeqRef.current === reqSeq) {
+          const elapsedSec = Math.max(1, Math.round((Date.now() - fetchStartTime) / 1000));
+          setError(`candles ${sym} gagal timeout setelah ${elapsedSec} dtk. Periksa koneksi.`);
+        }
+        return;
+      }
+      if (candlesAbortControllerRef.current !== controller || candleRequestSeqRef.current !== reqSeq) return;
+
+      const elapsedSec = Math.max(1, Math.round((Date.now() - fetchStartTime) / 1000));
+      console.error('Analysis load error:', err);
+      setError(`candles ${sym} gagal setelah ${elapsedSec} dtk: ${err.message || 'Gagal memuat data historis'}`);
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (candlesAbortControllerRef.current === controller) {
+        candlesAbortControllerRef.current = null;
+        setLoading(false);
+      }
+    }
+  }, [timeframe, symbol, getProviderForSymbol]);
+
   // ── 1. Fetch Timeline Bounds & Available Symbols ──
   useEffect(() => {
-    fetch(`${API_BASE}/timeline-bounds`)
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.ok && json.data) {
-          setTimelineBounds({
-            dateFrom: new Date(json.data.dateFrom),
-            dateTo: new Date(json.data.dateTo),
-          });
-        }
-      })
-      .catch(console.error);
+    if (!urlSessionId) {
+      fetchTimelineBounds(symbol, timeframe);
+    }
 
     fetch(`${API_BASE}/symbols`)
       .then((res) => res.json())
       .then((json) => {
-        if (json.ok && json.data) {
+        if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
+          availableSymbolsRef.current = json.data;
           setAvailableSymbols(json.data);
+          // ponytail: auto-select entry with LARGEST candleCount if user hasn't chosen manually AND not loading a session from URL
+          if (!hasUserSelectedSymbolRef.current && !urlSessionId) {
+            const largestEntry = json.data.slice().sort((a: any, b: any) => (b.candleCount || 0) - (a.candleCount || 0))[0];
+            if (largestEntry && largestEntry.symbol && largestEntry.symbol !== symbol) {
+              setSymbol(largestEntry.symbol);
+              fetchTimelineBounds(largestEntry.symbol, timeframe);
+              loadAnalysisCandles(timeframe, largestEntry.symbol);
+            }
+          }
         }
       })
       .catch(console.error);
-  }, []);
+  }, [urlSessionId]);
 
-  // ── 2. Analysis Mode: Load Latest Candles (NO replay cutoff) ──
-  const loadAnalysisCandles = useCallback(async (tf: ChartTimeframe = timeframe, sym: string = symbol) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        `${API_BASE}/candles?symbol=${sym}&timeframe=${tf}&provider=DUKASCOPY&limit=1500`
-      );
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || 'Failed to fetch candles');
-      setCandles(json.data.candles);
-      if (json.data.candles.length > 0) {
-        setReplayTime(new Date(json.data.candles[json.data.candles.length - 1].time));
-      }
-    } catch (err: any) {
-      console.error('Analysis load error:', err);
-      setError(err.message || 'Gagal memuat data historis.');
-    } finally {
-      setLoading(false);
-    }
-  }, [timeframe, symbol]);
-
-  // Load analysis candles on mount
+  // Load analysis candles on mount (skip if loading an existing session from URL)
   useEffect(() => {
+    if (urlSessionId) {
+      // Sesi dari URL akan dimuat oleh resumeSession, skip mount analysis load default
+      return;
+    }
     loadAnalysisCandles('M1', symbol);
-  }, []);
+  }, [urlSessionId]);
 
   // ── 2b. Load Older Candles (Pan Left — Analysis & Replay) ──
   const handleLoadOlderCandles = useCallback(async () => {
@@ -443,11 +565,12 @@ export default function Backtest() {
 
     try {
       isFetchingOlderRef.current = true;
+      const prov = getProviderForSymbol(symbol);
       const replayParam = appMode === 'replay' && replayStartTime
         ? `&replayTime=${encodeURIComponent(replayStartTime.toISOString())}`
         : '';
       const res = await fetch(
-        `${API_BASE}/candles?symbol=${symbol}&timeframe=${timeframe}&provider=DUKASCOPY&beforeTime=${encodeURIComponent(earliestTime)}&limit=1500${replayParam}`
+        `${API_BASE}/candles?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&beforeTime=${encodeURIComponent(earliestTime)}&limit=1500${replayParam}`
       );
       const json = await res.json();
       if (json.ok && json.data && json.data.candles.length > 0) {
@@ -465,7 +588,7 @@ export default function Backtest() {
     } finally {
       isFetchingOlderRef.current = false;
     }
-  }, [candles, timeframe, symbol, appMode, replayStartTime, timelineBounds.dateFrom]);
+  }, [candles, timeframe, symbol, appMode, replayStartTime, timelineBounds.dateFrom, getProviderForSymbol]);
 
   // ── 2c. Load Newer Candles (Pan Right in Analysis Mode) ──
   const handleLoadNewerCandles = useCallback(async () => {
@@ -480,8 +603,9 @@ export default function Backtest() {
 
     try {
       isFetchingNewerRef.current = true;
+      const prov = getProviderForSymbol(symbol);
       const res = await fetch(
-        `${API_BASE}/candles?symbol=${symbol}&timeframe=${timeframe}&provider=DUKASCOPY&afterTime=${encodeURIComponent(latestTime)}&limit=500`
+        `${API_BASE}/candles?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(latestTime)}&limit=500`
       );
       const json = await res.json();
       if (json.ok && json.data && json.data.candles.length > 0) {
@@ -499,7 +623,7 @@ export default function Backtest() {
     } finally {
       isFetchingNewerRef.current = false;
     }
-  }, [candles, timeframe, symbol, appMode, timelineBounds.dateTo]);
+  }, [candles, timeframe, symbol, appMode, timelineBounds.dateTo, getProviderForSymbol]);
 
   // ── 2d. Timeframe Switch Handler ──
   const handleTimeframeChange = async (newTF: ChartTimeframe) => {
@@ -513,12 +637,14 @@ export default function Backtest() {
     setIsTimeframeLoading(true);
 
     try {
+      const prov = getProviderForSymbol(symbol);
       if (appMode === 'analysis') {
         const res = await fetch(
-          `${API_BASE}/candles?symbol=${symbol}&timeframe=${newTF}&provider=DUKASCOPY`,
+          `${API_BASE}/candles?symbol=${symbol}&timeframe=${newTF}&provider=${prov}`,
           { signal: controller.signal }
         );
         const json = await res.json();
+        if (timeframeAbortControllerRef.current !== controller) return;
         if (json.ok && json.data && json.data.candles) {
           setCandles(json.data.candles);
           if (json.data.candles.length > 0) {
@@ -543,10 +669,11 @@ export default function Backtest() {
 
         // 2. Fetch candles for newTF up to currentTargetTime (strict cutoff with backend adaptive limit)
         const resCandles = await fetch(
-          `${API_BASE}/candles?symbol=${symbol}&timeframe=${newTF}&provider=DUKASCOPY&replayTime=${encodeURIComponent(currentTargetTime.toISOString())}`,
+          `${API_BASE}/candles?symbol=${symbol}&timeframe=${newTF}&provider=${prov}&replayTime=${encodeURIComponent(currentTargetTime.toISOString())}`,
           { signal: controller.signal }
         );
         const candlesJson = await resCandles.json();
+        if (timeframeAbortControllerRef.current !== controller) return;
         if (candlesJson.ok && candlesJson.data && candlesJson.data.candles) {
           setCandles(candlesJson.data.candles);
         }
@@ -565,7 +692,9 @@ export default function Backtest() {
 
   // ── 2e. Symbol Switch Handler ──
   const handleSymbolChange = (newSymbol: string) => {
+    hasUserSelectedSymbolRef.current = true;
     setSymbol(newSymbol);
+    fetchTimelineBounds(newSymbol, timeframe);
     if (appMode === 'analysis') {
       loadAnalysisCandles(timeframe, newSymbol);
     } else if (appMode === 'replay' && replayStartTime) {
@@ -575,27 +704,37 @@ export default function Backtest() {
 
   // ── 3. Replay Mode: Initialize Session with strict cutoff ──
   const initReplaySession = useCallback(async (startTime: Date, tf: ChartTimeframe = timeframe, sym: string = symbol) => {
+    if (candlesAbortControllerRef.current) {
+      candlesAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    candlesAbortControllerRef.current = controller;
+    const reqSeq = ++candleRequestSeqRef.current;
+
     setLoading(true);
     setIsPlaying(false);
     setError(null);
     setFollowReplay(true);
     try {
+      const prov = getProviderForSymbol(sym);
       const resSession = await fetch(`${API_BASE}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: `Backtest ${sym} ${tf} (${startTime.toISOString().slice(0, 10)})`,
           symbol: sym,
-          provider: 'DUKASCOPY',
+          provider: prov,
           timeframe: tf,
           startTime: startTime.toISOString(),
           initialBalance,
           riskPercent,
           drawingsJson: JSON.stringify(drawings),
         }),
+        signal: controller.signal,
       });
       const sessionJson = await resSession.json();
       if (!sessionJson.ok) throw new Error(sessionJson.error || 'Failed to create session');
+      if (candlesAbortControllerRef.current !== controller || candleRequestSeqRef.current !== reqSeq) return;
 
       const newSession = sessionJson.data;
       setSessionId(newSession.id);
@@ -608,18 +747,26 @@ export default function Backtest() {
 
       // Fetch windowed candles strictly ending at startTime (Zero Look-Ahead)
       const resCandles = await fetch(
-        `${API_BASE}/candles?symbol=${sym}&timeframe=${tf}&provider=DUKASCOPY&replayTime=${encodeURIComponent(startTime.toISOString())}&limit=2000`
+        `${API_BASE}/candles?symbol=${sym}&timeframe=${tf}&provider=${prov}&replayTime=${encodeURIComponent(startTime.toISOString())}&limit=2000`,
+        { signal: controller.signal }
       );
       const candlesJson = await resCandles.json();
       if (!candlesJson.ok) throw new Error(candlesJson.error || 'Failed to fetch candles');
+      if (candlesAbortControllerRef.current !== controller || candleRequestSeqRef.current !== reqSeq) return;
       setCandles(candlesJson.data.candles);
     } catch (err: any) {
+      if (err.name === 'AbortError' || controller.signal.aborted || candleRequestSeqRef.current !== reqSeq) {
+        return;
+      }
       console.error('Session initialization error:', err);
       setError(err.message || 'Gagal memuat data pasar historis.');
     } finally {
-      setLoading(false);
+      if (candlesAbortControllerRef.current === controller) {
+        candlesAbortControllerRef.current = null;
+        setLoading(false);
+      }
     }
-  }, [initialBalance, riskPercent, timeframe, symbol, drawings]);
+  }, [initialBalance, riskPercent, timeframe, symbol, drawings, getProviderForSymbol]);
 
   // ── 4. Activate Chart Replay (enter 'selecting' mode) ──
   const handleActivateBarReplay = () => {
@@ -671,18 +818,33 @@ export default function Backtest() {
   const resumeSession = useCallback(async (targetSessionId: string) => {
     if (isResumingRef.current) return;
     isResumingRef.current = true;
+    hasUserSelectedSymbolRef.current = true;
+
+    // Batalkan fetch candle yang sedang berjalan (misal analysis load)
+    if (candlesAbortControllerRef.current) {
+      candlesAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    candlesAbortControllerRef.current = controller;
+    const reqSeq = ++candleRequestSeqRef.current;
+
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/sessions/${targetSessionId}`);
+      const res = await fetch(`${API_BASE}/sessions/${targetSessionId}`, { signal: controller.signal });
       const json = await res.json();
       if (!json.ok || !json.data) {
         throw new Error(json.error || 'Sesi replay tidak ditemukan');
       }
+      if (candlesAbortControllerRef.current !== controller || candleRequestSeqRef.current !== reqSeq) return;
+
       const s = json.data;
+      const targetSymbol = s.symbol || 'XAUUSD';
+      const targetTf = (s.timeframe as ChartTimeframe) || 'M1';
+
       setSessionId(s.id);
-      setSymbol(s.symbol || 'XAUUSD');
-      setTimeframe((s.timeframe as ChartTimeframe) || 'M1');
+      setSymbol(targetSymbol);
+      setTimeframe(targetTf);
       setBalance(s.currentBalance || s.initialBalance || 10000);
       setInitialBalance(s.initialBalance || 10000);
       setRiskPercent(s.riskPercent || 1.0);
@@ -700,12 +862,19 @@ export default function Backtest() {
       setAppMode('replay');
       setFollowReplay(true);
 
-      // Fetch windowed candles strictly ending at repTime (Zero Look-Ahead)
+      // Fetch timeline bounds yang tepat untuk instrumen sesi (bukan default XAUUSD)
+      fetchTimelineBounds(targetSymbol, targetTf);
+
+      // Fetch windowed candles strictly ending at repTime (Zero Look-Ahead) lewat controller ber-guard
+      const prov = s.provider || getProviderForSymbol(targetSymbol);
       const resCandles = await fetch(
-        `${API_BASE}/candles?symbol=${s.symbol || 'XAUUSD'}&timeframe=${s.timeframe || 'M1'}&provider=DUKASCOPY&replayTime=${encodeURIComponent(repTime.toISOString())}&limit=2000`
+        `${API_BASE}/candles?symbol=${targetSymbol}&timeframe=${targetTf}&provider=${prov}&replayTime=${encodeURIComponent(repTime.toISOString())}&limit=2000`,
+        { signal: controller.signal }
       );
       const candlesJson = await resCandles.json();
       if (!candlesJson.ok) throw new Error(candlesJson.error || 'Failed to fetch candles');
+      if (candlesAbortControllerRef.current !== controller || candleRequestSeqRef.current !== reqSeq) return;
+
       if (candlesJson.data && candlesJson.data.candles) {
         setCandles(candlesJson.data.candles);
       }
@@ -729,6 +898,9 @@ export default function Backtest() {
         });
       }
     } catch (err: any) {
+      if (err.name === 'AbortError' || controller.signal.aborted || candleRequestSeqRef.current !== reqSeq) {
+        return;
+      }
       console.error('Failed to resume session:', err);
       setError(err.message || 'Gagal memulihkan sesi replay.');
       try {
@@ -736,10 +908,13 @@ export default function Backtest() {
       } catch (_) {}
       setResumePromptSession(null);
     } finally {
-      setLoading(false);
+      if (candlesAbortControllerRef.current === controller) {
+        candlesAbortControllerRef.current = null;
+        setLoading(false);
+      }
       isResumingRef.current = false;
     }
-  }, []);
+  }, [fetchTimelineBounds, getProviderForSymbol]);
 
   // Auto-Save active replay session snapshot
   useEffect(() => {
@@ -765,8 +940,8 @@ export default function Backtest() {
 
   // Check ongoing session on mount
   useEffect(() => {
-    const urlSessionId = searchParams.get('sessionId');
     if (urlSessionId) {
+      hasUserSelectedSymbolRef.current = true;
       if (hasNotifiedResumeRef.current !== urlSessionId && !isResumingRef.current) {
         resumeSession(urlSessionId);
       }
@@ -841,9 +1016,10 @@ export default function Backtest() {
     const lastTime = new Date(lastCandle.time).toISOString();
 
     try {
+      const prov = getProviderForSymbol(symbol);
       const sessionParam = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '';
       const res = await fetch(
-        `${API_BASE}/next-candle?symbol=${symbol}&timeframe=${timeframe}&provider=DUKASCOPY&afterTime=${encodeURIComponent(lastTime)}${sessionParam}`
+        `${API_BASE}/next-candle?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(lastTime)}${sessionParam}`
       );
       const json = await res.json();
       if (!json.ok || !json.data) {
@@ -900,7 +1076,28 @@ export default function Backtest() {
         }
 
         if (triggered) {
+          // Atomic transition: remove from pending and appear as active position in the same render batch
+          const optimisticTrade: BacktestTradeRecord = {
+            id: triggered.id,
+            tradeNumber: trades.length + 1,
+            orderType: triggered.orderType,
+            side: triggered.side,
+            entryPrice: triggered.entryPrice,
+            slPrice: triggered.slPrice,
+            tpPrice: triggered.tpPrice,
+            volume: triggered.volume,
+            riskAmount: triggered.riskAmount,
+            status: 'OPEN',
+            entryTime: nextTime,
+            exitPrice: null,
+            exitTime: null,
+            exitReason: null,
+            pnl: null,
+            rr: null,
+          };
           setPendingOrders(remaining);
+          setTrades((prev) => [optimisticTrade, ...prev.filter((t) => t.id !== triggered!.id)]);
+
           void handleOpenTradeRef.current?.({
             side: triggered.side,
             entryPrice: triggered.entryPrice,
@@ -909,6 +1106,7 @@ export default function Backtest() {
             volume: triggered.volume,
             riskAmount: triggered.riskAmount,
             tradeTime: nextTime,
+            optimisticId: triggered.id,
           });
           showToast({
             kind: 'ENTRY',
@@ -978,7 +1176,7 @@ export default function Backtest() {
     } finally {
       isSteppingRef.current = false;
     }
-  }, [candles, timeframe, symbol, sessionId, appMode, showToast]);
+  }, [candles, timeframe, symbol, sessionId, appMode, showToast, getProviderForSymbol]);
 
   // ── 10. Step Back Engine ──
   const stepBack = useCallback(() => {
@@ -1015,12 +1213,13 @@ export default function Backtest() {
     volume: number;
     riskAmount: number;
     tradeTime?: Date;
+    optimisticId?: string;
   }) => {
     if (appMode === 'analysis') {
       setShowAnalysisGuideModal(true);
       return;
     }
-    if (activeTrade) {
+    if (activeTrade && activeTrade.id !== tradeParams.optimisticId) {
       showToast({
         kind: 'ERROR',
         title: 'POSISI AKTIF',
@@ -1035,13 +1234,14 @@ export default function Backtest() {
       // Auto-initialize session if not created yet
       if (!curSessionId) {
         const startTime = tradeParams.tradeTime || replayTime || (candles.length > 0 ? new Date(candles[candles.length - 1].time) : new Date());
+        const prov = getProviderForSymbol(symbol);
         const resSession = await fetch(`${API_BASE}/sessions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: `Backtest ${symbol} ${timeframe} (${startTime.toISOString().slice(0, 10)})`,
             symbol,
-            provider: 'DUKASCOPY',
+            provider: prov,
             timeframe,
             startTime: startTime.toISOString(),
             initialBalance,
@@ -1083,7 +1283,10 @@ export default function Backtest() {
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || 'Failed to open trade');
-      setTrades((prev) => [json.data, ...prev.filter((t) => t.id !== json.data.id)]);
+      setTrades((prev) => [
+        json.data,
+        ...prev.filter((t) => t.id !== json.data.id && t.id !== tradeParams.optimisticId),
+      ]);
       setIntrabarWarning(null);
       showToast({
         kind: 'ENTRY',
@@ -1093,6 +1296,9 @@ export default function Backtest() {
         lotSize: tradeParams.volume,
       });
     } catch (err: any) {
+      if (tradeParams.optimisticId) {
+        setTrades((prev) => prev.filter((t) => t.id !== tradeParams.optimisticId));
+      }
       showToast({
         kind: 'ERROR',
         title: 'ORDER GAGAL',
@@ -1606,10 +1812,6 @@ export default function Backtest() {
   // ── Draggable Quick Trade Floating Action Pill (GPU-Accelerated Ref-Based Dragging) ──
   // On mount and window resize: keep pill positioned via translate3d within safe viewport bounds
   useEffect(() => {
-    if (pillRef.current) {
-      pillRef.current.style.transform = `translate3d(${pillPosRef.current.x}px, ${pillPosRef.current.y}px, 0)`;
-    }
-
     const handleResize = () => {
       const el = pillRef.current;
       if (!el) return;
@@ -1617,10 +1819,7 @@ export default function Backtest() {
       const elH = el.offsetHeight || 44;
       const winW = window.innerWidth;
       const winH = window.innerHeight;
-      const minX = 8;
-      const maxX = Math.max(minX, winW - elW - 8);
-      const minY = 42;
-      const maxY = Math.max(minY, winH - elH - 36);
+      const { minX, maxX, minY, maxY } = getPillBounds(elW, elH, winW, winH);
 
       const clampedX = Math.max(minX, Math.min(maxX, pillPosRef.current.x));
       const clampedY = Math.max(minY, Math.min(maxY, pillPosRef.current.y));
@@ -1628,9 +1827,56 @@ export default function Backtest() {
       el.style.transform = `translate3d(${clampedX}px, ${clampedY}px, 0)`;
     };
 
+    const initPos = getInitialPillPos();
+    pillPosRef.current = initPos;
+    if (pillRef.current) {
+      pillRef.current.style.transform = `translate3d(${initPos.x}px, ${initPos.y}px, 0)`;
+    }
+
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    // Double-check clamp when layout elements finish initial layout calculations
+    const t1 = setTimeout(handleResize, 60);
+    const t2 = setTimeout(handleResize, 300);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [urlSessionId, getInitialPillPos, getPillBounds]);
+
+  // Re-clamp position whenever loading finishes (chart & header layout stabilized)
+  useEffect(() => {
+    if (!loading) {
+      const el = pillRef.current;
+      if (!el) return;
+      const elW = el.offsetWidth || 180;
+      const elH = el.offsetHeight || 44;
+      const winW = window.innerWidth;
+      const winH = window.innerHeight;
+      const { minX, maxX, minY, maxY } = getPillBounds(elW, elH, winW, winH);
+      const clampedX = Math.max(minX, Math.min(maxX, pillPosRef.current.x));
+      const clampedY = Math.max(minY, Math.min(maxY, pillPosRef.current.y));
+      pillPosRef.current = { x: clampedX, y: clampedY };
+      el.style.transform = `translate3d(${clampedX}px, ${clampedY}px, 0)`;
+    }
+  }, [loading, getPillBounds]);
+
+  // Keep pill clamped safely when expanding/collapsing
+  useEffect(() => {
+    const el = pillRef.current;
+    if (!el) return;
+    const elW = el.offsetWidth || 180;
+    const elH = el.offsetHeight || 44;
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const { minX, maxX, minY, maxY } = getPillBounds(elW, elH, winW, winH);
+
+    const clampedX = Math.max(minX, Math.min(maxX, pillPosRef.current.x));
+    const clampedY = Math.max(minY, Math.min(maxY, pillPosRef.current.y));
+    pillPosRef.current = { x: clampedX, y: clampedY };
+    el.style.transform = `translate3d(${clampedX}px, ${clampedY}px, 0)`;
+  }, [isQuickTradeCollapsed, getPillBounds]);
 
   const handlePillPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -1674,11 +1920,8 @@ export default function Backtest() {
     const winW = typeof window !== 'undefined' ? window.innerWidth : 800;
     const winH = typeof window !== 'undefined' ? window.innerHeight : 600;
 
-    // Viewport clamping
-    const minX = 8;
-    const maxX = Math.max(minX, winW - elW - 8);
-    const minY = 42;
-    const maxY = Math.max(minY, winH - elH - 36);
+    // Strict boundary clamping so the pill NEVER covers the info bar / context dock
+    const { minX, maxX, minY, maxY } = getPillBounds(elW, elH, winW, winH);
 
     newX = Math.max(minX, Math.min(maxX, newX));
     newY = Math.max(minY, Math.min(maxY, newY));
@@ -1720,7 +1963,7 @@ export default function Backtest() {
           <div
             ref={pillRef}
             style={pillStyle}
-            className="fixed top-0 left-0 z-40 w-fit pointer-events-auto select-none touch-none will-change-transform"
+            className="fixed top-0 left-0 z-20 w-fit pointer-events-auto select-none touch-none will-change-transform"
           >
             {isQuickTradeCollapsed ? (
               <motion.div
@@ -1834,65 +2077,98 @@ export default function Backtest() {
     <div className="mobile-terminal block md:hidden w-full h-full flex flex-col overflow-hidden bg-slate-50 overscroll-none select-none">
 
       {/* Top strip: compact app-like header for pair / timeframe / mode. */}
-      <div className="mobile-terminal-strip flex items-center px-2 py-2 border-b-2 border-[#121212] bg-[#F0F0F0]">
-        <div className="flex items-center gap-1.5 w-full overflow-x-auto no-scrollbar">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              handleSmartBack();
-            }}
-            className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-white border-2 border-[#121212] text-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-[#FFFDEB] transition-colors cursor-pointer"
-            aria-label="Back"
-          >
-            <ChevronLeft className="w-5 h-5 pointer-events-none stroke-[2.5]" />
-          </button>
-          
-          <span className="mobile-tag mobile-tag-accent shrink-0">{symbol}</span>
-          <select
-            value={timeframe}
-            disabled={isTimeframeLoading || loading}
-            onChange={(e) => handleTimeframeChange(e.target.value as ChartTimeframe)}
-            aria-label="Timeframe"
-            className="mobile-tag mobile-select shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {(['M1','M5','M15','M30','H1','H4','D1'] as ChartTimeframe[]).map(tf => (
-              <option key={tf} value={tf} className="bg-white text-slate-700">{tf}</option>
-            ))}
-          </select>
-          {appMode === 'analysis' && <span className="mobile-tag mobile-tag-profit shrink-0">ANALYSIS</span>}
-          {appMode === 'selecting' && <span className="mobile-tag mobile-tag-warn shrink-0">PICK START</span>}
-          {appMode === 'replay' && <span className="mobile-tag mobile-tag-accent shrink-0">REPLAY</span>}
-        </div>
+      <div className="mobile-terminal-strip flex items-center justify-between gap-1.5 px-2 py-1.5 border-b-2 border-[#121212] bg-[#F0F0F0] w-full max-w-full overflow-x-hidden box-border">
+        {/* Back button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleSmartBack();
+          }}
+          className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-white border-2 border-[#121212] text-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-[#FFFDEB] transition-colors cursor-pointer"
+          aria-label="Back"
+          title="Back"
+        >
+          <ChevronLeft className="w-5 h-5 pointer-events-none stroke-[2.5]" />
+        </button>
+        
+        {/* Pair dropdown flex-1 */}
+        <SymbolPicker
+          value={symbol}
+          onChange={handleSymbolChange}
+          symbols={availableSymbols}
+          disabled={appMode === 'replay'}
+          className="flex-1 min-w-0"
+        />
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={handleToggleFullscreen}
-            className="mobile-icon-btn shrink-0 w-8 h-8 p-1.5"
-            aria-label="Toggle Fullscreen"
-            title="Toggle Fullscreen"
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => openMobileSheet('MENU')}
-            className="mobile-icon-btn shrink-0 w-8 h-8 p-1.5"
-            aria-label="Open mobile menu"
-            title="Open mobile menu"
-          >
-            <Menu className="w-4 h-4" />
-          </button>
-        </div>
+        {/* Timeframe dropdown */}
+        <select
+          value={timeframe}
+          disabled={isTimeframeLoading || loading}
+          onChange={(e) => handleTimeframeChange(e.target.value as ChartTimeframe)}
+          aria-label="Timeframe"
+          className="mobile-tag mobile-select shrink-0 px-1 py-1 text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {(['M1','M5','M15','M30','H1','H4','D1'] as ChartTimeframe[]).map(tf => (
+            <option key={tf} value={tf} className="bg-white text-slate-700">{tf}</option>
+          ))}
+        </select>
+
+        {/* Stats icon-only on mobile */}
+        <button
+          type="button"
+          onClick={() => openMobileSheet('STATS')}
+          className="mobile-icon-btn shrink-0 w-8 h-8 p-1.5"
+          aria-label="Session Stats"
+          title="Session Stats"
+        >
+          <BarChart2 className="w-4 h-4" />
+        </button>
+
+        {/* Fullscreen / Expand */}
+        <button
+          type="button"
+          onClick={handleToggleFullscreen}
+          className="mobile-icon-btn shrink-0 w-8 h-8 p-1.5"
+          aria-label="Toggle Fullscreen"
+          title="Toggle Fullscreen"
+        >
+          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+        </button>
+
+        {/* Menu */}
+        <button
+          type="button"
+          onClick={() => openMobileSheet('MENU')}
+          className="mobile-icon-btn shrink-0 w-8 h-8 p-1.5"
+          aria-label="Open mobile menu"
+          title="Open mobile menu"
+        >
+          <Menu className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* Error / hint as a thin strip, not a card. */}
+      {/* Error / hint as a thin strip with retry button */}
       {error && (
-        <div className="mobile-terminal-strip" style={{ background: 'rgba(220,38,38,0.12)', color: '#F87171' }}>
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          <span className="text-[11px] font-semibold truncate">{error}</span>
+        <div className="mobile-terminal-strip flex items-center justify-between gap-2 px-2 py-1.5" style={{ background: 'rgba(220,38,38,0.12)', color: '#DC2626' }}>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-red-600" />
+            <span className="text-[11px] font-semibold truncate text-red-700">{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (appMode === 'replay' && replayStartTime) {
+                initReplaySession(replayStartTime, timeframe, symbol);
+              } else {
+                loadAnalysisCandles(timeframe, symbol);
+              }
+            }}
+            className="px-2 py-0.5 text-[10px] font-mono font-bold bg-white border border-[#121212] text-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none shrink-0 cursor-pointer"
+          >
+            Coba lagi
+          </button>
         </div>
       )}
       {appMode === 'selecting' && (
@@ -1909,6 +2185,8 @@ export default function Backtest() {
           candles={candles}
           timeframe={timeframe}
           symbol={symbol}
+          isLoading={loading}
+          error={error}
           appMode={appMode}
           activeTrade={
             activeTrade
@@ -1957,7 +2235,7 @@ export default function Backtest() {
       </div>
 
       {/* Context line: compact price + session trades + active trade info. */}
-      <div className="mobile-terminal-context">
+      <div className="mobile-terminal-context relative z-30">
         <div className="flex items-center gap-1.5 bg-[#FFFDEB] border-2 border-[#121212] px-2 py-0.5 shadow-[1px_1px_0px_0px_#121212] shrink-0">
           <span className="text-[9px] font-black uppercase tracking-wider text-[#B45309]">Price</span>
           <span className="text-xs font-number font-black text-[#121212]">{currentPrice > 0 ? currentPrice.toFixed(2) : '--.--'}</span>
@@ -1992,7 +2270,7 @@ export default function Backtest() {
       </div>
 
       {/* Primary actions. Bounded bottom shell dock, thumb-reachable. */}
-      <div className="w-full box-border border-t-2 border-[#121212] bg-white px-3 py-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] flex items-center justify-between gap-2 shrink-0 touch-none overscroll-none select-none">
+      <div className="relative z-30 w-full box-border border-t-2 border-[#121212] bg-white px-3 py-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] flex items-center justify-between gap-2 shrink-0 touch-none overscroll-none select-none">
         {/* Analysis: drawing tools & order panel on left, Replay CTA on right */}
         {appMode === 'analysis' && (
           <>
@@ -2625,9 +2903,24 @@ export default function Backtest() {
         />
 
         {error && (
-          <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2 text-xs text-rose-300 flex items-center gap-2 shrink-0">
-            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{error}</span>
+          <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2 text-xs text-rose-700 flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span className="truncate">{error}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (appMode === 'replay' && replayStartTime) {
+                  initReplaySession(replayStartTime, timeframe, symbol);
+                } else {
+                  loadAnalysisCandles(timeframe, symbol);
+                }
+              }}
+              className="px-2.5 py-1 text-xs font-mono font-bold bg-white border-2 border-[#121212] text-[#121212] rounded shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none shrink-0 cursor-pointer"
+            >
+              Coba lagi
+            </button>
           </div>
         )}
 
@@ -2658,6 +2951,8 @@ export default function Backtest() {
               candles={candles}
               timeframe={timeframe}
               symbol={symbol}
+              isLoading={loading}
+              error={error}
               appMode={appMode}
               activeTrade={
                 activeTrade

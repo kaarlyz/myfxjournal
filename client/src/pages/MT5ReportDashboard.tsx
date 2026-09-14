@@ -394,9 +394,9 @@ function SummaryPngCard({ refEl, summary, analysis, equityPoints }: { refEl: Rea
 
 function SummaryMetric({ label, value, danger }: { label: string; value: any; danger?: boolean }) {
   return (
-    <div className="bg-white border-4 border-[#121212] p-6 shadow-[6px_6px_0px_0px_#121212]">
-      <div className="text-xs font-bold uppercase tracking-widest text-[#717182]">{label}</div>
-      <div className={`text-3xl font-black mt-3 font-number ${danger ? 'text-[var(--loss)]' : 'text-[#121212]'}`}>{value}</div>
+    <div className="bg-white border-4 border-[#121212] p-4 sm:p-6 shadow-[6px_6px_0px_0px_#121212] min-w-0">
+      <div className="text-xs font-bold uppercase tracking-widest text-[#717182] truncate" title={label}>{label}</div>
+      <div className={`text-xl sm:text-2xl lg:text-3xl font-black mt-3 font-number truncate ${danger ? 'text-[var(--loss)]' : 'text-[#121212]'}`} title={String(value)}>{value}</div>
     </div>
   );
 }

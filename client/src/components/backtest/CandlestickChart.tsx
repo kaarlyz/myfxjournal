@@ -137,6 +137,8 @@ interface CandlestickChartProps {
   onConfirmVisualOrder?: () => void;
   onCancelVisualOrder?: () => void;
   isTimeframeLoading?: boolean;
+  isLoading?: boolean;
+  error?: string | null;
   balance?: number;
   equity?: number;
   floatingPnL?: number;
@@ -218,6 +220,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   onConfirmVisualOrder,
   onCancelVisualOrder,
   isTimeframeLoading = false,
+  isLoading = false,
+  error = null,
   balance,
   equity,
   floatingPnL,
@@ -419,6 +423,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           panXRef.current += deltaPixels;
           setPanOffsetX((cur) => cur + deltaPixels);
         }
+      } else {
+        // Disjoint dataset (different range or symbol): reset viewport to latest
+        panXRef.current = 0;
+        setPanOffsetX(0);
       }
     }
     // Case 2: Prepending older candles to index 0.
@@ -435,21 +443,55 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [followReplay, appMode]);
 
-  // When timeframe changes, reset pan offset and set adaptive initial candleWidth so viewport snaps cleanly
+  // Track previous symbol and timeframe to reset viewport on transitions
+  const prevSymbolRef = useRef(symbol);
+  const prevTimeframeRef = useRef(timeframe);
+
+  // When symbol or timeframe changes, reset pan offset, price scaling, and set adaptive initial candleWidth
   useEffect(() => {
-    panXRef.current = 0;
-    setPanOffsetX(0);
-    let initialCw = 8;
-    if (timeframe === 'M1' || timeframe === 'M5' || timeframe === 'M15' || timeframe === 'M30') {
-      initialCw = 8;
-    } else if (timeframe === 'H1' || timeframe === 'H4') {
-      initialCw = 10;
-    } else if (timeframe === 'D1') {
-      initialCw = 12;
+    const isSymbolChanged = prevSymbolRef.current !== symbol;
+    const isTfChanged = prevTimeframeRef.current !== timeframe;
+    prevSymbolRef.current = symbol;
+    prevTimeframeRef.current = timeframe;
+
+    if (isSymbolChanged || isTfChanged) {
+      panXRef.current = 0;
+      setPanOffsetX(0);
+      let initialCw = 8;
+      if (timeframe === 'M1' || timeframe === 'M5' || timeframe === 'M15' || timeframe === 'M30') {
+        initialCw = 8;
+      } else if (timeframe === 'H1' || timeframe === 'H4') {
+        initialCw = 10;
+      } else if (timeframe === 'D1') {
+        initialCw = 12;
+      }
+      cwRef.current = initialCw;
+      setCandleWidth(initialCw);
+
+      // Invalidate manual price scaling and zoom so new symbol/TF data is immediately centered and auto-scaled
+      setIsAutoScale(true);
+      isAutoScaleRef.current = true;
+      setManualPriceRange(null);
+      manualPriceRangeRef.current = null;
+      setPriceZoom(1.0);
+      setPricePanOffset(0);
+      pzRef.current = 1.0;
+      poRef.current = 0;
+      prevCandlesRef.current = [];
     }
-    cwRef.current = initialCw;
-    setCandleWidth(initialCw);
-  }, [timeframe]);
+  }, [symbol, timeframe]);
+
+  // When candles first arrive for a freshly selected instrument or session, ensure viewport is clean and centered
+  useEffect(() => {
+    if (candles.length > 0 && prevCandlesRef.current.length === 0) {
+      panXRef.current = 0;
+      setPanOffsetX(0);
+      setIsAutoScale(true);
+      isAutoScaleRef.current = true;
+      setManualPriceRange(null);
+      manualPriceRangeRef.current = null;
+    }
+  }, [candles]);
 
   // ResizeObserver on the canvas wrapper element to guarantee exact viewport dimensions (excluding HUD)
   useEffect(() => {
@@ -488,7 +530,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // ── Build Viewport Projection (Canonical Pixel-Based Viewport) ──
   const buildVP = useCallback((cssW: number, cssH: number): VP => {
     const cw = cwRef.current;
-    const panX = panXRef.current;
+    let panX = panXRef.current;
     const pz = pzRef.current;
     const po = poRef.current;
 
@@ -509,6 +551,16 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const rightMargin = Math.max(35, cw * 5);
     const lastGlobalIdx = Math.max(0, candles.length - 1);
 
+    // Clamp panX within allowable bounds to prevent all candles from vanishing off-screen
+    if (candles.length > 0) {
+      const minPanX = -Math.round(chartW * 0.35);
+      const maxPanX = Math.max(0, (candles.length - 1) * cw);
+      if (panX < minPanX || panX > maxPanX + chartW) {
+        panX = Math.max(minPanX, Math.min(maxPanX, panX));
+        panXRef.current = panX;
+      }
+    }
+
     // Canonical Projection: Pure sequential integer index within dense array
     // candlesFromRight = (candles.length - 1) - i
     // x = (chartW - rightMargin) - (candlesFromRight * cw) + panX
@@ -525,22 +577,37 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     // Derived visible index bounds directly from screen boundaries (0 to chartW):
     const idxLeft = xToGIdx(0);
     const idxRight = xToGIdx(chartW);
-    const startIdx = Math.max(0, Math.floor(Math.min(idxLeft, idxRight)) - 5);
-    const endIdx = Math.min(lastGlobalIdx, Math.ceil(Math.max(idxLeft, idxRight)) + 5);
+    const startIdx = Math.max(0, Math.min(lastGlobalIdx, Math.floor(Math.min(idxLeft, idxRight)) - 5));
+    const endIdx = Math.max(startIdx, Math.min(lastGlobalIdx, Math.ceil(Math.max(idxLeft, idxRight)) + 5));
 
     // Dynamic Price Range Calculation strictly across visible viewport candles (+5 bar margin)
     let rawMin = Infinity, rawMax = -Infinity;
+    let visibleCount = 0;
     for (let i = 0; i < candles.length; i++) {
       const c = candles[i];
       if (!c) continue;
       const barsFromRight = lastGlobalIdx - i;
       const x = (chartW - rightMargin) - (barsFromRight * cw) + panX;
       if (x < -cw * 5 || x > chartW + cw * 5) continue;
-      if (c.low > 0 && c.low < rawMin) rawMin = c.low;
-      if (c.high > 0 && c.high > rawMax) rawMax = c.high;
+      visibleCount++;
+      if (isFinite(c.low) && c.low > 0 && c.low < rawMin) rawMin = c.low;
+      if (isFinite(c.high) && c.high > 0 && c.high > rawMax) rawMax = c.high;
     }
-    if (!isFinite(rawMin) || rawMin <= 0 || rawMax <= rawMin) {
-      const fallbackPrice = candles.length > 0 ? candles[candles.length - 1].close : 3000;
+
+    // Auto-fit fallback if no candles fall in visible viewport or prices are invalid
+    if ((visibleCount === 0 || !isFinite(rawMin) || !isFinite(rawMax) || rawMax <= rawMin || rawMin <= 0) && candles.length > 0) {
+      const sample = candles.slice(-Math.min(60, candles.length));
+      for (const c of sample) {
+        if (isFinite(c.low) && c.low > 0 && c.low < rawMin) rawMin = c.low;
+        if (isFinite(c.high) && c.high > 0 && c.high > rawMax) rawMax = c.high;
+      }
+    }
+
+    // Guard against minPrice === maxPrice, NaN, or non-positive values
+    if (!isFinite(rawMin) || !isFinite(rawMax) || rawMin <= 0 || rawMax <= rawMin) {
+      const fallbackPrice = candles.length > 0 && isFinite(candles[candles.length - 1]?.close) && candles[candles.length - 1].close > 0
+        ? candles[candles.length - 1].close
+        : 3000;
       rawMin = fallbackPrice * 0.99;
       rawMax = fallbackPrice * 1.01;
     }
@@ -586,6 +653,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const bufferedMax = rawMax + priceRange * 0.15;
     const bufferedMin = rawMin - priceRange * 0.15;
     lastAutoBoundsRef.current = { min: bufferedMin, max: bufferedMax };
+
+    // Invalidate disjoint or NaN manual price range (e.g. leftover from switching symbol)
+    if (manualPriceRangeRef.current) {
+      const m = manualPriceRangeRef.current;
+      if (!isFinite(m.min) || !isFinite(m.max) || m.max <= m.min || m.min <= 0 || m.max < rawMin * 0.5 || m.min > rawMax * 2.0) {
+        manualPriceRangeRef.current = null;
+        isAutoScaleRef.current = true;
+      }
+    }
 
     // When auto-scale is ON, the buffered range from visible candles IS the final viewport range.
     // When auto-scale is OFF, use the frozen manualPriceRange for independent Y scaling and free panning.
@@ -709,7 +785,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     if (candles.length === 0) {
       ctx.fillStyle = '#64748B'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('Memuat data Dukascopy XAUUSD...', cssW / 2, cssH / 2);
+      if (error) {
+        ctx.fillText(error, cssW / 2, cssH / 2);
+      } else if (isLoading || isTimeframeLoading) {
+        ctx.fillText(`Memuat data Dukascopy ${symbol}...`, cssW / 2, cssH / 2);
+      } else {
+        ctx.fillText(`Tidak ada data candle untuk ${symbol} (${timeframe})`, cssW / 2, cssH / 2);
+      }
       return;
     }
 
@@ -2811,11 +2893,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       className="relative w-full h-full min-w-0 min-h-0 flex-1 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden select-none touch-none overscroll-none shadow-sm"
     >
       {/* Top Chart Header Overlay / Dock */}
-      <div className="w-full px-2 pt-2 pb-1.5 flex items-center justify-between pointer-events-none z-20 box-border bg-slate-50 border-b border-slate-200">
+      <div className="w-full max-w-full overflow-x-hidden px-2 pt-2 pb-1.5 flex items-center justify-between gap-1 pointer-events-none z-20 box-border bg-slate-50 border-b border-slate-200">
         {/* Left: Symbol & Options triggers */}
-        <div className="flex items-center gap-1.5 pointer-events-auto">
-          <span className="font-bold text-[#121212] bg-white px-2 py-0.5 border border-slate-200 rounded-lg text-xs font-mono tracking-tight shadow-sm">
-            XAUUSD • {timeframe}
+        <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto min-w-0 shrink">
+          <span className="font-bold text-[#121212] bg-white px-1.5 sm:px-2 py-0.5 border border-slate-200 rounded-lg text-[11px] sm:text-xs font-mono tracking-tight shadow-sm truncate">
+            {symbol} • {timeframe}
           </span>
           <button
             type="button"
@@ -2837,7 +2919,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             }}
             title="Menu Opsi Chart (Set Replay, Reset View, Alat Gambar)"
             aria-label="Menu Opsi Chart"
-            className="flex items-center gap-1 px-2 py-0.5 text-xs font-bold font-mono bg-white text-[#121212] border-2 border-[#121212] rounded-lg shadow-[2px_2px_0px_0px_#121212] hover:bg-[#EAF2FF] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+            className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 text-xs font-bold font-mono bg-white text-[#121212] border-2 border-[#121212] rounded-lg shadow-[2px_2px_0px_0px_#121212] hover:bg-[#EAF2FF] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer shrink-0"
           >
             <Settings className="w-3.5 h-3.5 text-[#1040C0]" />
             <span className="text-[10px] font-black uppercase tracking-wider">OPSI</span>
@@ -2847,15 +2929,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
         {/* Right: Inner metric card nested safely inside parent */}
         {hasAccountInfo && (
-          <div className="pointer-events-auto flex items-center gap-2 bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] px-3 py-1 rounded-md shrink-0">
-            <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+          <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 bg-white border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] px-2 sm:px-3 py-0.5 sm:py-1 rounded-md shrink-0">
+            <span className="text-[9px] sm:text-[10px] font-black uppercase text-slate-500 tracking-wider">
               {isPositionOpen ? 'EQUITY' : 'BALANCE'}
             </span>
-            <span className="text-sm sm:text-base font-black font-mono text-slate-900 leading-none">
+            <span className="text-xs sm:text-sm md:text-base font-black font-mono text-slate-900 leading-none">
               ${effectiveEquity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             {isPositionOpen && floatingPnL !== undefined && (
-              <span className={`px-1.5 py-0.5 rounded text-[11px] font-black border ${
+              <span className={`px-1 sm:px-1.5 py-0.5 rounded text-[10px] sm:text-[11px] font-black border ${
                 floatingPnL >= 0 
                   ? 'bg-[#E7F9F0] text-[#059669] border-[#059669]' 
                   : 'bg-[#FDECEC] text-[#DC2626] border-[#DC2626]'

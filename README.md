@@ -34,6 +34,16 @@
 | **Report Print** | Export laporan profesional siap cetak ke PDF |
 | **Setup Review** | Filter dan review trade berdasarkan setup tag |
 
+### Chart Replay (ReplayFX)
+| Fitur | Deskripsi |
+|-------|-----------|
+| **Tick-Accurate Replay** | Replay M1–D1 dari 725jt+ tick kanonis via DuckDB, tanpa look-ahead bias |
+| **Custom Symbol Picker** | Bottom-sheet picker di mobile + popover desktop (provider, jumlah candle, range tanggal) |
+| **Atomic Order Fill** | Pending terpicu jadi posisi dalam satu batch render, tanpa flicker |
+| **Auto-Recenter Canvas** | Ganti pair/timeframe langsung auto-scale + clamp viewport, anti blank |
+| **GPU-Accelerated Drag** | Order overlay & trade pill pakai transform ref (zero re-render) |
+| **Mobile 384px** | Compact header, pill terkunci anti-overlap, backdrop + scroll-lock |
+
 ### Live Trading & MT5
 | Fitur | Deskripsi |
 |-------|-----------|
@@ -455,6 +465,7 @@ cd server && npm run build   # Compile TypeScript server
 
 | Versi | Perubahan |
 |-------|-----------|
+| v2.2 | ReplayFX mobile UX (compact header, symbol bottom-sheet, pill anti-overlap), atomic order fill, auto-recenter canvas, GPU drag, symbols API cache, MT5/EA/Telegram/WhatsApp/PropFirm/MonteCarlo docs |
 | v2.1 | Multi-bahasa ID/EN (react-i18next), LanguageSwitcher, 36 locale files |
 | v2.0 | Bauhaus Design System, full page migration dari dark ke flat light |
 | v1.9 | EA Control Center improvements, signal dismiss & clear all |

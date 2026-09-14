@@ -107,6 +107,7 @@ export default function MetricCard({
             className="metric-value leading-tight truncate"
             style={valueStyle}
             aria-label={`${title}: ${value}`}
+            title={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined}
           >
             {value}
           </div>

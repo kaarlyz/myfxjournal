@@ -28,39 +28,122 @@ import {
 const router = Router();
 
 // ── 0. Available Symbols Catalog ──
+interface SymbolCatalogEntry {
+  symbol: string;
+  provider: string;
+  candleCount: number;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+}
+
+interface CachedSymbols {
+  timestamp: number;
+  data: SymbolCatalogEntry[];
+}
+
+const SYMBOLS_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+let symbolsCache: CachedSymbols | null = null;
+let symbolsInFlightPromise: Promise<SymbolCatalogEntry[]> | null = null;
+
+export function invalidateSymbolsCache(): void {
+  symbolsCache = null;
+}
+
 // GET /api/backtest/symbols
-router.get('/symbols', async (_req: Request, res: Response) => {
+router.get('/symbols', async (req: Request, res: Response) => {
   try {
-    const catalogs = await prisma.marketDataCatalog.findMany({
-      select: { symbol: true, provider: true, candleCount: true },
-    });
-    const map = new Map<string, { symbol: string; provider: string; candleCount: number }>();
-    for (const c of catalogs) {
-      const key = `${c.symbol}_${c.provider}`;
-      map.set(key, { symbol: c.symbol, provider: c.provider, candleCount: c.candleCount });
+    const forceRefresh = req.query.refresh === 'true' || req.query.force === 'true';
+
+    if (!forceRefresh && symbolsCache && Date.now() - symbolsCache.timestamp < SYMBOLS_CACHE_TTL_MS) {
+      return res.json({ ok: true, data: symbolsCache.data });
     }
 
-    const symbolsGroup = await prisma.mt5CandleData.groupBy({
-      by: ['symbol', 'provider'],
-      _count: { _all: true },
-    });
-    for (const item of symbolsGroup) {
-      const key = `${item.symbol}_${item.provider}`;
-      const existing = map.get(key);
-      map.set(key, {
-        symbol: item.symbol,
-        provider: item.provider,
-        candleCount: Math.max(existing?.candleCount ?? 0, item._count._all),
-      });
+    if (!forceRefresh && symbolsInFlightPromise) {
+      const data = await symbolsInFlightPromise;
+      return res.json({ ok: true, data });
     }
 
-    if (map.size === 0) {
-      for (const symbol of ['XAUUSD', 'EURUSD', 'NSXUSD']) {
-        map.set(`${symbol}_DUKASCOPY`, { symbol, provider: 'DUKASCOPY', candleCount: 0 });
+    symbolsInFlightPromise = (async () => {
+      try {
+        const map = new Map<string, SymbolCatalogEntry>();
+
+        // 1. Parquet datasets available (e.g. XAUUSD canonical tick data)
+        try {
+          const pqBounds = await parquetProvider.getTimelineBounds();
+          if (pqBounds && pqBounds.symbol) {
+            const key = `${pqBounds.symbol}_${pqBounds.provider || 'PARQUET'}`;
+            map.set(key, {
+              symbol: pqBounds.symbol,
+              provider: pqBounds.provider || 'PARQUET',
+              candleCount: pqBounds.totalTicks,
+              dateFrom: pqBounds.dateFrom,
+              dateTo: pqBounds.dateTo,
+            });
+          }
+        } catch {
+          // Parquet not available or failed
+        }
+
+        // 2. Catalogs in SQLite
+        const catalogs = await prisma.marketDataCatalog.findMany({
+          select: { symbol: true, provider: true, candleCount: true, dateFrom: true, dateTo: true },
+        });
+        for (const c of catalogs) {
+          const key = `${c.symbol}_${c.provider}`;
+          map.set(key, {
+            symbol: c.symbol,
+            provider: c.provider,
+            candleCount: c.candleCount,
+            dateFrom: c.dateFrom ? c.dateFrom.toISOString() : null,
+            dateTo: c.dateTo ? c.dateTo.toISOString() : null,
+          });
+        }
+
+        // 3. mt5CandleData in SQLite
+        const symbolsGroup = await prisma.mt5CandleData.groupBy({
+          by: ['symbol', 'provider'],
+          _count: { _all: true },
+        });
+        for (const item of symbolsGroup) {
+          const key = `${item.symbol}_${item.provider}`;
+          const existing = map.get(key);
+          let dateFrom = existing?.dateFrom || null;
+          let dateTo = existing?.dateTo || null;
+          if (!dateFrom || !dateTo) {
+            const [first, last] = await Promise.all([
+              prisma.mt5CandleData.findFirst({
+                where: { provider: item.provider, symbol: item.symbol },
+                orderBy: { time: 'asc' },
+                select: { time: true },
+              }),
+              prisma.mt5CandleData.findFirst({
+                where: { provider: item.provider, symbol: item.symbol },
+                orderBy: { time: 'desc' },
+                select: { time: true },
+              }),
+            ]);
+            dateFrom = first?.time ? first.time.toISOString() : null;
+            dateTo = last?.time ? last.time.toISOString() : null;
+          }
+          map.set(key, {
+            symbol: item.symbol,
+            provider: item.provider,
+            candleCount: Math.max(existing?.candleCount ?? 0, item._count._all),
+            dateFrom,
+            dateTo,
+          });
+        }
+
+        const result = Array.from(map.values()).sort((a, b) => b.candleCount - a.candleCount);
+        symbolsCache = { timestamp: Date.now(), data: result };
+        return result;
+      } finally {
+        symbolsInFlightPromise = null;
       }
-    }
+    })();
 
-    return res.json({ ok: true, data: Array.from(map.values()) });
+    const data = await symbolsInFlightPromise;
+    return res.json({ ok: true, data });
   } catch (error: any) {
     return res.status(500).json({ ok: false, error: error.message });
   }
@@ -159,8 +242,8 @@ router.get('/candles', async (req: Request, res: Response) => {
       realVolume: c.realVolume ?? undefined,
     }));
 
-    if (m1Candles.length === 0) {
-      // ── Parquet-first: query DuckDB tick daemon ───────────────────────────
+    if (m1Candles.length === 0 && symbol.toUpperCase() === 'XAUUSD') {
+      // ── Parquet-first: query DuckDB tick daemon ONLY for XAUUSD ───────────
       const pqCandles = await parquetProvider.getCandles({
         symbol,
         timeframe: targetTF,
@@ -421,18 +504,24 @@ router.get('/timeline-bounds', async (req: Request, res: Response) => {
     const timeframe = (req.query.timeframe as string) || 'M1';
     const provider = (req.query.provider as string) || 'DUKASCOPY';
 
-    // Parquet is the primary source of truth for XAUUSD
-    const pqBounds = await parquetProvider.getTimelineBounds();
-    if (pqBounds && pqBounds.symbol === symbol.toUpperCase()) {
-      return res.json({
-        ok: true,
-        data: {
-          dateFrom: pqBounds.dateFrom,
-          dateTo: pqBounds.dateTo,
-          candleCount: pqBounds.totalTicks,
-          provider: 'PARQUET',
-        },
-      });
+    // Parquet is the primary source of truth ONLY for XAUUSD
+    if (symbol.toUpperCase() === 'XAUUSD') {
+      try {
+        const pqBounds = await parquetProvider.getTimelineBounds();
+        if (pqBounds && pqBounds.symbol === symbol.toUpperCase()) {
+          return res.json({
+            ok: true,
+            data: {
+              dateFrom: pqBounds.dateFrom,
+              dateTo: pqBounds.dateTo,
+              candleCount: pqBounds.totalTicks,
+              provider: 'PARQUET',
+            },
+          });
+        }
+      } catch {
+        // Fallback to SQLite DB
+      }
     }
 
     const catalog = await prisma.marketDataCatalog.findFirst({
@@ -450,11 +539,25 @@ router.get('/timeline-bounds', async (req: Request, res: Response) => {
       });
     }
 
+    // Fail-fast existence check: check if any candle exists for this symbol/provider
     const first = await prisma.mt5CandleData.findFirst({
       where: { provider, symbol, timeframe },
       orderBy: { time: 'asc' },
       select: { time: true },
     });
+
+    if (!first) {
+      // Fail-fast: do not fabricate date ranges for non-existent symbols
+      return res.json({
+        ok: true,
+        data: {
+          dateFrom: null,
+          dateTo: null,
+          candleCount: 0,
+        },
+      });
+    }
+
     const last = await prisma.mt5CandleData.findFirst({
       where: { provider, symbol, timeframe },
       orderBy: { time: 'desc' },
@@ -464,9 +567,9 @@ router.get('/timeline-bounds', async (req: Request, res: Response) => {
     return res.json({
       ok: true,
       data: {
-        dateFrom: first?.time || new Date('2021-08-23T01:00:00Z'),
-        dateTo: last?.time || new Date('2026-08-21T02:59:00Z'),
-        candleCount: 1768274,
+        dateFrom: first.time,
+        dateTo: last?.time || first.time,
+        candleCount: 0,
       },
     });
   } catch (error: any) {

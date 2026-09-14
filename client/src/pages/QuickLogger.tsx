@@ -134,7 +134,7 @@ export default function QuickLogger() {
           </div>
         </div>
         
-        <div className="w-full md:w-80 relative">
+        <div className="w-full md:w-80 relative min-w-0">
           <select
             value={sessionId}
             onChange={(e) => {
@@ -142,11 +142,11 @@ export default function QuickLogger() {
               selectSession(e.target.value);
               navigate(`/quick-logger?sessionId=${e.target.value}`, { replace: true });
             }}
-            className="w-full bg-white border-4 border-[#121212] py-4 px-5 text-[#121212] text-[14px] font-black uppercase tracking-wider shadow-[6px_6px_0px_0px_#121212] appearance-none cursor-pointer outline-none focus:border-[#1040C0]"
+            className="w-full bg-white border-4 border-[#121212] py-4 pl-5 pr-10 text-[#121212] text-xs sm:text-sm font-black uppercase tracking-wider shadow-[6px_6px_0px_0px_#121212] appearance-none cursor-pointer outline-none focus:border-[#1040C0] truncate"
           >
             {sessions.map(s => <option key={s.id} value={s.id}>{s.name} ({s.symbol})</option>)}
           </select>
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-5 text-[#121212]">
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-[#121212]">
             <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
           </div>
         </div>
@@ -159,20 +159,20 @@ export default function QuickLogger() {
       {selectedSession && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212] min-w-0">
-            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1">Session</p>
-            <p className="text-[14px] text-[#121212] font-black uppercase tracking-wide truncate" title={selectedSession.name}>{selectedSession.name}</p>
+            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1 truncate">Session</p>
+            <p className="text-xs sm:text-sm text-[#121212] font-black uppercase tracking-wide break-words line-clamp-2" title={selectedSession.name}>{selectedSession.name}</p>
           </div>
-          <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
-            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1">Trades</p>
-            <p className="text-[20px] text-[#121212] font-black font-number leading-none">{selectedSession.tradeCount}</p>
+          <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212] min-w-0">
+            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1 truncate">Trades</p>
+            <p className="text-lg sm:text-[20px] text-[#121212] font-black font-number leading-none truncate">{selectedSession.tradeCount}</p>
           </div>
-          <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
-            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1">Winrate</p>
-            <p className="text-[20px] text-[#121212] font-black font-number leading-none">{selectedSession.tradeCount ? formatPercent(selectedSession.winrate) : '-'}</p>
+          <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212] min-w-0">
+            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1 truncate">Winrate</p>
+            <p className="text-lg sm:text-[20px] text-[#121212] font-black font-number leading-none truncate">{selectedSession.tradeCount ? formatPercent(selectedSession.winrate) : '-'}</p>
           </div>
-          <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212]">
-            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1">Net PnL</p>
-            <p className={`text-[20px] font-black font-number leading-none ${selectedSession.netPnlUsd >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`}>
+          <div className="bg-white border-4 border-[#121212] p-4 shadow-[4px_4px_0px_0px_#121212] min-w-0">
+            <p className="text-[10px] font-extrabold text-[#717182] uppercase tracking-widest mb-1 truncate">Net PnL</p>
+            <p className={`text-lg sm:text-[20px] font-black font-number leading-none truncate ${selectedSession.netPnlUsd >= 0 ? 'text-[var(--profit)]' : 'text-[var(--loss)]'}`} title={formatUsd(selectedSession.netPnlUsd)}>
               {formatUsd(selectedSession.netPnlUsd)}
             </p>
           </div>

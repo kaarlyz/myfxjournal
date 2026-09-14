@@ -35,14 +35,15 @@ function PortfolioMetric({
 
   return (
     <div
-      className="p-4 border-2 border-[#121212] bg-white"
+      className="p-4 border-2 border-[#121212] bg-white min-w-0"
       style={{ boxShadow: '3px 3px 0px 0px #121212' }}
     >
-      <div className="metric-label mb-2">{label}</div>
+      <div className="metric-label mb-2 truncate" title={label}>{label}</div>
       <div
-        className="metric-value-lg leading-none font-number"
+        className="metric-value-lg leading-none font-number truncate"
         style={{ color: valueColor }}
         aria-label={`${label}: ${value}`}
+        title={value}
       >
         {value}
       </div>
@@ -960,31 +961,32 @@ function SessionCard({
         className="grid grid-cols-2 gap-3 py-3 my-3"
         style={{ borderTop: '2px solid rgba(18,18,18,0.08)', borderBottom: '2px solid rgba(18,18,18,0.08)' }}
       >
-        <div>
+        <div className="min-w-0">
           <span
-            className="block mb-1"
+            className="block mb-1 truncate"
             style={{ fontFamily: 'Outfit, sans-serif', fontSize: '9px', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#717182' }}
           >
             {t('common:pnl').toUpperCase()}
           </span>
           <span
-            className="font-bold font-number"
+            className="font-bold font-number truncate block"
             style={{ fontSize: '14px', color: s.netPnlUsd >= 0 ? 'var(--profit)' : 'var(--loss)' }}
             aria-label={`Net PnL: ${s.netPnlUsd >= 0 ? '+' : ''}${s.netPnlUsd}`}
+            title={`${s.netPnlUsd >= 0 ? '+' : ''}${formatUsd(s.netPnlUsd)}`}
           >
             {s.netPnlUsd >= 0 ? '+' : ''}
             {formatUsd(s.netPnlUsd)}
           </span>
         </div>
-        <div>
+        <div className="min-w-0">
           <span
-            className="block mb-1"
+            className="block mb-1 truncate"
             style={{ fontFamily: 'Outfit, sans-serif', fontSize: '9px', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#717182' }}
           >
             {t('common:win_rate').toUpperCase()}
           </span>
           <span
-            className="font-bold font-number"
+            className="font-bold font-number truncate block"
             style={{ fontSize: '14px', color: '#121212' }}
             aria-label={`Win rate: ${s.tradeCount > 0 ? formatPercent(s.winrate) : 'No trades'}`}
           >
@@ -1054,19 +1056,22 @@ function SessionCard({
       )}
 
       {/* Footer */}
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-between items-center mb-4 gap-2 min-w-0">
         <span
+          className="truncate"
           style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 700, color: '#717182', letterSpacing: '0.08em', textTransform: 'uppercase' }}
         >
           {t(s.tradeCount === 1 ? 'trades' : 'trades_plural', { count: s.tradeCount })}
         </span>
         <span
+          className="shrink-0"
           style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 600, color: '#717182' }}
         >
           {new Date(s.updatedAt || s.createdAt).toLocaleDateString()}
         </span>
         {s.invalidTradeCount > 0 && (
           <span
+            className="shrink-0"
             style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 700, color: 'var(--loss)', letterSpacing: '0.06em', textTransform: 'uppercase' }}
             aria-label={`${s.invalidTradeCount} invalid trades`}
           >
