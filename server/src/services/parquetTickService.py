@@ -152,7 +152,20 @@ def get_next_bucket_start(dt, tf):
     next_bucket_start_ts = current_bucket_start_ts + sec
     return datetime.datetime.fromtimestamp(next_bucket_start_ts, tz=datetime.timezone.utc).replace(tzinfo=None)
 
+# In-memory query cache for Parquet DuckDB queries
+PARQUET_QUERY_CACHE = {}
+MAX_CACHE_SIZE = 100
+
+def get_cache_key(symbol, timeframe, limit, before_time, after_time, from_time, to_time, replay_time):
+    return f"{symbol}:{timeframe}:{limit}:{before_time}:{after_time}:{from_time}:{to_time}:{replay_time}"
+
 def query_candles(symbol='XAUUSD', timeframe='M1', limit=None, before_time=None, after_time=None, from_time=None, to_time=None, replay_time=None):
+    cache_key = get_cache_key(symbol, timeframe, limit, before_time, after_time, from_time, to_time, replay_time)
+    if cache_key in PARQUET_QUERY_CACHE:
+        cached = PARQUET_QUERY_CACHE[cache_key]
+        if time.time() - cached['cached_at'] < 30: # 30s TTL
+            return cached['data']
+
     tf = timeframe.upper()
     default_limit = TIMEFRAME_DEFAULT_LIMITS.get(tf, 1200)
     try:
@@ -256,7 +269,7 @@ def query_candles(symbol='XAUUSD', timeframe='M1', limit=None, before_time=None,
             'tickVolume': int(r[5]),
         })
         
-    return {
+    res = {
         'ok': True,
         'symbol': symbol.upper(),
         'timeframe': tf,
@@ -265,6 +278,10 @@ def query_candles(symbol='XAUUSD', timeframe='M1', limit=None, before_time=None,
         'candles': candles,
         'latencyMs': round(latency_ms, 2),
     }
+    if len(PARQUET_QUERY_CACHE) > MAX_CACHE_SIZE:
+        PARQUET_QUERY_CACHE.clear()
+    PARQUET_QUERY_CACHE[cache_key] = {'cached_at': time.time(), 'data': res}
+    return res
 
 def query_next_candle(symbol='XAUUSD', timeframe='M1', after_time=None, replay_time=None):
     if not after_time:
