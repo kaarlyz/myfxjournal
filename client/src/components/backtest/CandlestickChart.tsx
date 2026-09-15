@@ -10,7 +10,7 @@ import {
   calculateAdaptiveSlDistance,
   ChartTimeframe,
   TradeSide,
-} from '../../../../server/src/services/backtestEngine';
+} from '../../shared/backtestEngine';
 import {
   OrderExecutionType,
   PendingOrderRecord,

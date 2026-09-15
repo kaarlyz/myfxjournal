@@ -24,7 +24,7 @@ import {
   calculateAdaptiveOffsets,
   BacktestTradeRecord,
   TradeSide,
-} from '../../../../server/src/services/backtestEngine';
+} from '../../shared/backtestEngine';
 import type { AppMode } from './ReplayControls';
 import type { PlannedOrderPreview } from './CandlestickChart';
 import {

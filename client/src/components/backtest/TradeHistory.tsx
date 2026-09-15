@@ -1,7 +1,7 @@
 import React from 'react';
 import { format } from 'date-fns';
 import { CheckCircle2, XCircle, AlertTriangle, ArrowUpRight, ArrowDownRight, History } from 'lucide-react';
-import { BacktestTradeRecord } from '../../../../server/src/services/backtestEngine';
+import { BacktestTradeRecord } from '../../shared/backtestEngine';
 
 interface TradeHistoryProps {
   trades: BacktestTradeRecord[];

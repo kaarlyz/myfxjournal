@@ -73,7 +73,7 @@ import {
   BacktestTradeRecord,
   TradeSide,
   BacktestStats as IBacktestStats,
-} from '../../../server/src/services/backtestEngine';
+} from '../shared/backtestEngine';
 
 const API_BASE = '/api/backtest';
 

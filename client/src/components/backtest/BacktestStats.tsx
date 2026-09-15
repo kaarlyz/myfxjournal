@@ -1,6 +1,6 @@
 import React from 'react';
 import { DollarSign, TrendingUp, TrendingDown, Target, Award, Percent, AlertOctagon } from 'lucide-react';
-import { BacktestStats as IBacktestStats } from '../../../../server/src/services/backtestEngine';
+import { BacktestStats as IBacktestStats } from '../../shared/backtestEngine';
 
 interface BacktestStatsProps {
   stats: IBacktestStats;
