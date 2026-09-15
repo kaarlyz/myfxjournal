@@ -891,48 +891,84 @@ export function resampleM1Candles(m1Candles: BacktestCandle[], targetTF: ChartTi
   const tfMinutes = TIMEFRAME_MINUTES[targetTF] || 1;
   const tfMs = tfMinutes * 60 * 1000;
 
-  const buckets = new Map<number, BacktestCandle[]>();
-
-  for (const c of m1Candles) {
-    const t = new Date(c.time).getTime();
-    const bucketTime = Math.floor(t / tfMs) * tfMs;
-    let list = buckets.get(bucketTime);
-    if (!list) {
-      list = [];
-      buckets.set(bucketTime, list);
+  // Ensure candles are sorted in ascending chronological order
+  let sorted = m1Candles;
+  for (let i = 1; i < m1Candles.length; i++) {
+    const tPrev = m1Candles[i - 1].time instanceof Date ? m1Candles[i - 1].time.getTime() : new Date(m1Candles[i - 1].time).getTime();
+    const tCurr = m1Candles[i].time instanceof Date ? m1Candles[i].time.getTime() : new Date(m1Candles[i].time).getTime();
+    if (tCurr < tPrev) {
+      sorted = [...m1Candles].sort((a, b) => (a.time instanceof Date ? a.time.getTime() : new Date(a.time).getTime()) - (b.time instanceof Date ? b.time.getTime() : new Date(b.time).getTime()));
+      break;
     }
-    list.push(c);
   }
 
   const resampled: BacktestCandle[] = [];
-  for (const [bucketTime, list] of buckets.entries()) {
-    if (list.length === 0) continue;
-    const open = list[0].open;
-    let high = -Infinity;
-    let low = Infinity;
-    let tickVolume = 0;
-    let realVolume = 0;
+  let currentBucket = -1;
+  let open = 0;
+  let high = -Infinity;
+  let low = Infinity;
+  let close = 0;
+  let tickVolume = 0;
+  let realVolume = 0;
+  let hasTickVol = false;
+  let hasRealVol = false;
+  let bucketStart = 0;
 
-    for (const item of list) {
-      if (item.high > high) high = item.high;
-      if (item.low < low) low = item.low;
-      tickVolume += item.tickVolume || 0;
-      realVolume += item.realVolume || 0;
+  for (let i = 0; i < sorted.length; i++) {
+    const c = sorted[i];
+    const t = c.time instanceof Date ? c.time.getTime() : new Date(c.time).getTime();
+    const bucketTime = Math.floor(t / tfMs) * tfMs;
+
+    if (bucketTime !== currentBucket) {
+      if (currentBucket !== -1) {
+        resampled.push({
+          time: new Date(bucketStart),
+          open,
+          high,
+          low,
+          close,
+          tickVolume: hasTickVol ? tickVolume : undefined,
+          realVolume: hasRealVol ? realVolume : undefined,
+        });
+      }
+      currentBucket = bucketTime;
+      bucketStart = bucketTime;
+      open = c.open;
+      high = c.high;
+      low = c.low;
+      close = c.close;
+      tickVolume = c.tickVolume || 0;
+      realVolume = c.realVolume || 0;
+      hasTickVol = c.tickVolume !== undefined;
+      hasRealVol = c.realVolume !== undefined;
+    } else {
+      if (c.high > high) high = c.high;
+      if (c.low < low) low = c.low;
+      close = c.close;
+      if (c.tickVolume !== undefined) {
+        tickVolume += c.tickVolume;
+        hasTickVol = true;
+      }
+      if (c.realVolume !== undefined) {
+        realVolume += c.realVolume;
+        hasRealVol = true;
+      }
     }
-    const close = list[list.length - 1].close;
+  }
 
+  if (currentBucket !== -1) {
     resampled.push({
-      time: new Date(bucketTime),
+      time: new Date(bucketStart),
       open,
       high,
       low,
       close,
-      tickVolume: tickVolume || undefined,
-      realVolume: realVolume || undefined,
+      tickVolume: hasTickVol ? tickVolume : undefined,
+      realVolume: hasRealVol ? realVolume : undefined,
     });
   }
 
-  return resampled.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  return resampled;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -3506,17 +3506,17 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               <>
                 {/* Drag handle */}
                 <div
-                  className="flex items-center justify-between px-2.5 py-1.5 bg-[#F0F0F0] border-b-2 border-[#121212] cursor-grab active:cursor-grabbing select-none touch-none"
+                  className="flex items-center justify-between px-2 py-1 bg-[#F0F0F0] border-b-2 border-[#121212] cursor-grab active:cursor-grabbing select-none touch-none"
                 >
                   <div className="flex items-center gap-1.5">
                     <GripHorizontal className="w-3.5 h-3.5 text-[#717182] pointer-events-none" />
                     <span
-                      className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 border border-[#121212] rounded"
+                      className="text-[9px] font-black uppercase tracking-wider px-1 py-0.2 border border-[#121212] rounded"
                       style={{ background: sideBg, color: sideColor }}
                     >
                       {plannedOrder.side}
                     </span>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-[#717182]">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-[#717182]">
                       {plannedOrder.orderType ? getOrderTypeLabel(plannedOrder.orderType) : 'Order'}
                     </span>
                   </div>
@@ -3524,7 +3524,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setOverlayCollapsed(true); }}
-                      className="p-1 text-[#717182] hover:text-[#121212] hover:bg-white/60 rounded transition-colors cursor-pointer"
+                      className="p-0.5 text-[#717182] hover:text-[#121212] hover:bg-white/60 rounded transition-colors cursor-pointer"
                       aria-label="Ciutkan panel"
                       title="Ciutkan panel (Minimize)"
                     >
@@ -3533,7 +3533,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
-                      className="p-1 text-[#717182] hover:text-[#DC2626] hover:bg-red-50 rounded transition-colors cursor-pointer"
+                      className="p-0.5 text-[#717182] hover:text-[#DC2626] hover:bg-red-50 rounded transition-colors cursor-pointer"
                       aria-label="Batal"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -3541,29 +3541,61 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                   </div>
                 </div>
 
-                {/* Expanded — full details */}
-                <div className="p-2.5 sm:p-3 space-y-2">
-                  {/* Entry + RR row */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-[10px] font-black uppercase tracking-wider text-[#717182]">Entry</div>
-                      <div className="font-mono font-black text-sm text-[#121212]">{plannedOrder.entryPrice.toFixed(2)}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[10px] font-black uppercase tracking-wider text-[#717182]">R:R</div>
-                      <div className="font-mono font-black text-sm text-[#1040C0]">
-                        {plannedOrder.rrRatio && plannedOrder.rrRatio > 0 ? `1:${plannedOrder.rrRatio.toFixed(2)}` : '-'}
+                {/* Expanded — compact details */}
+                <div className="p-2 space-y-1.5">
+                  {/* Inline Stats & Lot Row: Entry, R:R, and Lot Size */}
+                  <div className="flex items-center justify-between gap-2 border border-[#121212] bg-slate-50 rounded px-2 py-1">
+                    <div className="flex items-center gap-2">
+                      <div>
+                        <span className="text-[8px] font-black uppercase text-[#717182] block leading-none">Entry</span>
+                        <span className="font-mono font-black text-xs text-[#121212]">{plannedOrder.entryPrice.toFixed(2)}</span>
                       </div>
+                      <div className="border-l border-slate-300 pl-2">
+                        <span className="text-[8px] font-black uppercase text-[#717182] block leading-none">R:R</span>
+                        <span className="font-mono font-black text-xs text-[#1040C0]">
+                          {plannedOrder.rrRatio && plannedOrder.rrRatio > 0 ? `1:${plannedOrder.rrRatio.toFixed(2)}` : '-'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <span className="text-[9px] font-black uppercase text-[#121212]">Lot:</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={lotInputStr}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setLotInputStr(val);
+                          const num = parseFloat(val);
+                          if (!isNaN(num) && num > 0) {
+                            onPlannedOrderChange?.({
+                              entryPrice: plannedOrder.entryPrice,
+                              slPrice: plannedOrder.slPrice || 0,
+                              tpPrice: plannedOrder.tpPrice || 0,
+                              lotSize: Math.round(num * 100) / 100,
+                            });
+                          }
+                        }}
+                        className="w-14 bg-white border border-[#121212] rounded px-1 py-0.5 text-xs font-mono font-black text-[#121212] outline-none text-center shadow-[1px_1px_0px_0px_#121212]"
+                        placeholder="0.01"
+                      />
                     </div>
                   </div>
 
-                  {/* SL / TP row */}
-                  <div className="flex items-center gap-2">
+                  {/* Merged SL/Risk & TP/Target Cards */}
+                  <div className="flex items-center gap-1.5">
                     {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? (
                       <div className="flex-1 flex items-center justify-between bg-[#FFF0F0] border border-[#DC2626] rounded px-2 py-1 text-xs">
                         <div>
-                          <span className="text-[9px] uppercase font-black text-[#DC2626] block">SL</span>
-                          <span className="font-mono font-bold text-[#121212]">{plannedOrder.slPrice.toFixed(2)}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[8px] uppercase font-black text-[#DC2626]">SL</span>
+                            <span className="font-mono font-bold text-xs text-[#121212]">{plannedOrder.slPrice.toFixed(2)}</span>
+                          </div>
+                          <div className="text-[9px] font-mono font-extrabold text-[#DC2626]">
+                            -${plannedOrder.riskAmount.toFixed(2)}
+                          </div>
                         </div>
                         <button
                           type="button"
@@ -3589,8 +3621,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                     {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? (
                       <div className="flex-1 flex items-center justify-between bg-[#F0FFF8] border border-[#059669] rounded px-2 py-1 text-xs">
                         <div>
-                          <span className="text-[9px] uppercase font-black text-[#059669] block">TP</span>
-                          <span className="font-mono font-bold text-[#121212]">{plannedOrder.tpPrice.toFixed(2)}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[8px] uppercase font-black text-[#059669]">TP</span>
+                            <span className="font-mono font-bold text-xs text-[#121212]">{plannedOrder.tpPrice.toFixed(2)}</span>
+                          </div>
+                          <div className="text-[9px] font-mono font-extrabold text-[#059669]">
+                            +${(plannedOrder.targetProfit || 0).toFixed(2)}
+                          </div>
                         </div>
                         <button
                           type="button"
@@ -3614,67 +3651,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                     )}
                   </div>
 
-                  {/* Risk / Target grid */}
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <div className="border border-[#121212] bg-slate-50 rounded px-2 py-1.5">
-                      <div className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Risk</div>
-                      <div className="font-mono font-bold text-xs text-[#DC2626] mt-0.5">
-                        {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? `-$${plannedOrder.riskAmount.toFixed(2)}` : 'Tanpa SL'}
-                      </div>
-                    </div>
-                    <div className="border border-[#121212] bg-slate-50 rounded px-2 py-1.5">
-                      <div className="text-[9px] font-black uppercase tracking-wider text-[#717182]">Target</div>
-                      <div className="font-mono font-bold text-xs text-[#059669] mt-0.5">
-                        {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? `+$${(plannedOrder.targetProfit || 0).toFixed(2)}` : 'Tanpa TP'}
-                      </div>
-                    </div>
-
-                    {/* Interactive Lot Input with Two-Way Risk Sync */}
-                    <div className="border border-[#121212] bg-white rounded px-2 py-1.5 col-span-2 shadow-[1px_1px_0px_0px_#121212]">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[9px] font-black uppercase tracking-wider text-[#121212]">Ukuran Lot</span>
-                        <span className="text-[9px] font-mono text-slate-400">Step 0.01</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0.01"
-                          value={lotInputStr}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setLotInputStr(val);
-                            const num = parseFloat(val);
-                            if (!isNaN(num) && num > 0) {
-                              onPlannedOrderChange?.({
-                                entryPrice: plannedOrder.entryPrice,
-                                slPrice: plannedOrder.slPrice || 0,
-                                tpPrice: plannedOrder.tpPrice || 0,
-                                lotSize: Math.round(num * 100) / 100,
-                              });
-                            }
-                          }}
-                          className="flex-1 bg-slate-50 border border-slate-300 focus:border-[#121212] rounded px-2 py-0.5 text-xs font-mono font-black text-[#121212] outline-none"
-                          placeholder="0.01"
-                        />
-                        <span className="text-xs font-mono font-bold text-[#717182]">Lot</span>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Validation error */}
                   {plannedOrder.isValid === false && (
-                    <div className="p-2 bg-[#FFF0F0] border border-[#DC2626] rounded text-[10px] text-[#DC2626] font-medium leading-tight">
+                    <div className="p-1.5 bg-[#FFF0F0] border border-[#DC2626] rounded text-[9px] text-[#DC2626] font-medium leading-tight">
                       {plannedOrder.validationError || 'Level harga tidak valid untuk tipe order ini.'}
                     </div>
                   )}
 
-                  {/* Action buttons */}
-                  <div className="flex items-center gap-2 pt-0.5">
+                  {/* Slimmer Action buttons */}
+                  <div className="flex items-center gap-1.5 pt-0.5">
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
-                      className="flex-1 min-h-[36px] border-2 border-[#121212] bg-white text-[#121212] font-bold text-[11px] uppercase tracking-wider rounded hover:bg-slate-50 active:translate-y-[1px] transition-transform cursor-pointer"
+                      className="flex-1 min-h-[30px] py-1 border-2 border-[#121212] bg-white text-[#121212] font-bold text-[10px] uppercase tracking-wider rounded hover:bg-slate-50 active:translate-y-[1px] transition-transform cursor-pointer"
                     >
                       Batal
                     </button>
@@ -3682,7 +3671,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                       type="button"
                       disabled={plannedOrder.isValid === false}
                       onClick={(e) => { e.stopPropagation(); onConfirmVisualOrder?.(); }}
-                      className={`flex-1 min-h-[36px] border-2 border-[#121212] font-black text-[11px] uppercase tracking-wider rounded shadow-[2px_2px_0px_0px_#717182] active:shadow-none active:translate-y-[1px] transition-all cursor-pointer ${
+                      className={`flex-1 min-h-[30px] py-1 border-2 border-[#121212] font-black text-[10px] uppercase tracking-wider rounded shadow-[2px_2px_0px_0px_#717182] active:shadow-none active:translate-y-[1px] transition-all cursor-pointer ${
                         plannedOrder.isValid === false
                           ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed shadow-none'
                           : 'bg-[#121212] text-white hover:bg-[#2a2a2a]'

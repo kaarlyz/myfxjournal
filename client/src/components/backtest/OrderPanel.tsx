@@ -88,6 +88,7 @@ export interface OrderPanelProps {
   controlledSlPrice?: number | null;
   controlledTpPrice?: number | null;
   selectedSideOverride?: TradeSide;
+  onSideChange?: (side: TradeSide) => void;
   selectedOrderTypeOverride?: OrderExecutionType;
   lockRR?: boolean;
   onToggleLockRR?: () => void;
@@ -123,6 +124,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     controlledSlPrice,
     controlledTpPrice,
     selectedSideOverride,
+    onSideChange,
     selectedOrderTypeOverride,
     onVisualOrderSubmit,
     lockRR,
@@ -130,12 +132,17 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   }: OrderPanelProps,
   ref
 ) {
+  const symUpper = (symbol || '').toUpperCase();
+  const priceDecimals = (symUpper.includes('EUR') || symUpper.includes('GBP') || symUpper.includes('AUD') || symUpper.includes('NZD') || symUpper.includes('CAD') || symUpper.includes('CHF')) ? 4 : (symUpper.includes('JPY') ? 3 : 2);
+  const priceStep = priceDecimals >= 4 ? '0.0001' : '0.01';
+  const roundPrice = (p: number) => {
+    const factor = Math.pow(10, priceDecimals);
+    return Math.round(p * factor) / factor;
+  };
+  const formatPrice = (p: number) => p.toFixed(priceDecimals);
+
   const [internalLockRR, setInternalLockRR] = useState<boolean>(false);
   const isRRLocked = lockRR !== undefined ? lockRR : internalLockRR;
-  const toggleRRLock = () => {
-    if (onToggleLockRR) onToggleLockRR();
-    else setInternalLockRR((v) => !v);
-  };
 
   // Order Type state: Category (MARKET / LIMIT / STOP) and Direction (BUY / SELL)
   const [orderCategory, setOrderCategory] = useState<OrderCategory>('MARKET');
@@ -154,7 +161,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   // Dynamic Effective Order Classification
   const parsedEntryNum = parseFloat(entryPriceStr) || currentPrice;
   const tolerance = getSymbolPriceTolerance(symbol);
-  const effectiveEntry = orderCategory === 'MARKET' && Math.abs(parsedEntryNum - currentPrice) <= tolerance
+  const effectiveEntry = orderCategory === 'MARKET'
     ? currentPrice
     : parsedEntryNum;
 
@@ -166,6 +173,21 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     requestedCategory: orderCategory,
   });
   const currentOrderType = effectiveClassification.orderType;
+
+  // Numbers & Metrics for locking and validation
+  const numSL = parseFloat(slPriceStr) || 0;
+  const numTP = parseFloat(tpPriceStr) || 0;
+  const tradeSide: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
+  const rrCalc = calculateRR(tradeSide, effectiveEntry, numSL, numTP);
+
+  const toggleRRLock = () => {
+    if (!isRRLocked && rrCalc.isValid && rrCalc.rr > 0) {
+      setSelectedRR(rrCalc.rr);
+      setRrInputStr(rrCalc.rr.toFixed(1));
+    }
+    if (onToggleLockRR) onToggleLockRR();
+    else setInternalLockRR((v) => !v);
+  };
 
   // Sync risk % prop
   useEffect(() => {
@@ -179,6 +201,10 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     if (selectedSideOverride) {
       const newDir: OrderDirection = selectedSideOverride === 'LONG' ? 'BUY' : 'SELL';
       setOrderDirection(newDir);
+      if (slPriceStr && tpPriceStr) {
+        const baseEntry = orderCategory === 'MARKET' ? currentPrice : (parseFloat(entryPriceStr) || currentPrice);
+        resetLevelsForPrice(baseEntry, newDir, selectedRR);
+      }
     }
   }, [selectedSideOverride]);
 
@@ -194,7 +220,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   // Sync external controlled Entry/SL/TP from chart drag
   useEffect(() => {
     if (controlledEntryPrice !== undefined && controlledEntryPrice !== null && controlledEntryPrice > 0) {
-      setEntryPriceStr(controlledEntryPrice.toFixed(2));
+      setEntryPriceStr(formatPrice(controlledEntryPrice));
       if (currentPrice > 0) {
         const eff = getEffectiveOrderType({
           direction: orderDirection,
@@ -205,21 +231,25 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
         setOrderCategory(eff.category);
       }
     }
-  }, [controlledEntryPrice, currentPrice, orderDirection, symbol]);
+  }, [controlledEntryPrice, symbol]);
 
   useEffect(() => {
     if (controlledSlPrice !== undefined && controlledSlPrice !== null && controlledSlPrice > 0) {
-      setSlPriceStr(controlledSlPrice.toFixed(2));
+      setSlPriceStr(formatPrice(controlledSlPrice));
       setShowChartPlannedLines(true);
+    } else if (controlledSlPrice === null) {
+      setSlPriceStr('');
     }
-  }, [controlledSlPrice]);
+  }, [controlledSlPrice, symbol]);
 
   useEffect(() => {
     if (controlledTpPrice !== undefined && controlledTpPrice !== null && controlledTpPrice > 0) {
-      setTpPriceStr(controlledTpPrice.toFixed(2));
+      setTpPriceStr(formatPrice(controlledTpPrice));
       setShowChartPlannedLines(true);
+    } else if (controlledTpPrice === null) {
+      setTpPriceStr('');
     }
-  }, [controlledTpPrice]);
+  }, [controlledTpPrice, symbol]);
 
   // Helper to re-calculate clean SL/TP from price, direction, and RR
   const resetLevelsForPrice = (baseEntry: number, direction: OrderDirection, rr: number) => {
@@ -227,40 +257,40 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     const { slDistance } = calculateAdaptiveOffsets(candles || [], currentPrice > 0 ? currentPrice : baseEntry, symbol);
     const side: TradeSide = direction === 'BUY' ? 'LONG' : 'SHORT';
     if (direction === 'BUY') {
-      const sl = Math.round((baseEntry - slDistance) * 100) / 100;
+      const sl = roundPrice(baseEntry - slDistance);
       const tp = calculateTPFromRR(side, baseEntry, sl, rr);
-      setSlPriceStr(sl.toFixed(2));
-      setTpPriceStr(tp.toFixed(2));
+      setSlPriceStr(formatPrice(sl));
+      setTpPriceStr(formatPrice(tp));
     } else {
-      const sl = Math.round((baseEntry + slDistance) * 100) / 100;
+      const sl = roundPrice(baseEntry + slDistance);
       const tp = calculateTPFromRR(side, baseEntry, sl, rr);
-      setSlPriceStr(sl.toFixed(2));
-      setTpPriceStr(tp.toFixed(2));
+      setSlPriceStr(formatPrice(sl));
+      setTpPriceStr(formatPrice(tp));
     }
   };
 
   // Switch Order Category
   const handleCategorySwitch = (cat: OrderCategory) => {
     setOrderCategory(cat);
-    const { pendingOffset, slDistance } = calculateAdaptiveOffsets(candles || [], currentPrice, symbol);
+    const { pendingOffset } = calculateAdaptiveOffsets(candles || [], currentPrice, symbol);
     if (cat === 'MARKET') {
-      setEntryPriceStr(currentPrice > 0 ? currentPrice.toFixed(2) : '');
+      setEntryPriceStr(currentPrice > 0 ? formatPrice(currentPrice) : '');
       if (slPriceStr && tpPriceStr) {
         resetLevelsForPrice(currentPrice, orderDirection, selectedRR);
       }
     } else if (cat === 'LIMIT') {
       // For Limit: Buy Limit < current, Sell Limit > current
       const limitEntry = orderDirection === 'BUY' ? currentPrice - pendingOffset : currentPrice + pendingOffset;
-      const roundedEntry = Math.round(limitEntry * 100) / 100;
-      setEntryPriceStr(roundedEntry.toFixed(2));
+      const roundedEntry = roundPrice(limitEntry);
+      setEntryPriceStr(formatPrice(roundedEntry));
       if (slPriceStr && tpPriceStr) {
         resetLevelsForPrice(roundedEntry, orderDirection, selectedRR);
       }
     } else if (cat === 'STOP') {
       // For Stop: Buy Stop > current, Sell Stop < current
       const stopEntry = orderDirection === 'BUY' ? currentPrice + pendingOffset : currentPrice - pendingOffset;
-      const roundedEntry = Math.round(stopEntry * 100) / 100;
-      setEntryPriceStr(roundedEntry.toFixed(2));
+      const roundedEntry = roundPrice(stopEntry);
+      setEntryPriceStr(formatPrice(roundedEntry));
       if (slPriceStr && tpPriceStr) {
         resetLevelsForPrice(stopEntry, orderDirection, selectedRR);
       }
@@ -270,23 +300,39 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   // Switch Direction (BUY / SELL)
   const handleDirectionSwitch = (dir: OrderDirection) => {
     setOrderDirection(dir);
-    const effectiveEntry = orderCategory === 'MARKET' ? currentPrice : (parseFloat(entryPriceStr) || currentPrice);
-    if (slPriceStr && tpPriceStr) {
-      resetLevelsForPrice(effectiveEntry, dir, selectedRR);
+    onSideChange?.(dir === 'BUY' ? 'LONG' : 'SHORT');
+
+    if (orderCategory === 'MARKET') {
+      if (slPriceStr && tpPriceStr) {
+        resetLevelsForPrice(currentPrice, dir, selectedRR);
+      }
+    } else {
+      // For pending orders, flip the entry level across market price so it stays valid
+      const { pendingOffset } = calculateAdaptiveOffsets(candles || [], currentPrice, symbol);
+      const newEntry = orderCategory === 'LIMIT'
+        ? (dir === 'BUY' ? currentPrice - pendingOffset : currentPrice + pendingOffset)
+        : (dir === 'BUY' ? currentPrice + pendingOffset : currentPrice - pendingOffset);
+      const roundedEntry = roundPrice(newEntry);
+      setEntryPriceStr(formatPrice(roundedEntry));
+      if (slPriceStr && tpPriceStr) {
+        resetLevelsForPrice(roundedEntry, dir, selectedRR);
+      }
     }
   };
 
-  // Initial calculation or when currentPrice appears
+  // Sync entry price to market price when in MARKET mode
   useEffect(() => {
-    if (currentPrice > 0 && orderCategory === 'MARKET' && (!entryPriceStr || entryPriceStr === '0')) {
-      setEntryPriceStr(currentPrice.toFixed(2));
+    if (currentPrice > 0 && orderCategory === 'MARKET') {
+      setEntryPriceStr(formatPrice(currentPrice));
     }
-  }, [currentPrice]);
+  }, [currentPrice, orderCategory, symbol]);
 
   // When active trade closes, reset to market price
   useEffect(() => {
-    if (!activeTrade && currentPrice > 0 && orderCategory === 'MARKET') {
-      setEntryPriceStr(currentPrice.toFixed(2));
+    if (!activeTrade) {
+      if (currentPrice > 0 && orderCategory === 'MARKET') {
+        setEntryPriceStr(formatPrice(currentPrice));
+      }
     }
   }, [activeTrade]);
 
@@ -315,7 +361,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
       if (!isNaN(numSL) && numSL > 0 && effectiveEntry > 0) {
         const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
         const newTP = calculateTPFromRR(side, effectiveEntry, numSL, parsed);
-        setTpPriceStr(newTP.toFixed(2));
+        setTpPriceStr(formatPrice(newTP));
       }
     }
   };
@@ -328,7 +374,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     if (!isNaN(numSL) && numSL > 0 && effectiveEntry > 0) {
       const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
       const newTP = calculateTPFromRR(side, effectiveEntry, numSL, rr);
-      setTpPriceStr(newTP.toFixed(2));
+      setTpPriceStr(formatPrice(newTP));
     } else if (effectiveEntry > 0) {
       setShowChartPlannedLines(true);
       resetLevelsForPrice(effectiveEntry, orderDirection, rr);
@@ -346,13 +392,15 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
         marketPrice: currentPrice,
         symbol,
       });
-      setOrderCategory(eff.category);
+      if (eff.category !== 'MARKET') {
+        setOrderCategory(eff.category);
+      }
     }
     const numSL = parseFloat(slPriceStr);
-    if (!isNaN(parsedEntry) && parsedEntry > 0 && !isNaN(numSL) && numSL > 0) {
+    if ((isRRLocked || !tpPriceStr) && !isNaN(parsedEntry) && parsedEntry > 0 && !isNaN(numSL) && numSL > 0) {
       const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
       const newTP = calculateTPFromRR(side, parsedEntry, numSL, selectedRR);
-      setTpPriceStr(newTP.toFixed(2));
+      setTpPriceStr(formatPrice(newTP));
     }
   };
 
@@ -363,18 +411,14 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     if (isRRLocked && !isNaN(numSL) && numSL > 0 && effectiveEntry > 0) {
       const side: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
       const newTP = calculateTPFromRR(side, effectiveEntry, numSL, selectedRR);
-      setTpPriceStr(newTP.toFixed(2));
+      setTpPriceStr(formatPrice(newTP));
     }
   };
 
   // Numbers & Metrics
-  const numSL = parseFloat(slPriceStr) || 0;
-  const numTP = parseFloat(tpPriceStr) || 0;
   const riskAmount = (balance * riskPercent) / 100;
   const contractSize = getSymbolContractSize(symbol);
   const lotSize = calculatePositionSize(balance, riskPercent, effectiveEntry, numSL, contractSize);
-  const tradeSide: TradeSide = orderDirection === 'BUY' ? 'LONG' : 'SHORT';
-  const rrCalc = calculateRR(tradeSide, effectiveEntry, numSL, numTP);
 
   // Price validation
   const validation = validateOrderPrices(currentOrderType, currentPrice, effectiveEntry, numSL, numTP, symbol);
@@ -387,23 +431,30 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   // Emit planned trade preview to parent for chart tool synchronization
   useEffect(() => {
     if (!onPlannedTradeChange) return;
-    if (!showChartPlannedLines || Boolean(activeTrade) || effectiveEntry <= 0 || numSL <= 0 || numTP <= 0) {
+    if (!showChartPlannedLines || Boolean(activeTrade) || effectiveEntry <= 0) {
       onPlannedTradeChange(null);
       return;
     }
-    const targetProfit = riskAmount * (rrCalc.isValid ? rrCalc.rr : selectedRR);
+    const hasSL = numSL > 0;
+    const hasTP = numTP > 0;
+    const targetProfit = (hasSL && hasTP && rrCalc.isValid)
+      ? riskAmount * rrCalc.rr
+      : riskAmount * selectedRR;
+
     onPlannedTradeChange({
       orderType: currentOrderType,
       side: orderDirection,
       entryPrice: effectiveEntry,
-      slPrice: numSL,
-      tpPrice: numTP,
-      lotSize,
+      slPrice: hasSL ? numSL : null,
+      tpPrice: hasTP ? numTP : null,
+      lotSize: lotSize > 0 ? lotSize : 1.0,
       riskAmount,
       targetProfit,
       rrRatio: rrCalc.isValid ? rrCalc.rr : selectedRR,
       isValid: validation.isValid,
       validationError: validation.error,
+      hasSL,
+      hasTP,
     });
   }, [
     showChartPlannedLines,
@@ -424,15 +475,15 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
   ]);
 
   const handleExecute = () => {
-    if (activeTrade) return;
+    if (activeTrade || !validation.isValid) return;
 
     if (onVisualOrderSubmit) {
       if (!effectiveClassification.isPending) {
         const { slDistance } = calculateAdaptiveOffsets(candles || [], currentPrice, symbol);
         const sl = numSL > 0 ? numSL : (orderDirection === 'BUY' ? effectiveEntry - slDistance : effectiveEntry + slDistance);
         const tp = numTP > 0 ? numTP : (orderDirection === 'BUY' ? effectiveEntry + slDistance * selectedRR : effectiveEntry - slDistance * selectedRR);
-        const roundedSL = Math.round(sl * 100) / 100;
-        const roundedTP = Math.round(tp * 100) / 100;
+        const roundedSL = roundPrice(sl);
+        const roundedTP = roundPrice(tp);
         const calcLots = calculatePositionSize(balance, riskPercent, effectiveEntry, roundedSL, contractSize);
         onVisualOrderSubmit({
           orderType: currentOrderType,
@@ -445,7 +496,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
         });
         return;
       } else {
-        // Pending order (Limit or Stop): show Entry ONLY, SL & TP added on chart confirm panel!
+        // Pending order (Limit or Stop): show Entry, SL & TP added on chart confirm panel!
         const calcLots = numSL > 0 ? calculatePositionSize(balance, riskPercent, effectiveEntry, numSL, contractSize) : 1.0;
         onVisualOrderSubmit({
           orderType: currentOrderType,
@@ -491,51 +542,56 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     ref,
     () => ({
       executeQuick: (side: TradeSide) => {
-        if (isSubmitting || Boolean(activeTrade)) return;
+        if (isSubmitting || Boolean(activeTrade) || currentPrice <= 0) return;
         const dir: OrderDirection = side === 'LONG' ? 'BUY' : 'SELL';
-        if (dir !== orderDirection || orderCategory !== 'MARKET') {
-          setOrderCategory('MARKET');
-          setOrderDirection(dir);
-          const { slDistance } = calculateAdaptiveOffsets(candles || [], currentPrice, symbol);
-          const newSl = dir === 'BUY'
-            ? Math.round((currentPrice - slDistance) * 100) / 100
-            : Math.round((currentPrice + slDistance) * 100) / 100;
-          const newTp = calculateTPFromRR(side, currentPrice, newSl, selectedRR);
-          const newLot = calculatePositionSize(balance, riskPercent, currentPrice, newSl, contractSize);
-          const newRisk = (balance * riskPercent) / 100;
-          setEntryPriceStr(currentPrice.toFixed(2));
-          setSlPriceStr(newSl.toFixed(2));
-          setTpPriceStr(newTp.toFixed(2));
-          onOpenTrade({
-            side,
-            entryPrice: currentPrice,
-            slPrice: newSl,
-            tpPrice: newTp,
-            volume: newLot,
-            riskAmount: newRisk,
-          });
-        } else {
-          handleExecute();
-        }
+        setOrderCategory('MARKET');
+        setOrderDirection(dir);
+        onSideChange?.(side);
+
+        const { slDistance } = calculateAdaptiveOffsets(candles || [], currentPrice, symbol);
+        const hasValidCurrentSL = numSL > 0 && (dir === 'BUY' ? numSL < currentPrice : numSL > currentPrice);
+        const effectiveSL = hasValidCurrentSL
+          ? numSL
+          : (dir === 'BUY' ? roundPrice(currentPrice - slDistance) : roundPrice(currentPrice + slDistance));
+
+        const hasValidCurrentTP = numTP > 0 && (dir === 'BUY' ? numTP > currentPrice : numTP < currentPrice);
+        const effectiveTP = hasValidCurrentTP
+          ? numTP
+          : calculateTPFromRR(side, currentPrice, effectiveSL, selectedRR);
+
+        const effLot = calculatePositionSize(balance, riskPercent, currentPrice, effectiveSL, contractSize);
+        const effRisk = (balance * riskPercent) / 100;
+
+        setEntryPriceStr(formatPrice(currentPrice));
+        setSlPriceStr(formatPrice(effectiveSL));
+        setTpPriceStr(formatPrice(effectiveTP));
+
+        onOpenTrade({
+          side,
+          entryPrice: currentPrice,
+          slPrice: effectiveSL,
+          tpPrice: effectiveTP,
+          volume: effLot > 0 ? effLot : 1.0,
+          riskAmount: effRisk,
+        });
       },
       getSide: () => tradeSide,
     }),
     [
-      orderCategory,
-      orderDirection,
       isSubmitting,
       activeTrade,
       currentPrice,
       numSL,
       numTP,
-      lotSize,
-      riskAmount,
       balance,
       riskPercent,
       symbol,
       selectedRR,
       contractSize,
       tradeSide,
+      onOpenTrade,
+      onSideChange,
+      priceDecimals,
     ]
   );
 
@@ -545,13 +601,14 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
     isTradeOpen && currentPrice > 0
       ? calculatePnL(activeTrade.side, activeTrade.entryPrice, currentPrice, activeTrade.volume, contractSize)
       : 0;
-  const livePriceRisk = isTradeOpen ? Math.abs(activeTrade.entryPrice - activeTrade.slPrice) : 0;
+  const hasValidSl = Boolean(activeTrade && activeTrade.slPrice && activeTrade.slPrice > 0);
+  const livePriceRisk = isTradeOpen && hasValidSl ? Math.abs(activeTrade.entryPrice - activeTrade.slPrice) : 0;
   const livePriceCaptured = isTradeOpen
     ? activeTrade.side === 'LONG'
       ? currentPrice - activeTrade.entryPrice
       : activeTrade.entryPrice - currentPrice
     : 0;
-  const liveRR = livePriceRisk > 0 ? Math.round((livePriceCaptured / livePriceRisk) * 100) / 100 : 0;
+  const liveRR = livePriceRisk > 0 ? Math.round((livePriceCaptured / livePriceRisk) * 100) / 100 : null;
 
   return (
     <div className="bg-white border-2 border-[#121212] rounded-xl p-3.5 sm:p-4 flex flex-col gap-3.5 text-[#121212] shadow-[4px_4px_0px_0px_#121212] h-full overflow-y-auto">
@@ -563,7 +620,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
             <span className="w-2 h-2 rounded-full bg-[#B45309] animate-pulse" />
           </div>
           <div className="text-lg sm:text-xl font-mono font-black text-[#121212] mt-0.5 tracking-tight">
-            {currentPrice > 0 ? currentPrice.toFixed(2) : '--.--'}
+            {currentPrice > 0 ? formatPrice(currentPrice) : '--.--'}
           </div>
         </div>
 
@@ -622,15 +679,19 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
             <div className="grid grid-cols-3 gap-1.5 text-center font-mono text-xs">
               <div className="bg-white p-1.5 rounded border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]">
                 <div className="text-[#717182] text-[10px] font-bold uppercase">Entry</div>
-                <div className="font-extrabold text-[#121212]">{activeTrade.entryPrice.toFixed(2)}</div>
+                <div className="font-extrabold text-[#121212]">{formatPrice(activeTrade.entryPrice)}</div>
               </div>
               <div className="bg-white p-1.5 rounded border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]">
                 <div className="text-[#717182] text-[10px] font-bold uppercase">SL</div>
-                <div className="font-extrabold text-[#DC2626]">{activeTrade.slPrice.toFixed(2)}</div>
+                <div className="font-extrabold text-[#DC2626]">
+                  {activeTrade.slPrice > 0 ? formatPrice(activeTrade.slPrice) : '--'}
+                </div>
               </div>
               <div className="bg-white p-1.5 rounded border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]">
                 <div className="text-[#717182] text-[10px] font-bold uppercase">TP</div>
-                <div className="font-extrabold text-[#059669]">{activeTrade.tpPrice.toFixed(2)}</div>
+                <div className="font-extrabold text-[#059669]">
+                  {activeTrade.tpPrice > 0 ? formatPrice(activeTrade.tpPrice) : '--'}
+                </div>
               </div>
             </div>
 
@@ -644,8 +705,8 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
               </div>
               <div className="text-right">
                 <div className="text-[#717182] text-[10px] font-bold uppercase">Live R:R</div>
-                <div className={`text-base font-extrabold ${liveRR >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
-                  {liveRR >= 0 ? `+${liveRR.toFixed(2)}R` : `${liveRR.toFixed(2)}R`}
+                <div className={`text-base font-extrabold ${liveRR !== null && liveRR >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'}`}>
+                  {liveRR !== null ? (liveRR >= 0 ? `+${liveRR.toFixed(2)}R` : `${liveRR.toFixed(2)}R`) : '--'}
                 </div>
               </div>
             </div>
@@ -735,7 +796,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
               ) : (
                 <button
                   type="button"
-                  onClick={() => onPickChartEntry?.(currentOrderType)}
+                  onClick={() => (onPickChartEntry ? onPickChartEntry(currentOrderType) : handleExecute())}
                   className="text-[10px] font-mono text-[#1040C0] font-black uppercase flex items-center gap-1 hover:underline cursor-pointer"
                   title="Klik level pada chart untuk menentukan harga entry"
                 >
@@ -747,14 +808,14 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
 
             {orderCategory === 'MARKET' ? (
               <div className="w-full min-h-[38px] bg-[#F8FAFC] border-2 border-[#121212] rounded-lg px-3 py-2 text-[#121212] font-mono font-black text-sm flex items-center justify-between shadow-[2px_2px_0px_0px_#121212]">
-                <span>{currentPrice > 0 ? currentPrice.toFixed(2) : '--.--'}</span>
+                <span>{currentPrice > 0 ? formatPrice(currentPrice) : '--.--'}</span>
                 <span className="text-[10px] font-bold text-[#717182]">Terkunci ke Harga Replay</span>
               </div>
             ) : (
               <div className="relative">
                 <input
                   type="number"
-                  step="0.01"
+                  step={priceStep}
                   value={entryPriceStr}
                   onChange={(e) => handleEntryChange(e.target.value)}
                   placeholder="e.g. 3340.00"
@@ -842,7 +903,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
                 </div>
                 <input
                   type="number"
-                  step="0.01"
+                  step={priceStep}
                   value={slPriceStr}
                   onChange={(e) => handleSlChange(e.target.value)}
                   placeholder="e.g. 3335.00"
@@ -923,7 +984,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
                 </div>
                 <input
                   type="number"
-                  step="0.01"
+                  step={priceStep}
                   value={tpPriceStr}
                   onChange={(e) => setTpPriceStr(e.target.value)}
                   placeholder="e.g. 3350.00"
@@ -966,7 +1027,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[#717182] font-bold">Target Entry:</span>
-                    <strong className="text-[#1040C0] font-black">${effectiveEntry.toFixed(2)}</strong>
+                    <strong className="text-[#1040C0] font-black">${formatPrice(effectiveEntry)}</strong>
                   </div>
                   <div className="text-[10px] text-[#717182] pt-0.5">
                     Garis level Entry akan muncul di chart. SL & TP dapat diatur interaktif langsung pada chart.
@@ -994,6 +1055,7 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
                     setSlPriceStr('');
                     setTpPriceStr('');
                     setShowChartPlannedLines(false);
+                    onPlannedTradeChange?.(null);
                   }}
                   className="min-h-[34px] py-1 px-3 text-[11px] font-mono font-bold uppercase rounded-lg border-2 border-[#121212] bg-white text-[#717182] hover:text-[#DC2626] hover:bg-[#FEE2E2] transition-all shadow-[1px_1px_0px_0px_#121212] cursor-pointer"
                 >
@@ -1052,10 +1114,10 @@ export const OrderPanel = forwardRef<OrderPanelHandle, OrderPanelProps>(function
                     >
                       {po.orderType.replace('_', ' ')}
                     </span>
-                    <span>@{po.entryPrice.toFixed(2)}</span>
+                    <span>@{formatPrice(po.entryPrice)}</span>
                   </div>
                   <div className="text-[9px] text-[#717182] mt-0.5">
-                    SL: {po.slPrice.toFixed(2)} | TP: {po.tpPrice.toFixed(2)} | {po.volume.toFixed(2)}L
+                    SL: {po.slPrice > 0 ? formatPrice(po.slPrice) : '--'} | TP: {po.tpPrice > 0 ? formatPrice(po.tpPrice) : '--'} | {po.volume.toFixed(2)}L
                   </div>
                 </div>
 

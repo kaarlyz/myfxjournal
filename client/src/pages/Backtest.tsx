@@ -56,10 +56,10 @@ import {
   PendingOrderRecord,
   OrderExecutionType,
   OrderDirection,
-  getOrderTypeLabel,
   validateOrderPrices,
   getEffectiveOrderType,
-  getSymbolPriceTolerance,
+  deconstructOrderType,
+  calculateAdaptiveOffsets,
 } from '../components/backtest/OrderTypes';
 import {
   calculatePositionSize,
@@ -68,7 +68,6 @@ import {
   calculatePnL,
   calculateRR,
   calculateTPFromRR,
-  getDefaultSlDistance,
   calculateAdaptiveSlDistance,
   getSymbolContractSize,
   BacktestTradeRecord,
@@ -994,7 +993,10 @@ export default function Backtest() {
   const handleRandomStart = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/random-start`);
+      const prov = getProviderForSymbol(symbol);
+      const res = await fetch(
+        `${API_BASE}/random-start?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&provider=${encodeURIComponent(prov)}`
+      );
       const json = await res.json();
       if (json.ok && json.data) {
         const time = new Date(json.data.time);
@@ -1107,6 +1109,9 @@ export default function Backtest() {
             riskAmount: triggered.riskAmount,
             tradeTime: nextTime,
             optimisticId: triggered.id,
+            orderType: triggered.orderType,
+            status: 'OPEN',
+            triggeredOrder: triggered,
           });
           showToast({
             kind: 'ENTRY',
@@ -1214,6 +1219,9 @@ export default function Backtest() {
     riskAmount: number;
     tradeTime?: Date;
     optimisticId?: string;
+    orderType?: OrderExecutionType;
+    status?: 'OPEN' | 'PENDING';
+    triggeredOrder?: PendingOrderRecord;
   }) => {
     if (appMode === 'analysis') {
       setShowAnalysisGuideModal(true);
@@ -1279,6 +1287,8 @@ export default function Backtest() {
           volume: tradeParams.volume,
           riskAmount: tradeParams.riskAmount,
           entryTime: tradeTime.toISOString(),
+          ...(tradeParams.orderType ? { orderType: tradeParams.orderType } : {}),
+          ...(tradeParams.status ? { status: tradeParams.status } : {}),
         }),
       });
       const json = await res.json();
@@ -1298,6 +1308,9 @@ export default function Backtest() {
     } catch (err: any) {
       if (tradeParams.optimisticId) {
         setTrades((prev) => prev.filter((t) => t.id !== tradeParams.optimisticId));
+        if (tradeParams.triggeredOrder) {
+          setPendingOrders((prev) => [...prev.filter((p) => p.id !== tradeParams.triggeredOrder!.id), tradeParams.triggeredOrder!]);
+        }
       }
       showToast({
         kind: 'ERROR',
@@ -1636,6 +1649,15 @@ export default function Backtest() {
 
   const handleCancelPendingOrder = useCallback((id: string) => {
     setPendingOrders((prev) => prev.filter((o) => o.id !== id));
+    if (editingPendingOrderIdRef.current === id) {
+      editingPendingOrderIdRef.current = null;
+      originalPendingOrderRef.current = null;
+      setIsVisualOrderActive(false);
+      setPlannedTrade(null);
+      setControlledEntryPrice(null);
+      setControlledSlPrice(null);
+      setControlledTpPrice(null);
+    }
     showToast({
       kind: 'INFO',
       symbol,
@@ -1662,7 +1684,8 @@ export default function Backtest() {
       currentP,
       po.entryPrice,
       po.slPrice,
-      po.tpPrice
+      po.tpPrice,
+      symbol
     );
 
     const editPreview: PlannedOrderPreview = {
@@ -1696,6 +1719,39 @@ export default function Backtest() {
     });
   }, [candles, showToast, symbol]);
 
+  const handlePickChartEntry = useCallback((orderType: OrderExecutionType) => {
+    if (appMode === 'analysis') {
+      setShowAnalysisGuideModal(true);
+      return;
+    }
+    const { direction } = deconstructOrderType(orderType);
+    const side: TradeSide = direction === 'BUY' ? 'LONG' : 'SHORT';
+    const currentP = candles.length > 0 ? candles[candles.length - 1].close : currentPrice;
+    const entry = controlledEntryPrice && controlledEntryPrice > 0 ? controlledEntryPrice : currentP;
+    if (entry <= 0) return;
+
+    const { slDistance } = calculateAdaptiveOffsets(candles || [], entry, symbol);
+    const sl = controlledSlPrice && controlledSlPrice > 0
+      ? controlledSlPrice
+      : (direction === 'BUY' ? entry - slDistance : entry + slDistance);
+    const tp = controlledTpPrice && controlledTpPrice > 0
+      ? controlledTpPrice
+      : calculateTPFromRR(side, entry, sl, 2.0);
+    const roundedSL = Math.round(sl * 100) / 100;
+    const roundedTP = Math.round(tp * 100) / 100;
+    const calcLots = calculatePositionSize(balance, riskPercent, entry, roundedSL, getSymbolContractSize(symbol));
+
+    handleSubmitVisualOrder({
+      orderType,
+      side,
+      entryPrice: entry,
+      slPrice: roundedSL,
+      tpPrice: roundedTP,
+      volume: calcLots > 0 ? calcLots : 1.0,
+      riskAmount: (balance * riskPercent) / 100,
+    });
+  }, [appMode, controlledEntryPrice, candles, currentPrice, symbol, controlledSlPrice, controlledTpPrice, balance, riskPercent, handleSubmitVisualOrder]);
+
   const handlePlaceOrder = useCallback((order: {
     orderType: OrderExecutionType;
     side: TradeSide;
@@ -1722,6 +1778,18 @@ export default function Backtest() {
     editingPendingOrderIdRef.current = null;
     originalPendingOrderRef.current = null;
 
+    const hasSL = order.slPrice > 0;
+    const hasTP = order.tpPrice > 0;
+    const rrCalc = (hasSL && hasTP)
+      ? calculateRR(order.side, order.entryPrice, order.slPrice, order.tpPrice)
+      : { isValid: false, rr: 0 };
+    const contractSize = getSymbolContractSize(symbol);
+    const tpDist = hasTP ? Math.abs(order.tpPrice - order.entryPrice) : 0;
+    const targetProfit = (hasTP && order.volume > 0)
+      ? order.volume * tpDist * contractSize
+      : (rrCalc.isValid ? order.riskAmount * rrCalc.rr : order.riskAmount * 2);
+    const rrRatio = rrCalc.isValid ? rrCalc.rr : 2.0;
+
     const newPending: PendingOrderRecord = {
       id: pendingId,
       orderType: order.orderType as 'BUY_LIMIT' | 'SELL_LIMIT' | 'BUY_STOP' | 'SELL_STOP',
@@ -1731,8 +1799,8 @@ export default function Backtest() {
       tpPrice: order.tpPrice,
       volume: order.volume,
       riskAmount: order.riskAmount,
-      targetProfit: order.riskAmount * 2,
-      rrRatio: 2.0,
+      targetProfit: Math.round(targetProfit * 100) / 100,
+      rrRatio: Math.round(rrRatio * 100) / 100,
       placedTime: new Date(),
     };
     setPendingOrders((prev) => [...prev, newPending]);
@@ -2610,11 +2678,13 @@ export default function Backtest() {
                 onPlaceOrder={handlePlaceOrder}
                 onCloseTrade={handleManualClose}
                 selectedSideOverride={tradeSide}
+                onSideChange={setTradeSide}
                 intrabarWarning={intrabarWarning}
                 isSubmitting={isSubmittingTrade}
                 appMode={appMode}
                 onActivateReplay={handleActivateBarReplay}
                 onPlannedTradeChange={setPlannedTrade}
+                onPickChartEntry={handlePickChartEntry}
                 onVisualOrderSubmit={handleSubmitVisualOrder}
                 controlledEntryPrice={controlledEntryPrice}
                 controlledSlPrice={controlledSlPrice}
@@ -3124,11 +3194,13 @@ export default function Backtest() {
                 onPlaceOrder={handlePlaceOrder}
                 onCloseTrade={handleManualClose}
                 selectedSideOverride={tradeSide}
+                onSideChange={setTradeSide}
                 intrabarWarning={intrabarWarning}
                 isSubmitting={isSubmittingTrade}
                 appMode={appMode}
                 onActivateReplay={handleActivateBarReplay}
                 onPlannedTradeChange={setPlannedTrade}
+                onPickChartEntry={handlePickChartEntry}
                 onVisualOrderSubmit={handleSubmitVisualOrder}
                 controlledEntryPrice={controlledEntryPrice}
                 controlledSlPrice={controlledSlPrice}

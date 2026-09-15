@@ -41,12 +41,25 @@ interface CachedSymbols {
   data: SymbolCatalogEntry[];
 }
 
+interface CachedCandlesResponse {
+  timestamp: number;
+  data: any;
+}
+
 const SYMBOLS_CACHE_TTL_MS = 60 * 1000; // 60 seconds
 let symbolsCache: CachedSymbols | null = null;
 let symbolsInFlightPromise: Promise<SymbolCatalogEntry[]> | null = null;
 
+const CANDLES_RESPONSE_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+const candlesResponseCache = new Map<string, CachedCandlesResponse>();
+
+export function invalidateCandlesCache(): void {
+  candlesResponseCache.clear();
+}
+
 export function invalidateSymbolsCache(): void {
   symbolsCache = null;
+  invalidateCandlesCache();
 }
 
 // GET /api/backtest/symbols
@@ -182,10 +195,39 @@ router.get('/candles', async (req: Request, res: Response) => {
     const afterTimeStr = req.query.afterTime as string;
     const fromStr = req.query.from as string;
 
-    const tfMultiplier = TIMEFRAME_MINUTES[targetTF] || 1;
-    const rawLimit = Math.min(limit * tfMultiplier, 10000);
+    const cacheKey = `${provider}:${symbol}:${targetTF}:${limit}:${replayTimeStr || ''}:${beforeTimeStr || ''}:${afterTimeStr || ''}:${fromStr || ''}`;
+    const cached = candlesResponseCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CANDLES_RESPONSE_CACHE_TTL_MS) {
+      return res.json({ ok: true, data: cached.data });
+    }
+
+    let rawLimit = limit;
+    if (targetTF === 'M1') {
+      rawLimit = limit;
+    } else if (targetTF === 'M5') {
+      rawLimit = limit * 5 * 2;
+    } else if (targetTF === 'M15') {
+      rawLimit = limit * 15 * 2;
+    } else if (targetTF === 'M30') {
+      rawLimit = limit * 30 * 2;
+    } else if (targetTF === 'H1') {
+      rawLimit = limit * 60 * 2;
+    } else if (targetTF === 'H4') {
+      rawLimit = Math.min(limit * 240 * 1.5, 180000);
+    } else if (targetTF === 'D1') {
+      rawLimit = Math.min(limit * 1440, 350000);
+    }
 
     let rawCandles: any[] = [];
+    const selectFields = {
+      time: true,
+      open: true,
+      high: true,
+      low: true,
+      close: true,
+      tickVolume: true,
+      realVolume: true,
+    };
 
     if (afterTimeStr) {
       // Forward stream (for Normal Analysis Mode scrolling right)
@@ -199,6 +241,7 @@ router.get('/candles', async (req: Request, res: Response) => {
         },
         orderBy: { time: 'asc' },
         take: rawLimit,
+        select: selectFields,
       });
     } else {
       // Backward/Windowed stream
@@ -228,6 +271,7 @@ router.get('/candles', async (req: Request, res: Response) => {
         where: queryWhere,
         orderBy: { time: 'desc' },
         take: rawLimit,
+        select: selectFields,
       });
       rawCandles = fetched.reverse();
     }
@@ -258,10 +302,16 @@ router.get('/candles', async (req: Request, res: Response) => {
         const sma20 = calculateSMA(pqCandles, 20);
         const sma50 = calculateSMA(pqCandles, 50);
         const sma200 = calculateSMA(pqCandles, 200);
-        return res.json({
-          ok: true,
-          data: { symbol, timeframe: targetTF, provider: 'PARQUET', count: pqCandles.length, candles: pqCandles, indicators: { sma20, sma50, sma200 } },
-        });
+        const responseData = {
+          symbol,
+          timeframe: targetTF,
+          provider: 'PARQUET',
+          count: pqCandles.length,
+          candles: pqCandles,
+          indicators: { sma20, sma50, sma200 },
+        };
+        candlesResponseCache.set(cacheKey, { timestamp: Date.now(), data: responseData });
+        return res.json({ ok: true, data: responseData });
       }
 
       // ── Final fallback: CSV ───────────────────────────────────────────────
@@ -283,29 +333,50 @@ router.get('/candles', async (req: Request, res: Response) => {
       const sma20 = calculateSMA(candlesFromCsv, 20);
       const sma50 = calculateSMA(candlesFromCsv, 50);
       const sma200 = calculateSMA(candlesFromCsv, 200);
-      return res.json({
-        ok: true,
-        data: { symbol, timeframe: targetTF, provider: 'CSV', count: candlesFromCsv.length, candles: candlesFromCsv, indicators: { sma20, sma50, sma200 } },
-      });
+      const responseData = {
+        symbol,
+        timeframe: targetTF,
+        provider: 'CSV',
+        count: candlesFromCsv.length,
+        candles: candlesFromCsv,
+        indicators: { sma20, sma50, sma200 },
+      };
+      candlesResponseCache.set(cacheKey, { timestamp: Date.now(), data: responseData });
+      return res.json({ ok: true, data: responseData });
     }
 
     // Resample to requested timeframe if not M1
-    const candles = targetTF === 'M1' ? m1Candles : resampleM1Candles(m1Candles, targetTF);
+    const resampled = targetTF === 'M1' ? m1Candles : resampleM1Candles(m1Candles, targetTF);
+
+    let candles: BacktestCandle[];
+    if (afterTimeStr) {
+      candles = resampled.slice(0, limit);
+    } else {
+      candles = resampled.slice(-limit);
+    }
 
     const sma20 = calculateSMA(candles, 20);
     const sma50 = calculateSMA(candles, 50);
     const sma200 = calculateSMA(candles, 200);
 
+    const responseData = {
+      symbol,
+      timeframe: targetTF,
+      provider,
+      count: candles.length,
+      candles,
+      indicators: { sma20, sma50, sma200 },
+    };
+
+    if (candlesResponseCache.size > 200) {
+      const oldestKey = candlesResponseCache.keys().next().value;
+      if (oldestKey) candlesResponseCache.delete(oldestKey);
+    }
+    candlesResponseCache.set(cacheKey, { timestamp: Date.now(), data: responseData });
+
     return res.json({
       ok: true,
-      data: {
-        symbol,
-        timeframe: targetTF,
-        provider,
-        count: candles.length,
-        candles,
-        indicators: { sma20, sma50, sma200 },
-      },
+      data: responseData,
     });
   } catch (error: any) {
     console.error('Error fetching backtest candles:', error);
@@ -586,21 +657,85 @@ router.get('/random-start', async (req: Request, res: Response) => {
     const timeframe = (req.query.timeframe as string) || 'M1';
     const provider = (req.query.provider as string) || 'DUKASCOPY';
 
-    // Min date: 2021-09-01, Max date: 2026-06-01 (leaves plenty of historical + future context)
-    const minTimestamp = new Date('2021-09-01T00:00:00Z').getTime();
-    const maxTimestamp = new Date('2026-06-01T00:00:00Z').getTime();
-    const randomTimestamp = new Date(minTimestamp + Math.random() * (maxTimestamp - minTimestamp));
+    let minTime: Date | null = null;
+    let maxTime: Date | null = null;
 
-    // Find nearest valid candle
-    const candle = await prisma.mt5CandleData.findFirst({
+    if (symbol.toUpperCase() === 'XAUUSD') {
+      try {
+        const pqBounds = await parquetProvider.getTimelineBounds();
+        if (pqBounds) {
+          minTime = new Date(pqBounds.dateFrom);
+          maxTime = new Date(pqBounds.dateTo);
+        }
+      } catch {
+        // Fallback to SQLite
+      }
+    }
+
+    if (!minTime || !maxTime) {
+      const catalog = await prisma.marketDataCatalog.findFirst({
+        where: { provider, symbol, timeframe },
+      });
+      if (catalog && catalog.dateFrom && catalog.dateTo) {
+        minTime = new Date(catalog.dateFrom);
+        maxTime = new Date(catalog.dateTo);
+      }
+    }
+
+    if (!minTime || !maxTime) {
+      const first = await prisma.mt5CandleData.findFirst({
+        where: { symbol },
+        orderBy: { time: 'asc' },
+        select: { time: true },
+      });
+      const last = await prisma.mt5CandleData.findFirst({
+        where: { symbol },
+        orderBy: { time: 'desc' },
+        select: { time: true },
+      });
+      if (first && last) {
+        minTime = first.time;
+        maxTime = last.time;
+      }
+    }
+
+    let randomTimestamp: Date;
+
+    if (minTime && maxTime && maxTime.getTime() > minTime.getTime()) {
+      // Leave ~100 M1 bars (100 mins) buffer from the beginning so initial candles load properly
+      const bufferMs = 100 * 60 * 1000;
+      let startMs = minTime.getTime() + bufferMs;
+      let endMs = maxTime.getTime() - bufferMs;
+      if (endMs <= startMs) {
+        startMs = minTime.getTime();
+        endMs = maxTime.getTime();
+      }
+      randomTimestamp = new Date(startMs + Math.random() * (endMs - startMs));
+    } else {
+      // Fallback range if no bounds could be determined
+      const minTimestamp = new Date('2021-09-01T00:00:00Z').getTime();
+      const maxTimestamp = new Date('2026-06-01T00:00:00Z').getTime();
+      randomTimestamp = new Date(minTimestamp + Math.random() * (maxTimestamp - minTimestamp));
+    }
+
+    // Find nearest valid candle in DB
+    let candle = await prisma.mt5CandleData.findFirst({
       where: {
-        provider,
         symbol,
-        timeframe,
         time: { gte: randomTimestamp },
       },
       orderBy: { time: 'asc' },
     });
+
+    if (!candle) {
+      candle = await prisma.mt5CandleData.findFirst({
+        where: {
+          symbol,
+          time: { lte: randomTimestamp },
+        },
+        orderBy: { time: 'desc' },
+      });
+    }
 
     if (candle) {
       return res.json({
@@ -615,11 +750,11 @@ router.get('/random-start', async (req: Request, res: Response) => {
       });
     }
 
-    // Parquet provider for random start
+    // Parquet provider for random start if symbol is XAUUSD
     const pqNext = await parquetProvider.getNextCandle({
       symbol,
       timeframe,
-      afterTime: new Date(randomTimestamp),
+      afterTime: randomTimestamp,
     });
 
     if (pqNext) {
@@ -638,7 +773,7 @@ router.get('/random-start', async (req: Request, res: Response) => {
     return res.json({
       ok: true,
       data: {
-        time: new Date('2025-04-01T04:00:00Z'),
+        time: minTime || new Date('2025-04-01T04:00:00Z'),
       },
     });
   } catch (error: any) {
@@ -831,10 +966,14 @@ router.post('/sessions/:id/trades', async (req: Request, res: Response) => {
     });
 
     // Check if requested to place as PENDING or if it is effectively a pending order
-    const isPendingOrder = status === 'PENDING' || (orderType && orderType !== 'MARKET_BUY' && orderType !== 'MARKET_SELL') || (status !== 'OPEN' && !isTradeableAtMarket && effective.isPending);
+    const isPendingOrder = status === 'PENDING' || (status !== 'OPEN' && orderType && orderType !== 'MARKET_BUY' && orderType !== 'MARKET_SELL') || (status !== 'OPEN' && !isTradeableAtMarket && effective.isPending);
+
+    // Exception: If status is explicitly 'OPEN' and orderType is a pending type (BUY_LIMIT, SELL_LIMIT, BUY_STOP, SELL_STOP),
+    // it represents a filled pending order triggered at entryPrice, so bypass the isTradeableAtMarket 422 guard.
+    const isFilledPendingOrder = status === 'OPEN' && Boolean(orderType && orderType !== 'MARKET_BUY' && orderType !== 'MARKET_SELL');
 
     // Guard: If trying to execute immediately as OPEN, but entry price is outside market tolerance and candle range:
-    if (!isPendingOrder && !isTradeableAtMarket && effective.isPending) {
+    if (!isPendingOrder && !isFilledPendingOrder && !isTradeableAtMarket && effective.isPending) {
       return res.status(422).json({
         ok: false,
         error: `Eksekusi Market tidak valid: Harga Entry ($${numEntry.toFixed(2)}) berada di luar jangkauan harga market saat ini ($${marketPrice.toFixed(2)}). Order harus ditempatkan sebagai ${effective.orderType.replace('_', ' ')} (Pending Order).`,
