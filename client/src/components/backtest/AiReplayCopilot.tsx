@@ -3,7 +3,7 @@ import { Sparkles, Brain, RefreshCw, Zap, Check, ArrowUpRight, ArrowDownRight, A
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Card, CardBody } from '../ui/Card';
-import { apiUrl } from '../../utils/api';
+import { apiUrl, defaultHeaders } from '../../utils/api';
 
 export interface AiCopilotSignal {
   action: 'BUY' | 'SELL' | 'WAIT';
@@ -78,7 +78,7 @@ export function AiReplayCopilot({
       const recentCandles = candles.slice(-40);
       const res = await fetch(apiUrl('/ai/analyze-chart'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           symbol,
           timeframe,
