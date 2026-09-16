@@ -76,7 +76,10 @@ export function AiReplayCopilot({
 
     try {
       const recentCandles = candles.slice(-40);
-      const res = await fetch(apiUrl('/ai/analyze-chart'), {
+      const endpointUrl = apiUrl('/ai/analyze-chart');
+      console.log('[AI Copilot] Requesting:', endpointUrl);
+
+      const res = await fetch(endpointUrl, {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
@@ -89,7 +92,14 @@ export function AiReplayCopilot({
         })
       });
 
-      const json = await res.json();
+      const text = await res.text();
+      let json: any;
+      try {
+        json = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error('Gagal terhubung ke AI Service / Ngrok Tunnel. Periksa koneksi backend.');
+      }
+
       if (!res.ok || !json.ok) {
         throw new Error(json.error || 'Failed to generate AI Copilot signal');
       }
