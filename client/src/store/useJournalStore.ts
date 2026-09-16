@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { BacktestSession, Trade, DashboardMetrics } from '../shared/types';
-import { apiUrl } from '../utils/api';
+import { apiUrl, defaultHeaders } from '../utils/api';
 
 export type AppPage = 'home' | 'create-session' | 'csv-import' | 'dashboard' | 'quick-logger' | 'compare-sessions' | 'settings' | 'webhook-monitor' | 'live-journal' | 'accounts' | 'integrations' | 'risk-calculator';
 
@@ -67,7 +67,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   fetchSettings: async () => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl('/settings'));
+      const res = await fetch(apiUrl('/settings'), { headers: defaultHeaders() });
       if (!res.ok) throw new Error('Gagal memuat pengaturan.');
       const data = await res.json();
       set({ settings: data, loading: false });
@@ -81,7 +81,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
     try {
       const res = await fetch(apiUrl('/settings'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(newSettings),
       });
       if (!res.ok) throw new Error('Gagal memperbarui pengaturan.');
@@ -103,7 +103,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   fetchSessions: async () => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl('/sessions'));
+      const res = await fetch(apiUrl('/sessions'), { headers: defaultHeaders() });
       if (!res.ok) throw new Error('Gagal mengambil daftar sesi.');
       const data = await res.json();
       set({ sessions: data, loading: false });
@@ -117,7 +117,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
     set({ loading: true, error: null, activeSessionRequestId: requestId });
 
     try {
-      const res = await fetch(apiUrl(`/sessions/${id}`));
+      const res = await fetch(apiUrl(`/sessions/${id}`), { headers: defaultHeaders() });
       if (!res.ok) throw new Error('Sesi tidak ditemukan.');
       const data = await res.json();
 
