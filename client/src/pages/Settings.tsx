@@ -36,6 +36,11 @@ export default function Settings() {
   const [resetConfirmInput, setResetConfirmInput] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
+  // Local input state for smooth typing on mobile
+  const [tunnelInputVal, setTunnelInputVal] = useState<string>(
+    () => (localStorage.getItem('VITE_API_URL') || '').replace(/\/api$/, '')
+  );
+
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
@@ -189,9 +194,16 @@ export default function Settings() {
                 label="Public Backend URL (ngrok)"
                 type="text"
                 placeholder="https://xxxx-xx-xx.ngrok-free.app"
-                value={(localStorage.getItem('VITE_API_URL') || '').replace(/\/api$/, '')}
-                onChange={(e) => {
-                  let val = e.target.value.trim();
+                value={tunnelInputVal}
+                onChange={(e) => setTunnelInputVal(e.target.value)}
+                hint="Masukkan URL ngrok utama lalu tekan 'Simpan & Reload'."
+              />
+              <Button
+                variant="blue"
+                size="sm"
+                fullWidth
+                onClick={() => {
+                  let val = tunnelInputVal.trim();
                   if (val) {
                     val = val.replace(/\/$/, '');
                     if (val.endsWith('/api')) {
@@ -201,20 +213,11 @@ export default function Settings() {
                   } else {
                     localStorage.removeItem('VITE_API_URL');
                   }
-                }}
-                hint="Masukkan URL ngrok utama (misal: https://xxx.ngrok-free.app)."
-              />
-              <Button
-                variant="blue"
-                size="sm"
-                fullWidth
-                onClick={() => {
-                  alert('URL API Backend berhasil disimpan! Halaman akan dimuat ulang.');
                   window.location.reload();
                 }}
               >
                 <Save className="w-4 h-4 mr-2" />
-                Simpan & Reload
+                Simpan &amp; Reload
               </Button>
             </div>
           </div>
