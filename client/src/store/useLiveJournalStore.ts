@@ -68,7 +68,14 @@ interface LiveJournalStore {
   listenToSSE: () => void;
 }
 
-const getApiBaseUrl = () => window.localStorage.getItem('VITE_API_URL') || (import.meta as any).env.VITE_API_URL || '/api';
+const getApiBaseUrl = () => {
+  const custom = window.localStorage.getItem('VITE_API_URL');
+  if (custom) {
+    const clean = custom.replace(/\/$/, '');
+    return clean.endsWith('/api') ? clean : `${clean}/api`;
+  }
+  return (import.meta as any).env.VITE_API_URL || '/api';
+};
 const API_BASE_URL = getApiBaseUrl();
 
 export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({

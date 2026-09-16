@@ -47,7 +47,14 @@ export default function Integrations() {
   const [qrCountdown, setQrCountdown] = useState<number | null>(null);
   const [qrRefreshing, setQrRefreshing] = useState(false);
 
-  const getApiBaseUrl = () => window.localStorage.getItem('VITE_API_URL') || (import.meta as any).env.VITE_API_URL || '/api';
+  const getApiBaseUrl = () => {
+  const custom = window.localStorage.getItem('VITE_API_URL');
+  if (custom) {
+    const clean = custom.replace(/\/$/, '');
+    return clean.endsWith('/api') ? clean : `${clean}/api`;
+  }
+  return (import.meta as any).env.VITE_API_URL || '/api';
+};
 const API_BASE_URL = getApiBaseUrl();
 
   const checkStatus = async () => {
