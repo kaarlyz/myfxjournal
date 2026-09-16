@@ -107,6 +107,63 @@ function extractStructuredJson(rawText: string): any {
   }
 }
 
+// Helper to compute technical SMC metrics (ATR 14, SMA 20/50 trend, Swing High/Low, Premium/Discount Zone)
+function computeSmcTechnicalMetrics(candles: Array<any>, currentPrice: number) {
+  if (!candles || candles.length === 0) return null;
+  const sliced = candles.slice(-60);
+  const closes = sliced.map(c => Number(c.close ?? c.c ?? 0));
+  const highs = sliced.map(c => Number(c.high ?? c.h ?? 0));
+  const lows = sliced.map(c => Number(c.low ?? c.l ?? 0));
+
+  const len = closes.length;
+  if (len === 0) return null;
+
+  const highestHigh60 = Math.max(...highs);
+  const lowestLow60 = Math.min(...lows);
+  const range60 = highestHigh60 - lowestLow60;
+  const equilibrium50 = lowestLow60 + (range60 / 2);
+  const priceZone = currentPrice <= equilibrium50 ? 'DISCOUNT_ZONE' : 'PREMIUM_ZONE';
+
+  const last20Closes = closes.slice(-20);
+  const last50Closes = closes.slice(-50);
+
+  const sma20 = last20Closes.length > 0 ? last20Closes.reduce((a, b) => a + b, 0) / last20Closes.length : currentPrice;
+  const sma50 = last50Closes.length > 0 ? last50Closes.reduce((a, b) => a + b, 0) / last50Closes.length : currentPrice;
+
+  let trendDirection = 'NEUTRAL';
+  if (sma20 > sma50) trendDirection = 'BULLISH';
+  else if (sma20 < sma50) trendDirection = 'BEARISH';
+
+  const highestHigh20 = Math.max(...highs.slice(-20));
+  const lowestLow20 = Math.min(...lows.slice(-20));
+
+  let trSum = 0;
+  const atrPeriod = Math.min(14, len - 1);
+  if (atrPeriod > 0) {
+    for (let i = len - atrPeriod; i < len; i++) {
+      const h = highs[i];
+      const l = lows[i];
+      const prevC = closes[i - 1] ?? closes[i];
+      const tr = Math.max(h - l, Math.abs(h - prevC), Math.abs(l - prevC));
+      trSum += tr;
+    }
+  }
+  const atr14 = atrPeriod > 0 ? trSum / atrPeriod : (highs[len - 1] - lows[len - 1]);
+
+  return {
+    highestHigh60: Number(highestHigh60.toFixed(4)),
+    lowestLow60: Number(lowestLow60.toFixed(4)),
+    equilibrium50Pct: Number(equilibrium50.toFixed(4)),
+    priceZone,
+    sma20: Number(sma20.toFixed(4)),
+    sma50: Number(sma50.toFixed(4)),
+    trendDirection,
+    recentSwingHigh20: Number(highestHigh20.toFixed(4)),
+    recentSwingLow20: Number(lowestLow20.toFixed(4)),
+    atr14: Number(atr14.toFixed(4))
+  };
+}
+
 // Helper to fetch settings from DB with fallback
 async function getAiConfig() {
   const default9RouterKey = await get9RouterApiKey();
@@ -257,7 +314,22 @@ router.post('/analyze-chart', async (req: Request, res: Response) => {
     }
 
     const copilotSystemPrompt = `You are MurplyFX AI — an elite Price Action, Market Structure, and Smart Money Concepts (SMC) Quant Scalper Copilot.
-Your objective: Analyze the provided OHLC candle array and current market price to evaluate if there is a valid high-probability setup.
+Your objective: Analyze the provided OHLC candle array (60 bars), calculated SMC metrics (ATR, Swing High/Low, SMA trend, Premium/Discount zone), and current market price to evaluate if there is a valid high-probability SMC setup.
+
+STRICT 3-LAYER SMC CONFLUENCE FILTER:
+To issue a "BUY" or "SELL" signal, ALL 3 layers must be confirmed:
+1. Liquidity Sweep: SSL (Sell-Side Liquidity) swept for BUY, or BSL (Buy-Side Liquidity) swept for SELL.
+2. Market Structure Shift (MSS / CHoCH): Clear displacement candle with strong body breaking structure.
+3. Pricing Zone & PD Array:
+   - BUY: Current price / entry MUST be in DISCOUNT_ZONE (at/near FVG or Bullish Order Block).
+   - SELL: Current price / entry MUST be in PREMIUM_ZONE (at/near FVG or Bearish Order Block).
+
+INVALIDATION & RISK MANAGEMENT:
+- Stop Loss (SL) MUST be placed at structural invalidation points (below SSL for BUY, above BSL for SELL) with safe buffer.
+- Target Profit (TP) MUST aim for the next major liquidity pool ensuring a planned R:R of AT LEAST 1:2.0 (plannedRR >= 2.0).
+
+STRICT WAIT RULE:
+- If there is NO confirmed MSS / Displacement, or if price is trapped in consolidation/sideways without liquidity sweep, you MUST return "WAIT" with confidence: 40 and null entry/sl/tp parameters. Never force trades in no-edge environments!
 
 CRITICAL REQUIREMENT: Respond ONLY with a valid, clean JSON object matching this exact schema:
 {
@@ -265,22 +337,22 @@ CRITICAL REQUIREMENT: Respond ONLY with a valid, clean JSON object matching this
   "orderType": "MARKET" | "BUY_LIMIT" | "SELL_LIMIT" | "BUY_STOP" | "SELL_STOP",
   "confidence": 85,
   "setupName": "M1 Liquidity Sweep & FVG Retest",
-  "reasoning": "Short 1-2 sentence sharp technical reasoning in natural trader slang.",
+  "reasoning": "Short 1-2 sentence sharp SMC technical reasoning in natural trader slang.",
   "entryPrice": 2725.50,
   "slPrice": 2722.00,
   "tpPrice": 2732.50,
-  "plannedRR": 2.0,
+  "plannedRR": 2.2,
   "riskPercent": 1.0,
   "slDistancePips": 3.5
 }
 
 Rules:
-1. If market structure is messy, ambiguous, or low-probability, set "action": "WAIT", "confidence": 40, set orderType, entryPrice, slPrice, tpPrice, plannedRR, slDistancePips to null.
+1. If "action" is "WAIT", set confidence to 40, set orderType, entryPrice, slPrice, tpPrice, plannedRR, slDistancePips to null.
 2. If "action" is "BUY" or "SELL":
-   - Explicitly evaluate if the setup requires an immediate MARKET entry (at current price) OR a Pending Limit/Stop entry (e.g. entryPrice is distant from currentPrice waiting for a FVG/OB pullback).
-   - If pullback/breakout pending order is required, set orderType accordingly ("BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP").
-   - Provide exact realistic entryPrice, slPrice, and tpPrice ensuring plannedRR >= 1.5.
-3. Calculate slDistancePips based on the symbol (for XAUUSD 1.0 = 10 pips, for Forex 0.0010 = 10 pips).
+   - Evaluate if setup is an immediate MARKET entry OR Pending Limit/Stop entry (e.g. limit order for FVG/OB pullback).
+   - Set orderType accordingly ("MARKET", "BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP").
+   - Ensure plannedRR >= 2.0.
+3. Calculate slDistancePips based on symbol (for XAUUSD 1.0 = 10 pips, for Forex 0.0010 = 10 pips).
 4. Do not include any text outside the JSON. Format numbers cleanly.`;
 
     let langInstruction = 'OUTPUT LANGUAGE: Indonesian trader slang (Bahasa Indonesia santai/profesional untuk trader). Use terms like "Liquidity Sweep", "Fair Value Gap", "Order Block", "Breakout", "Retest" naturally.';
@@ -288,13 +360,17 @@ Rules:
       langInstruction = 'OUTPUT LANGUAGE: Sharp, professional English quant trader terminology.';
     }
 
+    const sampleCandles = recentCandles.slice(-60);
+    const smcMetrics = computeSmcTechnicalMetrics(sampleCandles, currentPrice);
+
     const payloadSample = {
       symbol,
       timeframe,
       currentPrice,
       accountBalance: balance,
-      candleCount: recentCandles.length,
-      candles: recentCandles.slice(-30).map((c: any) => ({
+      candleCount: sampleCandles.length,
+      smcMetrics,
+      candles: sampleCandles.map((c: any) => ({
         t: c.time ? new Date(c.time).toISOString().slice(11, 19) : '',
         o: c.open,
         h: c.high,
@@ -307,7 +383,7 @@ Rules:
     const prompt = `Analyze this realtime chart cursor payload and detect if there is a high-probability SMC/Price Action setup:
 ${langInstruction}
 
-Chart Data:
+Chart & Indicator Metrics:
 ${JSON.stringify(payloadSample, null, 2)}`;
 
     const config = await getAiConfig();
