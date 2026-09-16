@@ -44,6 +44,7 @@
   --border-card:   1px solid rgba(148, 163, 184, 0.52);
   --border-subtle: 1px solid rgba(148, 163, 184, 0.26);
   --border-color:  #CBD5E1;
+  --border-primary: rgba(18, 18, 18, 0.1);
 
   /* Shadows */
   --shadow-lg:     0 18px 45px -24px rgba(15, 23, 42, 0.28);

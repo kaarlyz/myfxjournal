@@ -838,7 +838,7 @@ function SessionCard({
 
   return (
     <article
-      className="bg-white border-2 border-[#121212] p-4 sm:p-5 flex flex-col justify-between relative group w-full min-w-0"
+      className="bg-white border-2 border-[#121212] p-4 sm:p-5 flex flex-col justify-between relative group w-full min-w-0 box-border"
       style={{ boxShadow: '4px 4px 0px 0px #121212', transition: 'box-shadow 0.15s ease, transform 0.15s ease' }}
       onMouseEnter={e => {
         (e.currentTarget as HTMLElement).style.boxShadow = '6px 6px 0px 0px #D02020';
@@ -1081,31 +1081,31 @@ function SessionCard({
       </div>
 
       {/* Actions */}
-      <div className="flex flex-col sm:flex-row gap-2 w-full">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full mt-3 pt-3 border-t border-[var(--border-primary)]">
         <button
           onClick={onOpenDashboard}
-          className="btn btn-yellow w-full sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs"
+          className="btn btn-yellow w-full flex items-center justify-center gap-1.5 text-xs py-2 px-2.5 truncate"
           aria-label={`Open dashboard for ${s.name}`}
         >
-          <BarChart3 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <BarChart3 className="w-3.5 h-3.5 shrink-0" />
           <span className="truncate">{t('open_dashboard')}</span>
         </button>
         {manualReplayId ? (
           <button
             onClick={() => onOpenChart?.(manualReplayId)}
-            className="btn btn-primary w-full sm:flex-1 flex items-center justify-center gap-1.5 text-xs bg-[#1040C0] hover:bg-[#0D3399] text-white px-3 py-2"
+            className="btn btn-primary w-full flex items-center justify-center gap-1.5 text-xs bg-[#1040C0] hover:bg-[#0D3399] text-white py-2 px-2.5 truncate"
             aria-label={`Lanjutkan di chart untuk ${s.name}`}
           >
-            <Play className="w-3.5 h-3.5 fill-white shrink-0" aria-hidden="true" />
+            <Play className="w-3.5 h-3.5 fill-white shrink-0" />
             <span className="truncate">Lanjutkan di Chart</span>
           </button>
         ) : (
           <button
             onClick={() => onImportCsv('SMART_MERGE')}
-            className="btn btn-secondary w-full sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs"
+            className="btn btn-secondary w-full flex items-center justify-center gap-1.5 text-xs py-2 px-2.5 truncate"
             aria-label={`Update CSV for ${s.name}`}
           >
-            <FileUp className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <FileUp className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">{t('dashboard:update_csv')}</span>
           </button>
         )}
