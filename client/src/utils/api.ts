@@ -1,3 +1,5 @@
+export const FALLBACK_NGROK_URL = 'https://8311-2404-c0-9603-ce2-3cba-4b01-ee59-1806.ngrok-free.app/api';
+
 export const getApiBaseUrl = () => {
   if (typeof window !== 'undefined') {
     const custom = window.localStorage.getItem('VITE_API_URL');
@@ -10,6 +12,15 @@ export const getApiBaseUrl = () => {
   if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
     const clean = envUrl.trim().replace(/\/$/, '');
     return clean.endsWith('/api') ? clean : `${clean}/api`;
+  }
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const isLocalhost =
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === '::1';
+    if (!isLocalhost) {
+      return FALLBACK_NGROK_URL;
+    }
   }
   return '/api';
 };
