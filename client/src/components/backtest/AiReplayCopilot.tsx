@@ -74,6 +74,9 @@ export function AiReplayCopilot({
     setError(null);
     setAppliedToast(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
     try {
       const recentCandles = candles.slice(-40);
       const endpointUrl = apiUrl('/ai/analyze-chart');
@@ -82,6 +85,7 @@ export function AiReplayCopilot({
       const res = await fetch(endpointUrl, {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
+        signal: controller.signal,
         body: JSON.stringify({
           symbol,
           timeframe,
@@ -106,8 +110,13 @@ export function AiReplayCopilot({
 
       setSignal(json.signal);
     } catch (err: any) {
-      setError(err.message || 'Connection error with AI Copilot');
+      if (err.name === 'AbortError') {
+        setError('Request AI Copilot mengalami timeout (>12 detik). Silakan coba lagi.');
+      } else {
+        setError(err.message || 'Connection error with AI Copilot');
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };

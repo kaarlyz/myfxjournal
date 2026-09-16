@@ -141,14 +141,20 @@ async function queryLLM(messages: { role: string; content: string }[], config: a
   const endpoint = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
   const url = new URL(endpoint);
 
+  // Fast model fallback if config.model is empty or slow legacy default
+  let modelToUse = config.model;
+  if (!modelToUse || modelToUse === 'gpt-3.5-turbo' || modelToUse === 'gpt-4') {
+    modelToUse = 'ag/gemini-3.7-flash-low';
+  }
+
   const payload = JSON.stringify({
-    model: config.model,
+    model: modelToUse,
     messages: [
       { role: 'system', content: systemPromptOverride || config.systemPrompt },
       ...messages
     ],
     temperature: 0.3,
-    max_tokens: 2000,
+    max_tokens: 800,
     stream: false
   });
 
@@ -163,7 +169,7 @@ async function queryLLM(messages: { role: string; content: string }[], config: a
         'Authorization': `Bearer ${config.apiKey}`,
         'Content-Length': Buffer.byteLength(payload)
       },
-      timeout: 30000
+      timeout: 15000
     }, (res) => {
       let body = '';
       res.on('data', (chunk) => { body += chunk; });
@@ -204,7 +210,7 @@ async function queryLLM(messages: { role: string; content: string }[], config: a
 
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error('LLM API request timed out (30s limit)'));
+      reject(new Error('LLM API request timed out (15s limit)'));
     });
 
     req.write(payload);
