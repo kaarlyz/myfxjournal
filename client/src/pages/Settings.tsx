@@ -191,14 +191,18 @@ export default function Settings() {
                 placeholder="https://xxxx-xx-xx.ngrok-free.app"
                 value={localStorage.getItem('VITE_API_URL') || ''}
                 onChange={(e) => {
-                  const val = e.target.value.trim();
+                  let val = e.target.value.trim();
                   if (val) {
+                    val = val.replace(/\/$/, '');
+                    if (!val.endsWith('/api')) {
+                      val = `${val}/api`;
+                    }
                     localStorage.setItem('VITE_API_URL', val);
                   } else {
                     localStorage.removeItem('VITE_API_URL');
                   }
                 }}
-                hint="Kosongkan jika ingin kembali ke /api default."
+                hint="Sistem otomatis menambahkan /api. Kosongkan jika ingin reset."
               />
               <Button
                 variant="blue"
