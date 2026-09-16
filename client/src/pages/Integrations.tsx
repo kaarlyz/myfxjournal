@@ -47,7 +47,7 @@ export default function Integrations() {
   const [qrCountdown, setQrCountdown] = useState<number | null>(null);
   const [qrRefreshing, setQrRefreshing] = useState(false);
 
-  const getApiBaseUrl = () => {
+const getApiBaseUrl = () => {
   const custom = window.localStorage.getItem('VITE_API_URL');
   if (custom) {
     const clean = custom.replace(/\/$/, '');

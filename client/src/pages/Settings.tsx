@@ -189,20 +189,20 @@ export default function Settings() {
                 label="Public Backend URL (ngrok)"
                 type="text"
                 placeholder="https://xxxx-xx-xx.ngrok-free.app"
-                value={localStorage.getItem('VITE_API_URL') || ''}
+                value={(localStorage.getItem('VITE_API_URL') || '').replace(/\/api$/, '')}
                 onChange={(e) => {
                   let val = e.target.value.trim();
                   if (val) {
                     val = val.replace(/\/$/, '');
-                    if (!val.endsWith('/api')) {
-                      val = `${val}/api`;
+                    if (val.endsWith('/api')) {
+                      val = val.substring(0, val.length - 4);
                     }
                     localStorage.setItem('VITE_API_URL', val);
                   } else {
                     localStorage.removeItem('VITE_API_URL');
                   }
                 }}
-                hint="Sistem otomatis menambahkan /api. Kosongkan jika ingin reset."
+                hint="Masukkan URL ngrok utama (misal: https://xxx.ngrok-free.app)."
               />
               <Button
                 variant="blue"
