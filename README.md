@@ -23,7 +23,16 @@
 
 ## Fitur Utama
 
-###  Backtest Analytics
+### 🤖 MurplyFX AI Copilot & Performance Advisor
+| Fitur | Deskripsi |
+|-------|-----------|
+| **Real-time Chart Analysis** | Analisis Price Action & SMC Confluence (Liquidity Sweep, FVG, MSS/CHoCH, Premium/Discount Zone) langsung dari data candle real-time |
+| **1-Click Execution** | Eksekusi 1-click langsung untuk Market Entry atau Pending Order (Limit/Stop) dari sinyal AI |
+| **Smart R:R Protection** | Deteksi live R:R rusak saat harga lari + opsi Auto-Recalibrate TP untuk menjaga rasio Risk:Reward target |
+| **Auto-Pilot Backtest Mode** | Mode otomatis yang melangkah bar replay, memanggil AI scan di setiap candle, mengeksekusi order, dan memantau trade hingga TP/SL tanpa klik manual |
+| **AI Performance Audit** | Evaluasi psikologi trading & borok eksekusi (FOMO, Tilt, Revenge Trade) dengan personality Quant Mentor (Roast & Hype / Bilingual ID & EN) |
+
+### 📊 Backtest Analytics
 | Fitur | Deskripsi |
 |-------|-----------|
 | **Import CSV** | Import langsung dari TradingView Strategy Tester dengan mode Replace / Append / Smart Merge |
@@ -97,6 +106,11 @@ myfxjournal/
 │       │   ├── SetupReview.tsx           # Review by setup tag
 │       │   └── ReportPrint.tsx           # Print-ready report
 │       ├── components/           # Komponen reusable
+│       │   ├── AiAdvisorAudit.tsx        # Modal AI Behavioral & Performance Audit
+│       │   ├── backtest/
+│       │   │   ├── AiReplayCopilot.tsx   # AI SMC Copilot Modal & Auto-Pilot Panel
+│       │   │   ├── CandlestickChart.tsx  # Canvas chart + drawing & floating bars
+│       │   │   └── ReplayControls.tsx    # Bar replay control toolbar
 │       │   ├── Sidebar.tsx               # Navigasi utama + LanguageSwitcher
 │       │   ├── DashboardCharts.tsx       # Recharts analytics (6 tab)
 │       │   ├── TradeTable.tsx            # Tabel trade interaktif + filter
@@ -122,7 +136,8 @@ myfxjournal/
 │   └── src/
 │       ├── index.ts              # Entry point, middleware, route mounting
 │       ├── prisma.ts             # Prisma client singleton
-│       └── routes/               # 17 route modules
+│       └── routes/               # 18 route modules
+│           ├── ai.ts                     # AI SMC Copilot & Quant Behavioral Audit
 │           ├── sessions.ts               # CRUD backtest sessions + CSV import
 │           ├── trades.ts                 # CRUD individual trades
 │           ├── accounts.ts               # Trading account management
@@ -327,6 +342,15 @@ POST   /api/ea-control/signals/:id/decide  # Approve / reject signal
 DELETE /api/ea-control/signals              # Clear semua pending signals
 ```
 
+### AI Copilot & Performance Advisor
+```http
+POST   /api/ai/analyze-chart       # Real-time SMC Chart Analysis & Copilot Signal
+POST   /api/ai/analyze-session/:id # AI Performance & Behavioral Audit untuk Sesi Backtest
+POST   /api/ai/analyze-trade/:id   # AI Behavioral Audit untuk Trade Tunggal
+GET    /api/ai/config              # Baca konfigurasi AI & LLM Model
+POST   /api/ai/config              # Update konfigurasi AI & LLM Model
+```
+
 ### Misc
 ```http
 GET    /api/journal-notes/:scope/:contextId/:dateKey  # Baca catatan harian
@@ -465,6 +489,7 @@ cd server && npm run build   # Compile TypeScript server
 
 | Versi | Perubahan |
 |-------|-----------|
+| v2.3 | MurplyFX AI Copilot & Performance Advisor (Real-time SMC Chart Analysis, 1-Click Execution, Smart R:R Recalibration, Auto-Pilot Backtest Mode, Quant Behavioral Audit) |
 | v2.2 | ReplayFX mobile UX (compact header, symbol bottom-sheet, pill anti-overlap), atomic order fill, auto-recenter canvas, GPU drag, symbols API cache, MT5/EA/Telegram/WhatsApp/PropFirm/MonteCarlo docs |
 | v2.1 | Multi-bahasa ID/EN (react-i18next), LanguageSwitcher, 36 locale files |
 | v2.0 | Bauhaus Design System, full page migration dari dark ke flat light |
@@ -486,7 +511,7 @@ cd server && npm run build   # Compile TypeScript server
 
 <div align="center">
 
-**KAFX Journal v2.1** · React + Express + SQLite + Prisma  
+**KAFX Journal v2.3** · React + Express + SQLite + Prisma + MurplyFX AI  
 *ngapain ngoding mending scrool fesnuk*
 
 </div>
