@@ -65,19 +65,19 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   setTab: (tab) => set({ activeTab: tab }),
 
   fetchSettings: async () => {
-    set({ loading: true, error: null });
+    set({ loading: true });
     try {
       const res = await fetch(apiUrl('/settings'), { headers: defaultHeaders() });
       if (!res.ok) throw new Error('Gagal memuat pengaturan.');
       const data = await res.json();
-      set({ settings: data, loading: false });
+      set({ settings: data, loading: false, error: null });
     } catch (err: any) {
       set({ error: err.message, loading: false });
     }
   },
 
   updateSettings: async (newSettings) => {
-    set({ loading: true, error: null });
+    set({ loading: true });
     try {
       const res = await fetch(apiUrl('/settings'), {
         method: 'POST',
@@ -86,7 +86,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
       });
       if (!res.ok) throw new Error('Gagal memperbarui pengaturan.');
       const data = await res.json();
-      set({ settings: data.settings, loading: false });
+      set({ settings: data.settings, loading: false, error: null });
       
       // If active session is selected, refresh it since USD/IDR rate could affect IDR calculations
       const activeId = get().activeSessionId;
@@ -101,12 +101,12 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   },
 
   fetchSessions: async () => {
-    set({ loading: true, error: null });
+    set({ loading: true });
     try {
       const res = await fetch(apiUrl('/sessions'), { headers: defaultHeaders() });
       if (!res.ok) throw new Error('Gagal mengambil daftar sesi.');
       const data = await res.json();
-      set({ sessions: data, loading: false });
+      set({ sessions: data, loading: false, error: null });
     } catch (err: any) {
       set({ error: err.message, loading: false });
     }
