@@ -412,6 +412,16 @@ export default function Backtest() {
   const [bottomDrawerTab, setBottomDrawerTab] = useState<'NONE' | 'STATS' | 'HISTORY'>('NONE');
   const [isJumpDialogOpen, setIsJumpDialogOpen] = useState<boolean>(false);
 
+  // ── AI Auto-Pilot State ──
+  const [isAutoPilotActive, setIsAutoPilotActive] = useState<boolean>(false);
+  const [autoPilotSpeed, setAutoPilotSpeed] = useState<number>(1000);
+  const [autoPilotStatusLog, setAutoPilotStatusLog] = useState<string>('🤖 Auto-Pilot Ready. Click Auto-Trade to start automated backtesting.');
+  const isAutoPilotRunningRef = useRef<boolean>(false);
+  const candlesRef = useRef<ChartCandle[]>(candles);
+  useEffect(() => {
+    candlesRef.current = candles;
+  }, [candles]);
+
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isFetchingOlderRef = useRef<boolean>(false);
   const isFetchingNewerRef = useRef<boolean>(false);
@@ -1889,6 +1899,124 @@ export default function Backtest() {
     setControlledTpPrice(null);
   }, []);
 
+  // ── AI Auto-Pilot Runner Engine (Automatic Step & AI Trading) ──
+  const runAutoPilotStep = useCallback(async () => {
+    if (!isAutoPilotActive || isAutoPilotRunningRef.current || appMode !== 'replay') return;
+    isAutoPilotRunningRef.current = true;
+
+    try {
+      // 1. Step replay forward by 1 candle
+      await stepForward();
+
+      // 2. Check if a position or pending order is active
+      const active = activeTradeRef.current;
+      const pending = pendingOrdersRef.current;
+
+      if (active && active.status === 'OPEN') {
+        setAutoPilotStatusLog(`🤖 Posisi ${active.side} Aktif @ ${active.entryPrice.toFixed(2)} — Memantau Candle #${candlesRef.current.length}...`);
+        return;
+      }
+
+      if (pending && pending.length > 0) {
+        setAutoPilotStatusLog(`🤖 Pending Order ${pending[0].orderType} Aktif @ ${pending[0].entryPrice.toFixed(2)} — Menunggu Entry...`);
+        return;
+      }
+
+      // 3. Flat market: Scan AI for setup on latest candle
+      const curCandles = candlesRef.current;
+      if (curCandles.length === 0) return;
+      const curPrice = curCandles[curCandles.length - 1].close;
+      const recent = curCandles.slice(-60);
+
+      setAutoPilotStatusLog(`🤖 Menganalisis Candle #${curCandles.length} @ ${curPrice.toFixed(2)}...`);
+
+      const controller = new AbortController();
+      const tOut = setTimeout(() => controller.abort(), 9000);
+
+      try {
+        const res = await fetch(apiUrl('/ai/analyze-chart'), {
+          method: 'POST',
+          headers: defaultHeaders({ 'Content-Type': 'application/json' }),
+          signal: controller.signal,
+          body: JSON.stringify({
+            symbol,
+            timeframe,
+            currentPrice: curPrice,
+            recentCandles: recent,
+            balance,
+            language: 'id'
+          })
+        });
+        clearTimeout(tOut);
+
+        const text = await res.text();
+        let json: any;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          setAutoPilotStatusLog(`🤖 Bar #${curCandles.length} — Respon AI tidak valid, melewatinya...`);
+          return;
+        }
+
+        if (json.ok && json.signal) {
+          const sig: AiCopilotSignal = json.signal;
+          if ((sig.action === 'BUY' || sig.action === 'SELL') && sig.confidence >= 60) {
+            const side = sig.action === 'BUY' ? 'LONG' : 'SHORT';
+            setTradeSide(side);
+            const rPct = sig.riskPercent && sig.riskPercent > 0 ? sig.riskPercent : riskPercent;
+            const slP = sig.slPrice ?? (side === 'LONG' ? curPrice - 5 : curPrice + 5);
+            const tpP = sig.tpPrice ?? (side === 'LONG' ? curPrice + 10 : curPrice - 10);
+            const isLimit = sig.orderType === 'BUY_LIMIT' || sig.orderType === 'SELL_LIMIT' || sig.orderType === 'BUY_STOP' || sig.orderType === 'SELL_STOP';
+
+            if (isLimit && sig.entryPrice && Math.abs(sig.entryPrice - curPrice) > (curPrice * 0.0003)) {
+              const volume = slP > 0 ? calculatePositionSize(balance, rPct, sig.entryPrice, slP, getSymbolContractSize(symbol)) : 1.0;
+              const riskAmount = (balance * rPct) / 100;
+              handlePlaceOrder({
+                orderType: sig.orderType as OrderExecutionType,
+                entryPrice: sig.entryPrice,
+                slPrice: slP,
+                tpPrice: tpP,
+                side,
+                volume: volume > 0 ? volume : 1.0,
+                riskAmount
+              });
+              setAutoPilotStatusLog(`🤖 AUTO-EXECUTE PENDING: ${sig.orderType} ${side} @ ${sig.entryPrice.toFixed(2)} (${sig.setupName})`);
+            } else {
+              const volume = slP > 0 ? calculatePositionSize(balance, rPct, curPrice, slP, getSymbolContractSize(symbol)) : 1.0;
+              const riskAmount = (balance * rPct) / 100;
+              handleOpenTrade({
+                side,
+                entryPrice: curPrice,
+                slPrice: slP,
+                tpPrice: tpP,
+                volume: volume > 0 ? volume : 1.0,
+                riskAmount,
+                orderType: side === 'LONG' ? 'MARKET_BUY' : 'MARKET_SELL',
+                status: 'OPEN'
+              });
+              setAutoPilotStatusLog(`🤖 AUTO-EXECUTE MARKET: ${side} @ ${curPrice.toFixed(2)} (${sig.setupName})`);
+            }
+          } else {
+            setAutoPilotStatusLog(`🤖 Bar #${curCandles.length} — AI Signal: WAIT (${sig.reasoning || 'Tunggu momentum'})`);
+          }
+        }
+      } catch (e: any) {
+        clearTimeout(tOut);
+        setAutoPilotStatusLog(`🤖 Bar #${curCandles.length} — Scanning timeout / skipping.`);
+      }
+    } finally {
+      isAutoPilotRunningRef.current = false;
+    }
+  }, [isAutoPilotActive, appMode, stepForward, symbol, timeframe, balance, riskPercent, handlePlaceOrder, handleOpenTrade]);
+
+  useEffect(() => {
+    if (!isAutoPilotActive || appMode !== 'replay') return;
+    const interval = setInterval(() => {
+      runAutoPilotStep();
+    }, autoPilotSpeed);
+    return () => clearInterval(interval);
+  }, [isAutoPilotActive, appMode, autoPilotSpeed, runAutoPilotStep]);
+
 
   const replayReset = appMode === 'replay' && replayStartTime
     ? () => { void initReplaySession(replayStartTime, timeframe); }
@@ -2957,6 +3085,17 @@ export default function Backtest() {
                 currentPrice={currentPrice}
                 candles={candles}
                 balance={balance}
+                isAutoPilotActive={isAutoPilotActive}
+                onToggleAutoPilot={(active) => {
+                  setIsPlaying(false);
+                  setIsAutoPilotActive(active);
+                  if (active && appMode !== 'replay') {
+                    setAppMode('replay');
+                  }
+                }}
+                autoPilotSpeed={autoPilotSpeed}
+                onChangeAutoPilotSpeed={setAutoPilotSpeed}
+                autoPilotStatusLog={autoPilotStatusLog}
                 onClose={() => setMobileSheetOpen(false)}
                 onApplySignal={(sig: AiCopilotSignal) => {
                   if (sig.action === 'BUY') {
@@ -3196,6 +3335,17 @@ export default function Backtest() {
                     currentPrice={currentPrice}
                     candles={candles}
                     balance={balance}
+                    isAutoPilotActive={isAutoPilotActive}
+                    onToggleAutoPilot={(active) => {
+                      setIsPlaying(false);
+                      setIsAutoPilotActive(active);
+                      if (active && appMode !== 'replay') {
+                        setAppMode('replay');
+                      }
+                    }}
+                    autoPilotSpeed={autoPilotSpeed}
+                    onChangeAutoPilotSpeed={setAutoPilotSpeed}
+                    autoPilotStatusLog={autoPilotStatusLog}
                     onClose={() => setIsAiCopilotOpen(false)}
                     onApplySignal={(sig: AiCopilotSignal) => {
                       if (sig.action === 'BUY') {

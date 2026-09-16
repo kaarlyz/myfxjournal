@@ -30,6 +30,13 @@ interface AiReplayCopilotProps {
   onPlacePending?: (params: { side: 'LONG' | 'SHORT'; orderType: string; price: number; slPrice?: number | null; tpPrice?: number | null; riskPercent?: number | null }) => void;
   onClose?: () => void;
   className?: string;
+
+  // Auto-Pilot Props
+  isAutoPilotActive?: boolean;
+  onToggleAutoPilot?: (active: boolean) => void;
+  autoPilotSpeed?: number;
+  onChangeAutoPilotSpeed?: (speed: number) => void;
+  autoPilotStatusLog?: string;
 }
 
 export function AiReplayCopilot({
@@ -42,7 +49,12 @@ export function AiReplayCopilot({
   onExecuteMarket,
   onPlacePending,
   onClose,
-  className = ''
+  className = '',
+  isAutoPilotActive = false,
+  onToggleAutoPilot,
+  autoPilotSpeed = 1000,
+  onChangeAutoPilotSpeed,
+  autoPilotStatusLog = ''
 }: AiReplayCopilotProps) {
   const [loading, setLoading] = useState(false);
   const [signal, setSignal] = useState<AiCopilotSignal | null>(null);
@@ -227,6 +239,57 @@ export function AiReplayCopilot({
 
       {isExpanded && (
         <CardBody className="p-3 space-y-3 bg-[#F8F9FA]">
+          {/* AUTO-PILOT BACKTEST MODE BANNER */}
+          {onToggleAutoPilot && (
+            <div className="p-2.5 bg-[#FFFDEB] border-2 border-[#121212] rounded-lg shadow-[2px_2px_0px_0px_#121212] space-y-2">
+              <div className="flex items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${isAutoPilotActive ? 'bg-[#10B981] animate-pulse' : 'bg-slate-400'}`} />
+                  <span className="font-mono font-black text-[11px] uppercase tracking-wider text-[#121212] truncate">
+                    🤖 AUTO-PILOT MODE
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onToggleAutoPilot(!isAutoPilotActive)}
+                  className={`px-2.5 py-1 font-mono font-black text-[10px] uppercase tracking-wider rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer whitespace-nowrap ${
+                    isAutoPilotActive ? 'bg-[#DC2626] text-white' : 'bg-[#1040C0] text-white'
+                  }`}
+                >
+                  {isAutoPilotActive ? '⏹ Stop' : '▶ Auto-Trade'}
+                </button>
+              </div>
+
+              {isAutoPilotActive && (
+                <div className="space-y-1.5 pt-1.5 border-t border-[#121212]/15">
+                  <div className="flex items-center justify-between text-[10px] font-mono text-[#717182]">
+                    <span className="font-bold">Kecepatan:</span>
+                    <div className="flex items-center gap-1">
+                      {[{ label: '1x (1s)', val: 1000 }, { label: '2x (0.5s)', val: 500 }, { label: '5x (0.2s)', val: 200 }].map((item) => (
+                        <button
+                          key={item.val}
+                          type="button"
+                          onClick={() => onChangeAutoPilotSpeed?.(item.val)}
+                          className={`px-1.5 py-0.5 rounded border border-[#121212] text-[9px] font-mono font-bold transition-all cursor-pointer ${
+                            autoPilotSpeed === item.val ? 'bg-[#1040C0] text-white' : 'bg-white text-[#121212]'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {autoPilotStatusLog && (
+                    <div className="p-1.5 bg-white border border-[#121212] rounded font-mono text-[10px] text-[#121212] leading-tight break-words">
+                      {autoPilotStatusLog}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {appliedToast && (
             <div className="bg-[#10B981] text-white p-2 text-xs font-bold border border-[#121212] flex items-center gap-1.5 animate-fade-in break-words">
               <Check className="w-4 h-4 shrink-0" />
