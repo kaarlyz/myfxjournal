@@ -933,17 +933,7 @@ function SessionCard({
 
       {/* Session name + meta */}
       <div className="mt-3 min-w-0">
-        <h3
-          className="truncate"
-          style={{
-            fontFamily: 'Outfit, sans-serif',
-            fontWeight: 800,
-            fontSize: '0.95rem',
-            color: '#121212',
-          }}
-        >
-          {s.name}
-        </h3>
+        <h3 className="font-bold text-sm leading-snug line-clamp-2 text-[var(--text-primary)]" title={s.name}>{s.name}</h3>
         <div
           className="flex items-center gap-1.5 mt-1 flex-wrap min-w-0"
           style={{ fontFamily: 'Outfit, sans-serif', fontSize: '11px', color: '#717182' }}
@@ -1081,32 +1071,20 @@ function SessionCard({
       </div>
 
       {/* Actions */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full mt-3 pt-3 border-t border-[var(--border-primary)]">
-        <button
-          onClick={onOpenDashboard}
-          className="btn btn-yellow w-full flex items-center justify-center gap-1.5 text-xs py-2 px-2.5 truncate"
-          aria-label={`Open dashboard for ${s.name}`}
-        >
+      <div className="flex flex-col gap-1.5 w-full mt-3 pt-3 border-t border-[var(--border-primary)]">
+        <button onClick={onOpenDashboard} className="btn btn-yellow w-full flex items-center justify-center gap-1.5 text-xs py-2 px-3 whitespace-nowrap">
           <BarChart3 className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">{t('open_dashboard')}</span>
+          <span>{t('open_dashboard')}</span>
         </button>
         {manualReplayId ? (
-          <button
-            onClick={() => onOpenChart?.(manualReplayId)}
-            className="btn btn-primary w-full flex items-center justify-center gap-1.5 text-xs bg-[#1040C0] hover:bg-[#0D3399] text-white py-2 px-2.5 truncate"
-            aria-label={`Lanjutkan di chart untuk ${s.name}`}
-          >
+          <button onClick={() => onOpenChart?.(manualReplayId)} className="btn btn-primary w-full flex items-center justify-center gap-1.5 text-xs py-2 px-3 whitespace-nowrap bg-[#1040C0] hover:bg-[#0D3399] text-white">
             <Play className="w-3.5 h-3.5 fill-white shrink-0" />
-            <span className="truncate">Lanjutkan di Chart</span>
+            <span>Lanjutkan di Chart</span>
           </button>
         ) : (
-          <button
-            onClick={() => onImportCsv('SMART_MERGE')}
-            className="btn btn-secondary w-full flex items-center justify-center gap-1.5 text-xs py-2 px-2.5 truncate"
-            aria-label={`Update CSV for ${s.name}`}
-          >
+          <button onClick={() => onImportCsv('SMART_MERGE')} className="btn btn-secondary w-full flex items-center justify-center gap-1.5 text-xs py-2 px-3 whitespace-nowrap">
             <FileUp className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">{t('dashboard:update_csv')}</span>
+            <span>{t('dashboard:update_csv')}</span>
           </button>
         )}
       </div>
