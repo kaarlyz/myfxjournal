@@ -5,26 +5,37 @@ import Sidebar from './components/Sidebar';
 import Home from './pages/Home';
 import CreateSession from './pages/CreateSession';
 import CSVImport from './pages/CSVImport';
-import Dashboard from './pages/Dashboard';
 import QuickLogger from './pages/QuickLogger';
-import CompareSessions from './pages/CompareSessions';
 import Settings from './pages/Settings';
-import WebhookMonitor from './pages/WebhookMonitor';
 import LiveJournal from './pages/LiveJournal';
 import Accounts from './pages/Accounts';
-import Integrations from './pages/Integrations';
-import SetupReview from './pages/SetupReview';
 import MT5ReportImport from './pages/MT5ReportImport';
-import MT5ReportDashboard from './pages/MT5ReportDashboard';
 import ReportPrint from './pages/ReportPrint';
-import EAControlCenter from './pages/EAControlCenter';
-import MT5Connections from './pages/MT5Connections';
-import MarketData from './pages/MarketData';
 import RiskCalculator from './components/RiskCalculator';
-import PropFirmSimulator from './pages/PropFirmSimulator';
-import MonteCarlo from './pages/MonteCarlo';
-import Backtest from './pages/Backtest';
 import Landing from './pages/Landing';
+
+// Heavy pages lazy loaded for optimal bundle size & initial load speed
+const Dashboard = React.lazy(() => import('./pages/Dashboard'));
+const CompareSessions = React.lazy(() => import('./pages/CompareSessions'));
+const WebhookMonitor = React.lazy(() => import('./pages/WebhookMonitor'));
+const Integrations = React.lazy(() => import('./pages/Integrations'));
+const SetupReview = React.lazy(() => import('./pages/SetupReview'));
+const MT5ReportDashboard = React.lazy(() => import('./pages/MT5ReportDashboard'));
+const EAControlCenter = React.lazy(() => import('./pages/EAControlCenter'));
+const MT5Connections = React.lazy(() => import('./pages/MT5Connections'));
+const MarketData = React.lazy(() => import('./pages/MarketData'));
+const PropFirmSimulator = React.lazy(() => import('./pages/PropFirmSimulator'));
+const MonteCarlo = React.lazy(() => import('./pages/MonteCarlo'));
+const Backtest = React.lazy(() => import('./pages/Backtest'));
+
+const PageLoader = () => (
+  <div className="flex items-center justify-center min-h-[400px] w-full">
+    <div className="flex flex-col items-center gap-2">
+      <div className="w-8 h-8 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+      <span className="text-xs text-gray-500 font-medium">Loading...</span>
+    </div>
+  </div>
+);
 import { useJournalStore } from './store/useJournalStore';
 import { useLiveJournalStore } from './store/useLiveJournalStore';
 import { AlertTriangle, Clock, Wifi, WifiOff, RefreshCw } from 'lucide-react';
@@ -63,44 +74,46 @@ function AnimatedRoutes({ isAuthenticated }: AnimatedRoutesProps) {
         }
       >
         <WidgetErrorBoundary>
-          <Routes location={location} key={location.pathname}>
-            <Route
-              path="/"
-              element={
-                isAuthenticated ? (
-                  <Navigate to="/dashboard" replace />
-                ) : (
-                  <Landing />
-                )
-              }
-            />
-            <Route path="/landing"                       element={<Landing />} />
-            <Route path="/sessions"                     element={<ProtectedRoute><Home /></ProtectedRoute>} />
-            <Route path="/dashboard"                    element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/create-session"               element={<ProtectedRoute><CreateSession /></ProtectedRoute>} />
-            <Route path="/csv-import"                   element={<ProtectedRoute><CSVImport /></ProtectedRoute>} />
-            <Route path="/mt5-import"                   element={<ProtectedRoute><MT5ReportImport /></ProtectedRoute>} />
-            <Route path="/mt5-report"                   element={<ProtectedRoute><MT5ReportDashboard /></ProtectedRoute>} />
-            <Route path="/reports/mt5/:reportId/print"     element={<ProtectedRoute><ReportPrint kind="mt5" /></ProtectedRoute>} />
-            <Route path="/reports/session/:sessionId/print" element={<ProtectedRoute><ReportPrint kind="session" /></ProtectedRoute>} />
-            <Route path="/reports/live/:accountId/print"   element={<ProtectedRoute><ReportPrint kind="live" /></ProtectedRoute>} />
-            <Route path="/quick-logger"                 element={<ProtectedRoute><QuickLogger /></ProtectedRoute>} />
-            <Route path="/compare-sessions"             element={<ProtectedRoute><CompareSessions /></ProtectedRoute>} />
-            <Route path="/webhook-monitor"              element={<ProtectedRoute><WebhookMonitor /></ProtectedRoute>} />
-            <Route path="/settings"                     element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-            <Route path="/live-journal"                 element={<ProtectedRoute><LiveJournal /></ProtectedRoute>} />
-            <Route path="/accounts"                     element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
-            <Route path="/mt5-connections"              element={<ProtectedRoute><MT5Connections /></ProtectedRoute>} />
-            <Route path="/market-data"                  element={<ProtectedRoute><MarketData /></ProtectedRoute>} />
-            <Route path="/integrations"                 element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
-            <Route path="/ea-control"                   element={<ProtectedRoute><EAControlCenter /></ProtectedRoute>} />
-            <Route path="/setup-review"                 element={<ProtectedRoute><SetupReview /></ProtectedRoute>} />
-            <Route path="/risk-calculator"              element={<ProtectedRoute><RiskCalculator /></ProtectedRoute>} />
-            <Route path="/prop-sim"                     element={<ProtectedRoute><PropFirmSimulator /></ProtectedRoute>} />
-            <Route path="/monte-carlo"                  element={<ProtectedRoute><MonteCarlo /></ProtectedRoute>} />
-            <Route path="/backtest"                     element={<ProtectedRoute><Backtest /></ProtectedRoute>} />
-            <Route path="*"                             element={<Navigate to="/" replace />} />
-          </Routes>
+          <React.Suspense fallback={<PageLoader />}>
+            <Routes location={location} key={location.pathname}>
+              <Route
+                path="/"
+                element={
+                  isAuthenticated ? (
+                    <Navigate to="/dashboard" replace />
+                  ) : (
+                    <Landing />
+                  )
+                }
+              />
+              <Route path="/landing"                       element={<Landing />} />
+              <Route path="/sessions"                     element={<ProtectedRoute><Home /></ProtectedRoute>} />
+              <Route path="/dashboard"                    element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              <Route path="/create-session"               element={<ProtectedRoute><CreateSession /></ProtectedRoute>} />
+              <Route path="/csv-import"                   element={<ProtectedRoute><CSVImport /></ProtectedRoute>} />
+              <Route path="/mt5-import"                   element={<ProtectedRoute><MT5ReportImport /></ProtectedRoute>} />
+              <Route path="/mt5-report"                   element={<ProtectedRoute><MT5ReportDashboard /></ProtectedRoute>} />
+              <Route path="/reports/mt5/:reportId/print"     element={<ProtectedRoute><ReportPrint kind="mt5" /></ProtectedRoute>} />
+              <Route path="/reports/session/:sessionId/print" element={<ProtectedRoute><ReportPrint kind="session" /></ProtectedRoute>} />
+              <Route path="/reports/live/:accountId/print"   element={<ProtectedRoute><ReportPrint kind="live" /></ProtectedRoute>} />
+              <Route path="/quick-logger"                 element={<ProtectedRoute><QuickLogger /></ProtectedRoute>} />
+              <Route path="/compare-sessions"             element={<ProtectedRoute><CompareSessions /></ProtectedRoute>} />
+              <Route path="/webhook-monitor"              element={<ProtectedRoute><WebhookMonitor /></ProtectedRoute>} />
+              <Route path="/settings"                     element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+              <Route path="/live-journal"                 element={<ProtectedRoute><LiveJournal /></ProtectedRoute>} />
+              <Route path="/accounts"                     element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
+              <Route path="/mt5-connections"              element={<ProtectedRoute><MT5Connections /></ProtectedRoute>} />
+              <Route path="/market-data"                  element={<ProtectedRoute><MarketData /></ProtectedRoute>} />
+              <Route path="/integrations"                 element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
+              <Route path="/ea-control"                   element={<ProtectedRoute><EAControlCenter /></ProtectedRoute>} />
+              <Route path="/setup-review"                 element={<ProtectedRoute><SetupReview /></ProtectedRoute>} />
+              <Route path="/risk-calculator"              element={<ProtectedRoute><RiskCalculator /></ProtectedRoute>} />
+              <Route path="/prop-sim"                     element={<ProtectedRoute><PropFirmSimulator /></ProtectedRoute>} />
+              <Route path="/monte-carlo"                  element={<ProtectedRoute><MonteCarlo /></ProtectedRoute>} />
+              <Route path="/backtest"                     element={<ProtectedRoute><Backtest /></ProtectedRoute>} />
+              <Route path="*"                             element={<Navigate to="/" replace />} />
+            </Routes>
+          </React.Suspense>
         </WidgetErrorBoundary>
       </motion.div>
     </AnimatePresence>
