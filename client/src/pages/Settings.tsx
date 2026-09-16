@@ -177,6 +177,44 @@ export default function Settings() {
 
         {/* Right Column: Database Tools & Resets */}
         <div className="space-y-8">
+          {/* API Tunnel Configuration */}
+          <div className="bg-white border-4 border-[#121212] p-5 shadow-[8px_8px_0px_0px_#121212] relative">
+            <div className="absolute top-0 left-0 right-0 h-3 bg-[#1040C0]" />
+            <SectionLabel label="API Endpoint (Backend Tunnel)" shape="circle" color="blue" className="mb-4 mt-2" />
+            <p className="text-[12px] font-bold text-[#717182] mb-4">
+              Atur URL Backend ngrok/tunnel agar Vercel Frontend terhubung ke laptop Anda.
+            </p>
+            <div className="space-y-3 bg-[#F0F0F0] p-4 border-2 border-[#121212]">
+              <Input
+                label="Public Backend URL (ngrok)"
+                type="text"
+                placeholder="https://xxxx-xx-xx.ngrok-free.app"
+                value={localStorage.getItem('VITE_API_URL') || ''}
+                onChange={(e) => {
+                  const val = e.target.value.trim();
+                  if (val) {
+                    localStorage.setItem('VITE_API_URL', val);
+                  } else {
+                    localStorage.removeItem('VITE_API_URL');
+                  }
+                }}
+                hint="Kosongkan jika ingin kembali ke /api default."
+              />
+              <Button
+                variant="blue"
+                size="sm"
+                fullWidth
+                onClick={() => {
+                  alert('URL API Backend berhasil disimpan! Halaman akan dimuat ulang.');
+                  window.location.reload();
+                }}
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Simpan & Reload
+              </Button>
+            </div>
+          </div>
+
           {/* Language Selector */}
           <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212] border-l-8 border-l-[#1040C0]">
             <SectionLabel label={t('language', 'Language')} shape="circle" color="blue" className="mb-3" />

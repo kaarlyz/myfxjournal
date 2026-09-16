@@ -75,7 +75,16 @@ import {
   BacktestStats as IBacktestStats,
 } from '../shared/backtestEngine';
 
-const API_BASE = '/api/backtest';
+const getApiBase = () => {
+  const custom = window.localStorage.getItem('VITE_API_URL');
+  if (custom) {
+    const clean = custom.replace(/\/$/, '');
+    return clean.endsWith('/api') ? `${clean}/backtest` : `${clean}/api/backtest`;
+  }
+  return '/api/backtest';
+};
+
+const API_BASE = getApiBase();
 
 export default function Backtest() {
   // ── Mode State Machine ──
