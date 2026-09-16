@@ -270,12 +270,21 @@ function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, 
 
         {error && (
           <div
-            className="banner-danger flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm"
+            className="banner-danger flex items-center justify-between gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm"
             role="alert"
             aria-live="assertive"
           >
-            <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
-            <span>{error}</span>
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span>{error}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => useJournalStore.setState({ error: null })}
+              className="text-xs font-bold underline px-2 py-0.5 rounded hover:bg-black/10"
+            >
+              Tutup
+            </button>
           </div>
         )}
 
