@@ -1901,7 +1901,12 @@ export default function Backtest() {
 
   // ── AI Auto-Pilot Runner Engine (Automatic Step & AI Trading) ──
   const runAutoPilotStep = useCallback(async () => {
-    if (!isAutoPilotActive || isAutoPilotRunningRef.current || appMode !== 'replay') return;
+    if (!isAutoPilotActive) return;
+    if (appMode !== 'replay') {
+      setIsAutoPilotActive(false);
+      return;
+    }
+    if (isAutoPilotRunningRef.current) return;
     isAutoPilotRunningRef.current = true;
 
     try {
@@ -1981,6 +1986,15 @@ export default function Backtest() {
                 riskAmount
               });
               setAutoPilotStatusLog(`🤖 AUTO-EXECUTE PENDING: ${sig.orderType} ${side} @ ${sig.entryPrice.toFixed(2)} (${sig.setupName})`);
+              showToast({
+                kind: 'ENTRY',
+                symbol,
+                title: '🤖 AUTO-PILOT ENTRY',
+                side,
+                price: sig.entryPrice,
+                lotSize: volume > 0 ? volume : 1.0,
+                message: `${sig.orderType} ${side} @ $${sig.entryPrice.toFixed(2)} (${sig.setupName || 'AI Confluence'})`
+              });
             } else {
               const volume = slP > 0 ? calculatePositionSize(balance, rPct, curPrice, slP, getSymbolContractSize(symbol)) : 1.0;
               const riskAmount = (balance * rPct) / 100;
@@ -1995,6 +2009,15 @@ export default function Backtest() {
                 status: 'OPEN'
               });
               setAutoPilotStatusLog(`🤖 AUTO-EXECUTE MARKET: ${side} @ ${curPrice.toFixed(2)} (${sig.setupName})`);
+              showToast({
+                kind: 'ENTRY',
+                symbol,
+                title: '🤖 AUTO-PILOT ENTRY',
+                side,
+                price: curPrice,
+                lotSize: volume > 0 ? volume : 1.0,
+                message: `${side} @ $${curPrice.toFixed(2)} (${sig.setupName || 'AI Confluence'})`
+              });
             }
           } else {
             setAutoPilotStatusLog(`🤖 Bar #${curCandles.length} — AI Signal: WAIT (${sig.reasoning || 'Tunggu momentum'})`);
@@ -2007,7 +2030,7 @@ export default function Backtest() {
     } finally {
       isAutoPilotRunningRef.current = false;
     }
-  }, [isAutoPilotActive, appMode, stepForward, symbol, timeframe, balance, riskPercent, handlePlaceOrder, handleOpenTrade]);
+  }, [isAutoPilotActive, appMode, stepForward, symbol, timeframe, balance, riskPercent, handlePlaceOrder, handleOpenTrade, showToast]);
 
   useEffect(() => {
     if (!isAutoPilotActive || appMode !== 'replay') return;
