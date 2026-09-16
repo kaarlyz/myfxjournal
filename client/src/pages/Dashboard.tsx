@@ -19,6 +19,7 @@ import RRLabTab from '../components/AnalyticsTabs/RRLabTab';
 import TimingAnalyticsTab from '../components/AnalyticsTabs/TimingAnalyticsTab';
 import StreaksTab from '../components/AnalyticsTabs/StreaksTab';
 import PairBreakdownTab from '../components/AnalyticsTabs/PairBreakdownTab';
+import AiAdvisorAudit from '../components/AiAdvisorAudit';
 
 import { Button } from '../components/ui/Button';
 import { Card, CardBody } from '../components/ui/Card';
@@ -387,6 +388,9 @@ export default function Dashboard() {
           </CardBody>
         </Card>
       )}
+
+      {/* ── AI TRADE & BACKTEST ADVISOR COMPONENT ── */}
+      <AiAdvisorAudit sessionId={session.id} type="SESSION" />
 
       {/* ── TABS NAVIGATION (Mobile Scrollable) ── */}
       <div className="flex gap-2 pb-2 overflow-x-auto no-scrollbar scroll-smooth">

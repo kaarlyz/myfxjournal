@@ -18,6 +18,7 @@ import {
   X,
   MousePointer2,
   LayoutDashboard,
+  Sparkles,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { SymbolPicker, SymbolOption } from './SymbolPicker';
@@ -55,6 +56,8 @@ interface ReplayControlsProps {
   onToggleFullscreen: () => void;
   isOrderPanelOpen: boolean;
   onToggleOrderPanel: () => void;
+  isAiCopilotOpen?: boolean;
+  onToggleAiCopilot?: () => void;
   loading: boolean;
   selectionTime?: Date | null;
   onBack?: () => void;
@@ -89,6 +92,8 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
   onToggleFullscreen,
   isOrderPanelOpen,
   onToggleOrderPanel,
+  isAiCopilotOpen = true,
+  onToggleAiCopilot,
   loading,
   selectionTime,
   onBack,
@@ -306,6 +311,22 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
 
         {/* Right: Utility buttons */}
         <div className="flex items-center gap-1.5 justify-end">
+          {onToggleAiCopilot && (
+            <button
+              onClick={onToggleAiCopilot}
+              title={isAiCopilotOpen ? 'Sembunyikan AI Copilot' : 'Tampilkan AI Copilot'}
+              className={`flex items-center gap-1.5 px-2.5 h-8 border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none text-xs font-black uppercase transition-all cursor-pointer ${
+                isAiCopilotOpen
+                  ? 'bg-[#FFD000] text-[#121212]'
+                  : 'bg-white text-[#121212] hover:bg-[#FFFDEB]'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 stroke-[2.5] text-[#1040C0]" />
+              <span className="hidden sm:inline">AI Copilot</span>
+              <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse" />
+            </button>
+          )}
+
           {appMode === 'replay' && onOpenDashboard && (
             <button
               onClick={onOpenDashboard}

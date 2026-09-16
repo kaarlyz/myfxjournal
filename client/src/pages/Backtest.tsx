@@ -39,6 +39,7 @@ import {
   Zap,
   Info,
   BarChart2,
+  Sparkles,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
@@ -52,6 +53,7 @@ import { OrderPanel, type OrderPanelHandle } from '../components/backtest/OrderP
 import { BacktestStats } from '../components/backtest/BacktestStats';
 import { TradeHistory } from '../components/backtest/TradeHistory';
 import { TradeNotificationToast, type TradeToastItem } from '../components/backtest/TradeNotificationToast';
+import { AiReplayCopilot, type AiCopilotSignal } from '../components/backtest/AiReplayCopilot';
 import {
   PendingOrderRecord,
   OrderExecutionType,
@@ -404,6 +406,7 @@ export default function Backtest() {
   // UI Workspace State
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isOrderPanelOpen, setIsOrderPanelOpen] = useState<boolean>(true);
+  const [isAiCopilotOpen, setIsAiCopilotOpen] = useState<boolean>(true);
   const [isVisualOrderActive, setIsVisualOrderActive] = useState<boolean>(false);
   const [tradeSide, setTradeSide] = useState<TradeSide>('LONG');
   const [bottomDrawerTab, setBottomDrawerTab] = useState<'NONE' | 'STATS' | 'HISTORY'>('NONE');
@@ -1531,7 +1534,7 @@ export default function Backtest() {
     : undefined;
 
   const [isMobileSheetOpen, setMobileSheetOpen] = useState(false);
-  const [mobileSheetKind, setMobileSheetKind] = useState<'MENU' | 'ORDER' | 'TOOLS' | 'STATS' | 'HISTORY'>('ORDER');
+  const [mobileSheetKind, setMobileSheetKind] = useState<'MENU' | 'ORDER' | 'TOOLS' | 'STATS' | 'HISTORY' | 'AI'>('ORDER');
 
   const openMobileSheet = (kind: typeof mobileSheetKind) => {
     setMobileSheetKind(kind);
@@ -2455,6 +2458,15 @@ export default function Backtest() {
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
+                onClick={() => openMobileSheet('AI')}
+                className="mobile-icon-btn shrink-0 bg-[#FFD000] border-2 border-[#121212] text-[#121212]"
+                aria-label="AI Copilot"
+                title="AI Copilot"
+              >
+                <Sparkles className="w-4 h-4 text-[#1040C0]" />
+              </button>
+              <button
+                type="button"
                 onClick={() => openMobileSheet('ORDER')}
                 className="mobile-icon-btn shrink-0"
                 aria-label="Order panel"
@@ -2517,6 +2529,7 @@ export default function Backtest() {
                   {mobileSheetKind === 'TOOLS' && 'Drawing Tools'}
                   {mobileSheetKind === 'STATS' && 'Session Stats'}
                   {mobileSheetKind === 'HISTORY' && 'Trade History'}
+                  {mobileSheetKind === 'AI' && '⚡ MurplyFX AI Copilot'}
                 </span>
                 <button
                   type="button"
@@ -2927,6 +2940,74 @@ export default function Backtest() {
             {mobileSheetKind === 'STATS' && <BacktestStats stats={stats} />}
 
             {mobileSheetKind === 'HISTORY' && <TradeHistory trades={tradeHistory} />}
+
+            {mobileSheetKind === 'AI' && (
+              <AiReplayCopilot
+                symbol={symbol}
+                timeframe={timeframe}
+                currentPrice={currentPrice}
+                candles={candles}
+                balance={balance}
+                onClose={() => setMobileSheetOpen(false)}
+                onApplySignal={(sig: AiCopilotSignal) => {
+                  if (sig.action === 'BUY') {
+                    setTradeSide('LONG');
+                  } else if (sig.action === 'SELL') {
+                    setTradeSide('SHORT');
+                  }
+                  if (sig.entryPrice != null && sig.entryPrice > 0) setControlledEntryPrice(sig.entryPrice);
+                  if (sig.slPrice != null && sig.slPrice > 0) setControlledSlPrice(sig.slPrice);
+                  if (sig.tpPrice != null && sig.tpPrice > 0) setControlledTpPrice(sig.tpPrice);
+                  if (sig.riskPercent != null && sig.riskPercent > 0) setRiskPercent(sig.riskPercent);
+                  setMobileSheetOpen(false);
+                  showToast({
+                    kind: 'INFO',
+                    title: '⚡ SINYAL AI DITERAPKAN',
+                    message: `${sig.action} ${symbol} @ ${sig.entryPrice ?? '-'} (SL ${sig.slPrice ?? '-'} / TP ${sig.tpPrice ?? '-'})`,
+                  });
+                }}
+                onExecuteMarket={({ side, slPrice, tpPrice, riskPercent: rPct }) => {
+                  setTradeSide(side);
+                  const activeRisk = (rPct != null && rPct > 0) ? rPct : riskPercent;
+                  if (rPct != null && rPct > 0) setRiskPercent(rPct);
+                  const entryP = currentPrice;
+                  const slP = slPrice ?? 0;
+                  const tpP = tpPrice ?? 0;
+                  const riskAmount = (balance * activeRisk) / 100;
+                  const volume = slP > 0 ? calculatePositionSize(balance, activeRisk, entryP, slP, getSymbolContractSize(symbol)) : 1.0;
+                  setMobileSheetOpen(false);
+                  handleOpenTrade({
+                    side,
+                    entryPrice: entryP,
+                    slPrice: slP,
+                    tpPrice: tpP,
+                    volume: volume > 0 ? volume : 1.0,
+                    riskAmount,
+                    orderType: side === 'LONG' ? 'MARKET_BUY' : 'MARKET_SELL',
+                    status: 'OPEN',
+                  });
+                }}
+                onPlacePending={({ side, orderType, price, slPrice, tpPrice, riskPercent: rPct }) => {
+                  setTradeSide(side);
+                  const activeRisk = (rPct != null && rPct > 0) ? rPct : riskPercent;
+                  if (rPct != null && rPct > 0) setRiskPercent(rPct);
+                  const slP = slPrice ?? 0;
+                  const tpP = tpPrice ?? 0;
+                  const riskAmount = (balance * activeRisk) / 100;
+                  const volume = slP > 0 ? calculatePositionSize(balance, activeRisk, price, slP, getSymbolContractSize(symbol)) : 1.0;
+                  setMobileSheetOpen(false);
+                  handlePlaceOrder({
+                    orderType: orderType as OrderExecutionType,
+                    entryPrice: price,
+                    slPrice: slP,
+                    tpPrice: tpP,
+                    side,
+                    volume: volume > 0 ? volume : 1.0,
+                    riskAmount,
+                  });
+                }}
+              />
+            )}
             </motion.div>
           </div>
         )}
@@ -2981,6 +3062,8 @@ export default function Backtest() {
           onToggleFullscreen={handleToggleFullscreen}
           isOrderPanelOpen={isOrderPanelOpen}
           onToggleOrderPanel={() => setIsOrderPanelOpen(!isOrderPanelOpen)}
+          isAiCopilotOpen={isAiCopilotOpen}
+          onToggleAiCopilot={() => setIsAiCopilotOpen((prev) => !prev)}
           loading={loading}
           selectionTime={selectionTime}
           onBack={handleSmartBack}
@@ -3027,11 +3110,13 @@ export default function Backtest() {
             hasDrawings={drawings.length > 0}
             lockRR={lockRR}
             onToggleLockRR={() => setLockRR(!lockRR)}
+            isAiCopilotOpen={isAiCopilotOpen}
+            onToggleAiCopilot={() => setIsAiCopilotOpen((prev) => !prev)}
           />
 
           <div className="relative flex-1 min-w-0 h-full overflow-hidden touch-none overscroll-none select-none">
             
-        <CandlestickChart
+            <CandlestickChart
               candles={candles}
               timeframe={timeframe}
               symbol={symbol}
@@ -3082,6 +3167,85 @@ export default function Backtest() {
               floatingR={liveFloatingR}
               hasOpenPositions={Boolean(activeTrade && activeTrade.status === 'OPEN')}
             />
+
+            {/* ── Floating Draggable AI Replay Copilot Overlay ── */}
+            <AnimatePresence>
+              {isAiCopilotOpen && (
+                <motion.div
+                  drag
+                  dragMomentum={false}
+                  dragConstraints={{ left: -600, right: 50, top: 0, bottom: 450 }}
+                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                  transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                  className="hidden sm:block absolute top-14 right-4 z-30 max-h-[calc(100vh-140px)] overflow-y-auto pointer-events-auto"
+                >
+                  <AiReplayCopilot
+                    symbol={symbol}
+                    timeframe={timeframe}
+                    currentPrice={currentPrice}
+                    candles={candles}
+                    balance={balance}
+                    onClose={() => setIsAiCopilotOpen(false)}
+                    onApplySignal={(sig: AiCopilotSignal) => {
+                      if (sig.action === 'BUY') {
+                        setTradeSide('LONG');
+                      } else if (sig.action === 'SELL') {
+                        setTradeSide('SHORT');
+                      }
+                      if (sig.entryPrice != null && sig.entryPrice > 0) setControlledEntryPrice(sig.entryPrice);
+                      if (sig.slPrice != null && sig.slPrice > 0) setControlledSlPrice(sig.slPrice);
+                      if (sig.tpPrice != null && sig.tpPrice > 0) setControlledTpPrice(sig.tpPrice);
+                      if (sig.riskPercent != null && sig.riskPercent > 0) setRiskPercent(sig.riskPercent);
+                      showToast({
+                        kind: 'INFO',
+                        title: '⚡ SINYAL AI DITERAPKAN',
+                        message: `${sig.action} ${symbol} @ ${sig.entryPrice ?? '-'} (SL ${sig.slPrice ?? '-'} / TP ${sig.tpPrice ?? '-'})`,
+                      });
+                    }}
+                    onExecuteMarket={({ side, slPrice, tpPrice, riskPercent: rPct }) => {
+                      setTradeSide(side);
+                      const activeRisk = (rPct != null && rPct > 0) ? rPct : riskPercent;
+                      if (rPct != null && rPct > 0) setRiskPercent(rPct);
+                      const entryP = currentPrice;
+                      const slP = slPrice ?? 0;
+                      const tpP = tpPrice ?? 0;
+                      const riskAmount = (balance * activeRisk) / 100;
+                      const volume = slP > 0 ? calculatePositionSize(balance, activeRisk, entryP, slP, getSymbolContractSize(symbol)) : 1.0;
+                      handleOpenTrade({
+                        side,
+                        entryPrice: entryP,
+                        slPrice: slP,
+                        tpPrice: tpP,
+                        volume: volume > 0 ? volume : 1.0,
+                        riskAmount,
+                        orderType: side === 'LONG' ? 'MARKET_BUY' : 'MARKET_SELL',
+                        status: 'OPEN',
+                      });
+                    }}
+                    onPlacePending={({ side, orderType, price, slPrice, tpPrice, riskPercent: rPct }) => {
+                      setTradeSide(side);
+                      const activeRisk = (rPct != null && rPct > 0) ? rPct : riskPercent;
+                      if (rPct != null && rPct > 0) setRiskPercent(rPct);
+                      const slP = slPrice ?? 0;
+                      const tpP = tpPrice ?? 0;
+                      const riskAmount = (balance * activeRisk) / 100;
+                      const volume = slP > 0 ? calculatePositionSize(balance, activeRisk, price, slP, getSymbolContractSize(symbol)) : 1.0;
+                      handlePlaceOrder({
+                        orderType: orderType as OrderExecutionType,
+                        entryPrice: price,
+                        slPrice: slP,
+                        tpPrice: tpP,
+                        side,
+                        volume: volume > 0 ? volume : 1.0,
+                        riskAmount,
+                      });
+                    }}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
 

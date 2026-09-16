@@ -14,6 +14,7 @@ import {
   Lock,
   Unlock,
   Eraser,
+  Sparkles,
 } from 'lucide-react';
 
 export type DrawingTool =
@@ -37,6 +38,8 @@ interface DrawingToolbarProps {
   hasDrawings?: boolean;
   lockRR?: boolean;
   onToggleLockRR?: () => void;
+  isAiCopilotOpen?: boolean;
+  onToggleAiCopilot?: () => void;
 }
 
 export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
@@ -48,6 +51,8 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
   hasDrawings,
   lockRR = false,
   onToggleLockRR,
+  isAiCopilotOpen = true,
+  onToggleAiCopilot,
 }) => {
   const tools: Array<{ id: DrawingTool; label: string; icon: React.ReactNode; shortcut: string }> = [
     { id: 'cursor', label: 'Cursor (Pan / Drag)', icon: <MousePointer2 className="w-4 h-4" />, shortcut: 'Esc' },
@@ -64,6 +69,27 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
 
   return (
     <div className="flex flex-col items-center bg-white border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] p-1 gap-1 z-20 select-none shrink-0">
+      {/* Prominent AI Copilot Button */}
+      {onToggleAiCopilot && (
+        <button
+          type="button"
+          onClick={onToggleAiCopilot}
+          title={isAiCopilotOpen ? 'Sembunyikan AI Copilot' : 'Tampilkan AI Copilot'}
+          className={`relative group p-2 transition-all active:scale-95 cursor-pointer ${
+            isAiCopilotOpen
+              ? 'bg-[#FFD000] text-[#121212] border-2 border-[#121212] shadow-[1px_1px_0px_0px_#121212]'
+              : 'border-2 border-transparent text-[#1040C0] hover:bg-[#FFFDEB] hover:border-[#121212]'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-[#1040C0] stroke-[2.5]" />
+          <div className="absolute left-full ml-2.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-white text-[#121212] text-[11px] font-bold border-2 border-[#121212] shadow-[2px_2px_0px_0px_#121212] whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 flex items-center gap-1.5">
+            <span>⚡ MurplyFX AI Copilot</span>
+            <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse" />
+          </div>
+        </button>
+      )}
+
+      {onToggleAiCopilot && <div className="w-5 h-[2px] bg-[#121212] my-0.5" />}
       {tools.map((t) => {
         const isActive = activeTool === t.id;
         const activeClass =

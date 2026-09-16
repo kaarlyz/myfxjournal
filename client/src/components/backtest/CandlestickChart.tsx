@@ -3697,11 +3697,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -12, scale: 0.95 }}
             transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-40 w-[min(94vw,520px)] max-w-[520px] bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm"
+            className="fixed sm:absolute top-20 sm:top-16 left-1/2 -translate-x-1/2 z-50 w-[calc(100vw-20px)] max-w-[480px] bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-2.5 py-1.5 sm:px-3.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-3 backdrop-blur-sm overflow-hidden box-border"
           >
-            <div className="flex items-center gap-2 pr-3 border-r border-[#121212]/15">
+            <div className="flex items-center gap-1.5 sm:gap-2 pr-1.5 sm:pr-3 border-r border-[#121212]/15 shrink min-w-0 overflow-hidden">
               <span
-                className={`px-2 py-0.5 text-[10px] rounded font-black font-mono border border-[#121212] ${
+                className={`px-1.5 py-0.5 text-[9px] sm:text-[10px] rounded font-black font-mono border border-[#121212] shrink-0 ${
                   selectedPendingOrder.side === 'LONG'
                     ? 'bg-[#E7F9F0] text-[#059669]'
                     : 'bg-[#FDECEC] text-[#DC2626]'
@@ -3709,20 +3709,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               >
                 {selectedPendingOrder.orderType.replace('_', ' ')}
               </span>
-              <span className="font-mono font-black text-xs text-[#121212]">
+              <span className="font-mono font-black text-xs text-[#121212] truncate">
                 @{selectedPendingOrder.entryPrice.toFixed(2)}
+              </span>
+              <span className="font-mono font-bold text-[10px] sm:text-xs text-[#717182] bg-slate-100 px-1 py-0.5 rounded shrink-0">
+                {selectedPendingOrder.volume.toFixed(2)}L
               </span>
             </div>
 
-            <div className="text-[10px] font-mono text-[#717182] hidden sm:flex items-center gap-2">
+            <div className="text-[10px] font-mono text-[#717182] hidden md:flex items-center gap-2 shrink-0">
               <span>SL: {selectedPendingOrder.slPrice > 0 ? `$${selectedPendingOrder.slPrice.toFixed(2)}` : 'None'}</span>
               <span>•</span>
               <span>TP: {selectedPendingOrder.tpPrice > 0 ? `$${selectedPendingOrder.tpPrice.toFixed(2)}` : 'None'}</span>
-              <span>•</span>
-              <span>{selectedPendingOrder.volume.toFixed(2)}L</span>
             </div>
 
-            <div className="flex items-center gap-1.5 ml-auto">
+            <div className="flex items-center gap-1 sm:gap-1.5 ml-auto shrink-0">
               {onEditPendingOrder && (
                 <button
                   type="button"
@@ -3730,11 +3731,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                     onEditPendingOrder(selectedPendingOrder);
                     setSelectedPendingOrderId(null);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-[#1040C0] hover:bg-[#0D3399] text-white font-bold text-xs rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                  className="flex items-center gap-1 px-1.5 sm:px-2 py-1 bg-[#1040C0] hover:bg-[#0D3399] text-white font-bold text-xs rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer whitespace-nowrap"
                   title="Edit Entry, SL, atau TP pada Chart"
                 >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>Edit</span>
+                  <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xs:inline">Edit</span>
                 </button>
               )}
 
@@ -3745,18 +3746,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                     onCancelPendingOrder(selectedPendingOrder.id);
                     setSelectedPendingOrderId(null);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-[#FEE2E2] hover:bg-[#FCA5A5] text-[#DC2626] font-bold text-xs rounded border border-[#DC2626] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                  className="flex items-center gap-1 px-1.5 sm:px-2 py-1 bg-[#FEE2E2] hover:bg-[#FCA5A5] text-[#DC2626] font-bold text-xs rounded border border-[#DC2626] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer whitespace-nowrap"
                   title="Hapus / Batalkan Pending Order Ini"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Hapus</span>
+                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden xs:inline">Hapus</span>
                 </button>
               )}
 
               <button
                 type="button"
                 onClick={() => setSelectedPendingOrderId(null)}
-                className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded cursor-pointer transition-colors"
+                className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded cursor-pointer transition-colors shrink-0"
                 title="Tutup Menu"
               >
                 <X className="w-4 h-4" />
@@ -3774,11 +3775,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -12, scale: 0.95 }}
             transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-40 w-[min(94vw,520px)] max-w-[520px] bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-3.5 py-2 flex items-center gap-3 backdrop-blur-sm"
+            className="fixed sm:absolute top-20 sm:top-16 left-1/2 -translate-x-1/2 z-50 w-[calc(100vw-20px)] max-w-[480px] bg-white/95 border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl px-2.5 py-1.5 sm:px-3.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-3 backdrop-blur-sm overflow-hidden box-border"
           >
-            <div className="flex items-center gap-2 pr-3 border-r border-[#121212]/15">
+            <div className="flex items-center gap-1.5 sm:gap-2 pr-1.5 sm:pr-3 border-r border-[#121212]/15 shrink min-w-0 overflow-hidden">
               <span
-                className={`px-2 py-0.5 text-[10px] rounded font-black font-mono border border-[#121212] ${
+                className={`px-1.5 py-0.5 text-[9px] sm:text-[10px] rounded font-black font-mono border border-[#121212] shrink-0 ${
                   activeTrade.side === 'LONG'
                     ? 'bg-[#E7F9F0] text-[#059669]'
                     : 'bg-[#FDECEC] text-[#DC2626]'
@@ -3786,18 +3787,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               >
                 POSISI {activeTrade.side === 'LONG' ? 'BUY' : 'SELL'}
               </span>
-              <span className="font-mono font-black text-xs text-[#121212]">
-                @{activeTrade.entryPrice.toFixed(2)} ({activeTrade.volume.toFixed(2)}L)
+              <span className="font-mono font-black text-xs text-[#121212] truncate">
+                @{activeTrade.entryPrice.toFixed(2)}
+              </span>
+              <span className="font-mono font-bold text-[10px] sm:text-xs text-[#717182] bg-slate-100 px-1 py-0.5 rounded shrink-0">
+                {activeTrade.volume.toFixed(2)}L
               </span>
             </div>
 
-            <div className="text-[10px] font-mono text-[#717182] hidden sm:flex items-center gap-2">
+            <div className="text-[10px] font-mono text-[#717182] hidden md:flex items-center gap-2 shrink-0">
               <span>SL: {activeTrade.slPrice > 0 ? `$${activeTrade.slPrice.toFixed(2)}` : 'None'}</span>
               <span>•</span>
               <span>TP: {activeTrade.tpPrice > 0 ? `$${activeTrade.tpPrice.toFixed(2)}` : 'None'}</span>
             </div>
 
-            <div className="flex items-center gap-1.5 ml-auto">
+            <div className="flex items-center gap-1 sm:gap-1.5 ml-auto shrink-0">
               {onCloseActiveTrade && (
                 <button
                   type="button"
@@ -3805,18 +3809,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                     onCloseActiveTrade();
                     setIsActiveTradeSelected(false);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                  className="flex items-center gap-1 px-2 sm:px-2.5 py-1 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs rounded border border-[#121212] shadow-[1px_1px_0px_0px_#121212] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer whitespace-nowrap"
                   title="Tutup Posisi Ini Sekarang"
                 >
-                  <XCircle className="w-3.5 h-3.5" />
-                  <span>Tutup Posisi</span>
+                  <XCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Tutup</span>
                 </button>
               )}
 
               <button
                 type="button"
                 onClick={() => setIsActiveTradeSelected(false)}
-                className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded cursor-pointer transition-colors"
+                className="p-1 text-[#717182] hover:text-[#121212] hover:bg-slate-100 rounded cursor-pointer transition-colors shrink-0"
                 title="Tutup Menu"
               >
                 <X className="w-4 h-4" />

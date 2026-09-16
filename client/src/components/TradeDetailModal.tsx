@@ -10,6 +10,7 @@ import {
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { SectionLabel } from './ui/SectionLabel';
+import AiAdvisorAudit from './AiAdvisorAudit';
 
 interface TradeDetailModalProps {
   trade: Trade;
@@ -223,6 +224,9 @@ export default function TradeDetailModal({ trade, onClose, onSave }: TradeDetail
               </div>
             </div>
           </div>
+
+          {/* AI Single Trade Audit */}
+          <AiAdvisorAudit tradeId={trade.id} type="TRADE" />
 
           {/* Form input sections */}
           <div className="space-y-6 pt-6 border-t-4 border-[#121212] border-dashed">
