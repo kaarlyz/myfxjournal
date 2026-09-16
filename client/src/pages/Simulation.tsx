@@ -3,6 +3,7 @@ import { Activity, BarChart3, DatabaseZap, RefreshCw, Target } from 'lucide-reac
 import { Card, CardBody } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
+import { apiUrl, defaultHeaders } from '../utils/api';
 
 interface ReplayRow {
   rrTarget: number;
@@ -56,7 +57,7 @@ export const Simulation: React.FC = () => {
 
   const fetchSessions = async () => {
     try {
-      const res = await fetch('/api/sessions');
+      const res = await fetch(apiUrl('/sessions'), { headers: defaultHeaders() });
       const json = await res.json();
       if (Array.isArray(json)) {
         setSessions(json);
@@ -72,7 +73,7 @@ export const Simulation: React.FC = () => {
   const fetchReplayData = async (sessionId: string) => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/analytics/session/${sessionId}/rr-simulation`);
+      const res = await fetch(apiUrl(`/analytics/session/${sessionId}/rr-simulation`), { headers: defaultHeaders() });
       const json = await res.json();
       if (json.data) {
         setData(json.data);
@@ -97,7 +98,7 @@ export const Simulation: React.FC = () => {
     if (!selectedSession) return;
     try {
       setLoading(true);
-      await fetch(`/api/analytics/session/${selectedSession}/replay`, { method: 'POST' });
+      await fetch(apiUrl(`/analytics/session/${selectedSession}/replay`), { method: 'POST', headers: defaultHeaders() });
       await fetchReplayData(selectedSession);
     } catch (e) {
       console.error(e);

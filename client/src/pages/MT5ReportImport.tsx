@@ -8,6 +8,7 @@ import { useJournalStore } from '../store/useJournalStore';
 import { formatNumber, formatPercent, formatUsd } from '../utils/formatters';
 import { PageGuide } from '../components/help/HelpSystem';
 import { Button } from '../components/ui/Button';
+import { apiUrl, defaultHeaders } from '../utils/api';
 
 interface DropzoneProps {
   label: string;
@@ -188,7 +189,7 @@ export default function MT5ReportImport() {
     setPreview(null);
     setDebugInfo(null);
     try {
-      const res = await fetch('/api/mt5-reports/preview', { method: 'POST', body: buildForm() });
+      const res = await fetch(apiUrl('/mt5-reports/preview'), { method: 'POST', headers: defaultHeaders(), body: buildForm() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal parsing report MT5.');
       setPreview(data);
@@ -206,7 +207,7 @@ export default function MT5ReportImport() {
   const loadParserDebug = async () => {
     if (!reportFile) return;
     try {
-      const res = await fetch('/api/mt5-reports/debug-parse', { method: 'POST', body: buildForm() });
+      const res = await fetch(apiUrl('/mt5-reports/debug-parse'), { method: 'POST', headers: defaultHeaders(), body: buildForm() });
       const data = await res.json();
       if (res.ok) setDebugInfo(data);
     } catch {
@@ -219,7 +220,7 @@ export default function MT5ReportImport() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/mt5-reports/import', { method: 'POST', body: buildForm() });
+      const res = await fetch(apiUrl('/mt5-reports/import'), { method: 'POST', headers: defaultHeaders(), body: buildForm() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal import report MT5.');
       await fetchSessions();

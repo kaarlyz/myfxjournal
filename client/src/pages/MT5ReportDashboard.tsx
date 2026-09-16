@@ -13,6 +13,7 @@ import { formatNumber, formatPercent, formatUsd } from '../utils/formatters';
 import { HelpCard, PageGuide } from '../components/help/HelpSystem';
 import { Button } from '../components/ui/Button';
 import { SectionLabel } from '../components/ui/SectionLabel';
+import { apiUrl, defaultHeaders } from '../utils/api';
 
 import RiskRecalculationTab from '../components/AnalyticsTabs/RiskRecalculationTab';
 import RRLabTab from '../components/AnalyticsTabs/RRLabTab';
@@ -40,7 +41,7 @@ export default function MT5ReportDashboard() {
     if (!sessionId) return;
     setLoading(true);
     setError(null);
-    fetch(`/api/mt5-reports/sessions/${sessionId}`)
+    fetch(apiUrl(`/mt5-reports/sessions/${sessionId}`), { headers: defaultHeaders() })
       .then(async (res) => {
         const body = await res.json();
         if (!res.ok) throw new Error(body.error || 'MT5 report tidak ditemukan.');

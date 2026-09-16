@@ -19,6 +19,7 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Card, CardBody } from '../components/ui/Card';
 import { Input, Select } from '../components/ui/Input';
+import { apiUrl, defaultHeaders } from '../utils/api';
 
 interface CatalogItem {
   id: string;
@@ -79,8 +80,8 @@ export default function MarketData() {
     setLoading(true);
     try {
       const [catRes, jobsRes] = await Promise.all([
-        fetch('/api/mt5/catalog'),
-        fetch('/api/mt5/jobs'),
+        fetch(apiUrl('/mt5/catalog'), { headers: defaultHeaders() }),
+        fetch(apiUrl('/mt5/jobs'), { headers: defaultHeaders() }),
       ]);
 
       if (catRes.ok) {
@@ -108,9 +109,9 @@ export default function MarketData() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const res = await fetch('/api/mt5/jobs/create', {
+      const res = await fetch(apiUrl('/mt5/jobs/create'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           symbol: symbol.toUpperCase(),
           dataType,
@@ -135,9 +136,9 @@ export default function MarketData() {
 
   const handleJobAction = async (id: string, action: 'PAUSE' | 'RESUME' | 'CANCEL') => {
     try {
-      await fetch(`/api/mt5/jobs/${id}/action`, {
+      await fetch(apiUrl(`/mt5/jobs/${id}/action`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ action }),
       });
       fetchData();

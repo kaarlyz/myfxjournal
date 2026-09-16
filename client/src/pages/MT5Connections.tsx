@@ -17,6 +17,7 @@ import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Card, CardBody } from '../components/ui/Card';
+import { apiUrl, defaultHeaders } from '../utils/api';
 
 interface MT5Terminal {
   id: string;
@@ -43,7 +44,7 @@ export default function MT5Connections() {
   const fetchTerminals = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/mt5/terminals');
+      const res = await fetch(apiUrl('/mt5/terminals'), { headers: defaultHeaders() });
       if (res.ok) {
         const data = await res.json();
         setTerminals(data.terminals || []);

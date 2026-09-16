@@ -14,6 +14,7 @@ import {
 import { formatPercent, formatPnL, formatCompactPnL } from '../utils/numberUtils';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
+import { apiUrl, defaultHeaders } from '../utils/api';
 
 interface JournalCalendarProps {
   mode: 'BACKTEST' | 'LIVE';
@@ -191,7 +192,7 @@ export default function JournalCalendar({
           contextId,
           dateKey: selectedDay.dateKey,
         });
-        const res = await fetch(`/api/journal-notes?${params.toString()}`);
+        const res = await fetch(apiUrl(`/journal-notes?${params.toString()}`), { headers: defaultHeaders() });
         if (!res.ok) throw new Error('Failed to load daily note');
         const data = await res.json();
         if (!active) return;
@@ -216,9 +217,9 @@ export default function JournalCalendar({
     setNoteSaving(true);
     setNoteError(null);
     try {
-      const res = await fetch('/api/journal-notes', {
+      const res = await fetch(apiUrl('/journal-notes'), {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           scope: contextType,
           contextId,

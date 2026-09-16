@@ -11,6 +11,7 @@ import { formatDate } from '../utils/formatters';
 import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { apiUrl, defaultHeaders } from '../utils/api';
 
 interface WebhookSummary {
   openTrades: any[];
@@ -40,12 +41,12 @@ export default function WebhookMonitor() {
       await fetchSettings();
       
       // Fetch events logs
-      const eventsRes = await fetch('/api/webhook/events');
+      const eventsRes = await fetch(apiUrl('/webhook/events'), { headers: defaultHeaders() });
       const eventsData = await eventsRes.json();
       setEvents(eventsData);
 
       // Fetch open/closed trades and counts
-      const summaryRes = await fetch('/api/webhook/summary');
+      const summaryRes = await fetch(apiUrl('/webhook/summary'), { headers: defaultHeaders() });
       const summaryData = await summaryRes.json();
       setSummary(summaryData);
     } catch (err) {
