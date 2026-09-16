@@ -3,6 +3,7 @@ import { Sparkles, Brain, AlertTriangle, Lightbulb, Target, RefreshCw, X, Check,
 import { Button } from './ui/Button';
 import { Card, CardBody } from './ui/Card';
 import { Badge } from './ui/Badge';
+import { apiUrl } from '../utils/api';
 
 export interface EdgeItem {
   title: string;
@@ -55,8 +56,8 @@ export default function AiAdvisorAudit({ sessionId, tradeId, type, title }: AiAd
     setError(null);
     try {
       const endpoint = type === 'SESSION'
-        ? `/api/ai/analyze-session/${sessionId}`
-        : `/api/ai/analyze-trade/${tradeId}`;
+        ? apiUrl(`/ai/analyze-session/${sessionId}`)
+        : apiUrl(`/ai/analyze-trade/${tradeId}`);
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -82,7 +83,7 @@ export default function AiAdvisorAudit({ sessionId, tradeId, type, title }: AiAd
 
   const updateConfig = async () => {
     try {
-      const res = await fetch('/api/ai/config', {
+      const res = await fetch(apiUrl('/ai/config'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: modelInput })
