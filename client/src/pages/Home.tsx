@@ -282,7 +282,7 @@ export default function Home() {
   )[0];
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-7 w-full min-w-0">
       <div className="relative overflow-hidden rounded-none border-2 border-[#121212] bg-white p-6 shadow-[4px_4px_0px_0px_#121212] sm:p-7">
         <div className="absolute inset-y-0 right-0 hidden w-24 bg-[#1040C0]/8 sm:block" />
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -694,7 +694,7 @@ export default function Home() {
       )}
 
       {/* ── Sessions Grid ── */}
-      <div className="space-y-4">
+      <div className="space-y-4 w-full px-4 sm:px-6 pb-24">
         <div className="flex items-center gap-3">
           <div className="w-2.5 h-2.5 bg-[#121212]" aria-hidden="true" />
           <h2
@@ -736,7 +736,7 @@ export default function Home() {
             }
           />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 w-full">
             {sessions.map(s => (
               <SessionCard
                 key={s.id}
@@ -838,7 +838,7 @@ function SessionCard({
 
   return (
     <article
-      className="bg-white border-2 border-[#121212] p-5 flex flex-col justify-between relative group"
+      className="bg-white border-2 border-[#121212] p-4 sm:p-5 flex flex-col justify-between relative group w-full min-w-0"
       style={{ boxShadow: '4px 4px 0px 0px #121212', transition: 'box-shadow 0.15s ease, transform 0.15s ease' }}
       onMouseEnter={e => {
         (e.currentTarget as HTMLElement).style.boxShadow = '6px 6px 0px 0px #D02020';
@@ -932,7 +932,7 @@ function SessionCard({
       </div>
 
       {/* Session name + meta */}
-      <div className="mt-3">
+      <div className="mt-3 min-w-0">
         <h3
           className="truncate"
           style={{
@@ -945,10 +945,10 @@ function SessionCard({
           {s.name}
         </h3>
         <div
-          className="flex items-center gap-1.5 mt-1"
+          className="flex items-center gap-1.5 mt-1 flex-wrap min-w-0"
           style={{ fontFamily: 'Outfit, sans-serif', fontSize: '11px', color: '#717182' }}
         >
-          <span>{s.symbol}</span>
+          <span className="truncate max-w-[140px]">{s.symbol}</span>
           <span>·</span>
           <span>{s.timeframe}</span>
           <span>·</span>
@@ -958,7 +958,7 @@ function SessionCard({
 
       {/* Metrics */}
       <div
-        className="grid grid-cols-2 gap-3 py-3 my-3"
+        className="grid grid-cols-2 gap-3 py-3 my-3 w-full min-w-0"
         style={{ borderTop: '2px solid rgba(18,18,18,0.08)', borderBottom: '2px solid rgba(18,18,18,0.08)' }}
       >
         <div className="min-w-0">
@@ -1056,7 +1056,7 @@ function SessionCard({
       )}
 
       {/* Footer */}
-      <div className="flex justify-between items-center mb-4 gap-2 min-w-0">
+      <div className="flex justify-between items-center mb-4 gap-2 min-w-0 flex-wrap">
         <span
           className="truncate"
           style={{ fontFamily: 'Outfit, sans-serif', fontSize: '10px', fontWeight: 700, color: '#717182', letterSpacing: '0.08em', textTransform: 'uppercase' }}
@@ -1081,32 +1081,32 @@ function SessionCard({
       </div>
 
       {/* Actions */}
-      <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row gap-2 w-full">
         <button
           onClick={onOpenDashboard}
-          className="btn btn-yellow flex-1 flex items-center justify-center gap-1.5"
+          className="btn btn-yellow w-full sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs"
           aria-label={`Open dashboard for ${s.name}`}
         >
-          <BarChart3 className="w-3.5 h-3.5" aria-hidden="true" />
-          {t('open_dashboard')}
+          <BarChart3 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">{t('open_dashboard')}</span>
         </button>
         {manualReplayId ? (
           <button
             onClick={() => onOpenChart?.(manualReplayId)}
-            className="btn btn-primary flex items-center justify-center gap-1.5 text-xs bg-[#1040C0] hover:bg-[#0D3399] text-white"
+            className="btn btn-primary w-full sm:flex-1 flex items-center justify-center gap-1.5 text-xs bg-[#1040C0] hover:bg-[#0D3399] text-white px-3 py-2"
             aria-label={`Lanjutkan di chart untuk ${s.name}`}
           >
-            <Play className="w-3.5 h-3.5 fill-white" aria-hidden="true" />
-            Lanjutkan di Chart
+            <Play className="w-3.5 h-3.5 fill-white shrink-0" aria-hidden="true" />
+            <span className="truncate">Lanjutkan di Chart</span>
           </button>
         ) : (
           <button
             onClick={() => onImportCsv('SMART_MERGE')}
-            className="btn btn-secondary flex items-center justify-center gap-1.5"
+            className="btn btn-secondary w-full sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs"
             aria-label={`Update CSV for ${s.name}`}
           >
-            <FileUp className="w-3.5 h-3.5" aria-hidden="true" />
-            {t('dashboard:update_csv')}
+            <FileUp className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">{t('dashboard:update_csv')}</span>
           </button>
         )}
       </div>
