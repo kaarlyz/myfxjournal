@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Home, PlusCircle, UploadCloud, BarChart3, Settings as SettingsIcon,
   BookOpen, Zap, Layers, Wallet, Calculator, Link2,
-  FileSearch, Bot, Shield, Dices, Trophy, Flame, Wifi, Database, PlayCircle, Globe, LogOut
+  FileSearch, Bot, Shield, Dices, Trophy, Flame, Wifi, WifiOff, RefreshCw, Database, PlayCircle, Globe, LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useJournalStore } from '../store/useJournalStore';
@@ -48,9 +48,10 @@ const groups: Array<{ key: string; label: string; accentColor: string }> = [
 interface SidebarProps {
   mobileOpen?: boolean;
   setMobileOpen?: (open: boolean) => void;
+  connectionStatus?: 'live' | 'api_connected' | 'connecting' | 'offline';
 }
 
-export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen: externalSetMobileOpen }: SidebarProps = {}) {
+export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen: externalSetMobileOpen, connectionStatus }: SidebarProps = {}) {
   const { t } = useTranslation(['sidebar', 'common']);
   const { sessions, activeSessionId, activeSessionDetails, selectSession } = useJournalStore();
   const { greeting } = useOnboarding();
@@ -125,7 +126,37 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
       >
         <BrandLogo size={50} compact className="text-left" />
         <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#717182]">{t('welcome')}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#717182]">{t('welcome')}</p>
+            {connectionStatus && (
+              <span
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold font-mono uppercase tracking-wider border ${
+                  connectionStatus === 'live' || connectionStatus === 'api_connected'
+                    ? 'border-[var(--profit)] bg-[var(--profit-dim)] text-[var(--profit)]'
+                    : connectionStatus === 'connecting'
+                    ? 'border-[var(--warning)] bg-[var(--warning-dim)] text-[var(--warning)]'
+                    : 'border-[var(--loss)] bg-[var(--loss-dim)] text-[var(--loss)]'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    connectionStatus === 'live' || connectionStatus === 'api_connected'
+                      ? 'bg-[var(--profit)]'
+                      : connectionStatus === 'connecting'
+                      ? 'bg-[var(--warning)] animate-pulse'
+                      : 'bg-[var(--loss)]'
+                  }`}
+                />
+                {connectionStatus === 'live'
+                  ? 'LIVE'
+                  : connectionStatus === 'api_connected'
+                  ? 'API'
+                  : connectionStatus === 'connecting'
+                  ? 'CONNECTING'
+                  : 'OFFLINE'}
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm font-semibold text-[#121212]">{user?.name || greeting}</p>
         </div>
       </div>
@@ -318,6 +349,56 @@ export default function Sidebar({ mobileOpen: externalMobileOpen, setMobileOpen:
         className="px-4 py-3 flex-shrink-0 flex flex-col gap-2.5"
         style={{ borderTop: '1px solid rgba(148, 163, 184, 0.7)', background: '#F8FAFC' }}
       >
+        {connectionStatus && (
+          <div className="flex items-center justify-between px-1 text-[10px] font-bold" style={{ fontFamily: 'Outfit, sans-serif' }}>
+            <span className="text-[9px] uppercase tracking-wider text-[#717182]">Koneksi</span>
+            {connectionStatus === 'live' && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 border border-[var(--profit)] text-[9px] font-mono rounded"
+                style={{ background: 'var(--profit-dim)', color: 'var(--profit)' }}
+                role="status"
+                aria-label="Realtime connection active"
+              >
+                <Wifi className="w-2.5 h-2.5" aria-hidden="true" />
+                <span>REALTIME LIVE</span>
+              </div>
+            )}
+            {connectionStatus === 'api_connected' && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 border border-[var(--profit)] text-[9px] font-mono rounded"
+                style={{ background: 'var(--profit-dim)', color: 'var(--profit)' }}
+                role="status"
+                aria-label="API connection active"
+              >
+                <Wifi className="w-2.5 h-2.5" aria-hidden="true" />
+                <span>API CONNECTED</span>
+              </div>
+            )}
+            {connectionStatus === 'connecting' && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 border border-[var(--warning)] text-[9px] font-mono rounded"
+                style={{ background: 'var(--warning-dim)', color: 'var(--warning)' }}
+                role="status"
+                aria-label="Connecting to server"
+              >
+                <RefreshCw className="w-2.5 h-2.5 animate-spin" aria-hidden="true" />
+                <span>CONNECTING</span>
+              </div>
+            )}
+            {connectionStatus === 'offline' && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 border border-[var(--loss)] text-[9px] font-mono rounded"
+                style={{ background: 'var(--loss-dim)', color: 'var(--loss)' }}
+                role="status"
+                aria-label="Connection offline"
+              >
+                <WifiOff className="w-2.5 h-2.5" aria-hidden="true" />
+                <span>OFFLINE</span>
+              </div>
+            )}
+          </div>
+        )}
+
         <button
           type="button"
           onClick={handleLogout}

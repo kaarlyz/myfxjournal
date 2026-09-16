@@ -7,6 +7,7 @@ export interface SymbolOption {
   candleCount?: number;
   dateFrom?: string | Date | null;
   dateTo?: string | Date | null;
+  displayName?: string;
 }
 
 export interface SymbolPickerProps {
@@ -18,10 +19,29 @@ export interface SymbolPickerProps {
   className?: string;
 }
 
+export const DEFAULT_AVAILABLE_SYMBOLS: SymbolOption[] = [
+  {
+    symbol: 'XAUUSD',
+    provider: 'PARQUET',
+    candleCount: 725596648,
+    displayName: 'Gold',
+    dateFrom: '2003-05-05T00:01:03.421Z',
+    dateTo: '2026-09-01T23:59:59.995Z',
+  },
+  {
+    symbol: 'NSXUSD',
+    provider: 'DUKASCOPY',
+    candleCount: 2887223,
+    displayName: 'Nasdaq',
+    dateFrom: '2018-06-27T15:23:00.000Z',
+    dateTo: '2026-09-11T19:59:00.000Z',
+  },
+];
+
 /**
  * Single source of truth for symbol canonical provider mapping.
  * Matches symbol from catalog if present, otherwise defaults:
- * XAUUSD -> PARQUET, others -> DUKASCOPY.
+ * XAUUSD -> PARQUET, NSXUSD/Nasdaq -> DUKASCOPY.
  */
 export function getCanonicalProvider(sym: string, catalog?: SymbolOption[]): string {
   const normalized = (sym || '').trim().toUpperCase();
@@ -31,7 +51,26 @@ export function getCanonicalProvider(sym: string, catalog?: SymbolOption[]): str
       return found.provider;
     }
   }
-  return normalized === 'XAUUSD' ? 'PARQUET' : 'DUKASCOPY';
+  if (normalized === 'XAUUSD') return 'PARQUET';
+  if (normalized === 'NSXUSD' || normalized.includes('NAS') || normalized.includes('USTEC') || normalized.includes('NDX')) {
+    return 'DUKASCOPY';
+  }
+  return 'DUKASCOPY';
+}
+
+export function getSymbolLabel(sym: string, catalog?: SymbolOption[]): string | null {
+  const normalized = (sym || '').trim().toUpperCase();
+  if (catalog && catalog.length > 0) {
+    const found = catalog.find((s) => s.symbol.toUpperCase() === normalized);
+    if (found?.displayName) return found.displayName;
+  }
+  if (normalized === 'NSXUSD' || normalized.includes('NAS') || normalized.includes('USTEC') || normalized.includes('NDX')) {
+    return 'Nasdaq';
+  }
+  if (normalized === 'XAUUSD') {
+    return 'Gold';
+  }
+  return null;
 }
 
 function formatCandleCount(count?: number): string {
@@ -68,13 +107,32 @@ export const SymbolPicker: React.FC<SymbolPickerProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // Ensure current active value exists in the display list with canonical provider fallback
-  const displaySymbols: SymbolOption[] = [...symbols];
+  // Ensure all canonical symbols from catalog/defaults are present and fully populated
+  const baseSymbols = symbols && symbols.length > 0 ? symbols : DEFAULT_AVAILABLE_SYMBOLS;
+  const displaySymbols: SymbolOption[] = [...baseSymbols];
+
+  for (const def of DEFAULT_AVAILABLE_SYMBOLS) {
+    const existingIndex = displaySymbols.findIndex((s) => s.symbol.toUpperCase() === def.symbol.toUpperCase());
+    if (existingIndex === -1) {
+      displaySymbols.push(def);
+    } else {
+      displaySymbols[existingIndex] = {
+        ...def,
+        ...displaySymbols[existingIndex],
+        provider: displaySymbols[existingIndex].provider || def.provider,
+        candleCount: displaySymbols[existingIndex].candleCount || def.candleCount,
+        displayName: displaySymbols[existingIndex].displayName || def.displayName,
+      };
+    }
+  }
+
+  // Ensure current active value exists in the display list
   if (!displaySymbols.some((s) => s.symbol.toUpperCase() === (value || '').toUpperCase())) {
     displaySymbols.unshift({
       symbol: value,
-      provider: getCanonicalProvider(value, symbols),
+      provider: getCanonicalProvider(value, displaySymbols),
       candleCount: 0,
+      displayName: getSymbolLabel(value, displaySymbols) || undefined,
     });
   }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, MotionConfig } from 'framer-motion';
 import Sidebar from './components/Sidebar';
@@ -34,6 +34,7 @@ import { useOnboarding } from './hooks/useOnboarding';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import { apiUrl, defaultHeaders } from './utils/api';
 
 interface AnimatedRoutesProps {
   isAuthenticated: boolean;
@@ -116,14 +117,74 @@ function AppContent() {
   const [time, setTime] = useState(new Date());
   const [transitioning, setTransitioning] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [apiStatus, setApiStatus] = useState<'checking' | 'connected' | 'offline'>('checking');
+
+  // Combined REST API health check
+  const checkApiHealth = useCallback(async () => {
+    try {
+      await Promise.allSettled([fetchSettings(), fetchSessions()]);
+      const res = await fetch(apiUrl('/health'), {
+        headers: defaultHeaders(),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        setApiStatus('connected');
+        return;
+      }
+      const store = useJournalStore.getState();
+      if (!store.error && (store.sessions.length > 0 || store.settings)) {
+        setApiStatus('connected');
+      } else {
+        setApiStatus('offline');
+      }
+    } catch {
+      const store = useJournalStore.getState();
+      if (!store.error && (store.sessions.length > 0 || store.settings)) {
+        setApiStatus('connected');
+      } else {
+        setApiStatus('offline');
+      }
+    }
+  }, [fetchSettings, fetchSessions]);
 
   useEffect(() => {
     if (isAuthenticated) {
-      fetchSettings();
-      fetchSessions();
+      checkApiHealth();
       listenToSSE();
+
+      const timer = setInterval(() => {
+        checkApiHealth();
+      }, 30000);
+
+      const onFocus = () => {
+        checkApiHealth();
+      };
+      window.addEventListener('focus', onFocus);
+
+      return () => {
+        clearInterval(timer);
+        window.removeEventListener('focus', onFocus);
+      };
     }
-  }, [isAuthenticated, fetchSettings, fetchSessions, listenToSSE]);
+  }, [isAuthenticated, checkApiHealth, listenToSSE]);
+
+  // Combined health check / API status logic:
+  // - If SSE is live: 'live' -> 'REALTIME LIVE' (green)
+  // - If REST API is successful: 'api_connected' -> 'API CONNECTED' (green)
+  // - If connecting/checking: 'connecting' -> 'CONNECTING' (yellow)
+  // - Only if BOTH API and SSE fail: 'offline' -> 'OFFLINE' (red)
+  const connectionStatus: 'live' | 'api_connected' | 'connecting' | 'offline' = useMemo(() => {
+    if (sseStatus === 'live') {
+      return 'live';
+    }
+    if (apiStatus === 'connected') {
+      return 'api_connected';
+    }
+    if (sseStatus === 'connecting' || apiStatus === 'checking') {
+      return 'connecting';
+    }
+    return 'offline';
+  }, [sseStatus, apiStatus]);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -172,7 +233,7 @@ function AppContent() {
       mobileNavOpen={mobileNavOpen}
       setMobileNavOpen={setMobileNavOpen}
       isBacktestPath={isBacktestPath}
-      sseStatus={sseStatus}
+      connectionStatus={connectionStatus}
       error={error}
       timeStr={timeStr}
       dateStr={dateStr}
@@ -197,14 +258,14 @@ interface AppShellProps {
   mobileNavOpen: boolean;
   setMobileNavOpen: (open: boolean) => void;
   isBacktestPath: (pathname: string) => boolean;
-  sseStatus: string;
+  connectionStatus: 'live' | 'api_connected' | 'connecting' | 'offline';
   error: string | null;
   timeStr: string;
   dateStr: string;
   isAuthenticated: boolean;
 }
 
-function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, error, timeStr, dateStr, isAuthenticated }: AppShellProps) {
+function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, connectionStatus, error, timeStr, dateStr, isAuthenticated }: AppShellProps) {
   const location = useLocation();
   const isLanding = location.pathname === '/landing' || (location.pathname === '/' && !isAuthenticated);
   const isBacktest = isBacktestPath(location.pathname);
@@ -213,14 +274,14 @@ function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, 
   return (
     <div className={`app-shell ${hideChrome ? '!block min-h-screen bg-white' : ''}`}>
       {!hideChrome && (
-        <Sidebar mobileOpen={mobileNavOpen} setMobileOpen={setMobileNavOpen} />
+        <Sidebar mobileOpen={mobileNavOpen} setMobileOpen={setMobileNavOpen} connectionStatus={connectionStatus} />
       )}
 
       <main className={`main-shell relative z-10 ${isLanding ? '!overflow-y-auto !h-auto !min-h-screen bg-white' : isBacktest ? '!overflow-hidden !h-screen !min-h-screen !p-0 !m-0 bg-white' : ''}`}>
         {!hideChrome && (
           <div className="topbar" aria-label="Application toolbar">
             <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold" style={{ fontFamily: 'Outfit, sans-serif' }}>
-              {sseStatus === 'live' && (
+              {connectionStatus === 'live' && (
                 <div
                   className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--profit)] text-[10px] sm:text-xs"
                   style={{ background: 'var(--profit-dim)', color: 'var(--profit)' }}
@@ -231,7 +292,18 @@ function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, 
                   <span>REALTIME LIVE</span>
                 </div>
               )}
-              {sseStatus === 'connecting' && (
+              {connectionStatus === 'api_connected' && (
+                <div
+                  className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--profit)] text-[10px] sm:text-xs"
+                  style={{ background: 'var(--profit-dim)', color: 'var(--profit)' }}
+                  role="status"
+                  aria-label="API connection active"
+                >
+                  <Wifi className="w-3 h-3" aria-hidden="true" />
+                  <span>API CONNECTED</span>
+                </div>
+              )}
+              {connectionStatus === 'connecting' && (
                 <div
                   className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--warning)] text-[10px] sm:text-xs"
                   style={{ background: 'var(--warning-dim)', color: 'var(--warning)' }}
@@ -242,7 +314,7 @@ function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, 
                   <span>CONNECTING</span>
                 </div>
               )}
-              {sseStatus === 'offline' && (
+              {connectionStatus === 'offline' && (
                 <div
                   className="flex items-center gap-1.5 px-2 py-0.5 sm:py-1 border border-[var(--loss)] text-[10px] sm:text-xs"
                   style={{ background: 'var(--loss-dim)', color: 'var(--loss)' }}
