@@ -74,17 +74,7 @@ import {
   TradeSide,
   BacktestStats as IBacktestStats,
 } from '../shared/backtestEngine';
-
-const getApiBase = () => {
-  const custom = window.localStorage.getItem('VITE_API_URL');
-  if (custom) {
-    const clean = custom.replace(/\/$/, '');
-    return clean.endsWith('/api') ? `${clean}/backtest` : `${clean}/api/backtest`;
-  }
-  return '/api/backtest';
-};
-
-const API_BASE = getApiBase();
+import { apiUrl, defaultHeaders } from '../utils/api';
 
 export default function Backtest() {
   // ── Mode State Machine ──
@@ -453,7 +443,9 @@ export default function Backtest() {
     currentBoundsSymbolRef.current = sym;
     try {
       const prov = getProviderForSymbol(sym);
-      const res = await fetch(`${API_BASE}/timeline-bounds?symbol=${sym}&timeframe=${tf}&provider=${prov}`);
+      const res = await fetch(apiUrl(`/backtest/timeline-bounds?symbol=${sym}&timeframe=${tf}&provider=${prov}`), {
+        headers: defaultHeaders(),
+      });
       const json = await res.json();
       if (currentBoundsSymbolRef.current !== sym) return;
       if (json.ok && json.data && json.data.dateFrom && json.data.dateTo) {
@@ -488,8 +480,8 @@ export default function Backtest() {
     try {
       const prov = getProviderForSymbol(sym);
       const res = await fetch(
-        `${API_BASE}/candles?symbol=${sym}&timeframe=${tf}&provider=${prov}&limit=1500`,
-        { signal: controller.signal }
+        apiUrl(`/backtest/candles?symbol=${sym}&timeframe=${tf}&provider=${prov}&limit=1500`),
+        { signal: controller.signal, headers: defaultHeaders() }
       );
       window.clearTimeout(timeoutId);
       const json = await res.json();
@@ -532,7 +524,7 @@ export default function Backtest() {
       fetchTimelineBounds(symbol, timeframe);
     }
 
-    fetch(`${API_BASE}/symbols`)
+    fetch(apiUrl('/backtest/symbols'), { headers: defaultHeaders() })
       .then((res) => res.json())
       .then((json) => {
         if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
@@ -578,7 +570,8 @@ export default function Backtest() {
         ? `&replayTime=${encodeURIComponent(replayStartTime.toISOString())}`
         : '';
       const res = await fetch(
-        `${API_BASE}/candles?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&beforeTime=${encodeURIComponent(earliestTime)}&limit=1500${replayParam}`
+        apiUrl(`/backtest/candles?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&beforeTime=${encodeURIComponent(earliestTime)}&limit=1500${replayParam}`),
+        { headers: defaultHeaders() }
       );
       const json = await res.json();
       if (json.ok && json.data && json.data.candles.length > 0) {
@@ -613,7 +606,8 @@ export default function Backtest() {
       isFetchingNewerRef.current = true;
       const prov = getProviderForSymbol(symbol);
       const res = await fetch(
-        `${API_BASE}/candles?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(latestTime)}&limit=500`
+        apiUrl(`/backtest/candles?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(latestTime)}&limit=500`),
+        { headers: defaultHeaders() }
       );
       const json = await res.json();
       if (json.ok && json.data && json.data.candles.length > 0) {
@@ -648,8 +642,8 @@ export default function Backtest() {
       const prov = getProviderForSymbol(symbol);
       if (appMode === 'analysis') {
         const res = await fetch(
-          `${API_BASE}/candles?symbol=${symbol}&timeframe=${newTF}&provider=${prov}`,
-          { signal: controller.signal }
+          apiUrl(`/backtest/candles?symbol=${symbol}&timeframe=${newTF}&provider=${prov}`),
+          { signal: controller.signal, headers: defaultHeaders() }
         );
         const json = await res.json();
         if (timeframeAbortControllerRef.current !== controller) return;
@@ -667,9 +661,9 @@ export default function Backtest() {
 
         // 1. Update session timeframe in DB
         if (sessionId) {
-          fetch(`${API_BASE}/sessions/${sessionId}`, {
+          fetch(apiUrl(`/backtest/sessions/${sessionId}`), {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: defaultHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({ timeframe: newTF }),
             signal: controller.signal,
           }).catch(() => {});
@@ -677,8 +671,8 @@ export default function Backtest() {
 
         // 2. Fetch candles for newTF up to currentTargetTime (strict cutoff with backend adaptive limit)
         const resCandles = await fetch(
-          `${API_BASE}/candles?symbol=${symbol}&timeframe=${newTF}&provider=${prov}&replayTime=${encodeURIComponent(currentTargetTime.toISOString())}`,
-          { signal: controller.signal }
+          apiUrl(`/backtest/candles?symbol=${symbol}&timeframe=${newTF}&provider=${prov}&replayTime=${encodeURIComponent(currentTargetTime.toISOString())}`),
+          { signal: controller.signal, headers: defaultHeaders() }
         );
         const candlesJson = await resCandles.json();
         if (timeframeAbortControllerRef.current !== controller) return;
@@ -725,9 +719,9 @@ export default function Backtest() {
     setFollowReplay(true);
     try {
       const prov = getProviderForSymbol(sym);
-      const resSession = await fetch(`${API_BASE}/sessions`, {
+      const resSession = await fetch(apiUrl('/backtest/sessions'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           name: `Backtest ${sym} ${tf} (${startTime.toISOString().slice(0, 10)})`,
           symbol: sym,
@@ -755,8 +749,8 @@ export default function Backtest() {
 
       // Fetch windowed candles strictly ending at startTime (Zero Look-Ahead)
       const resCandles = await fetch(
-        `${API_BASE}/candles?symbol=${sym}&timeframe=${tf}&provider=${prov}&replayTime=${encodeURIComponent(startTime.toISOString())}&limit=2000`,
-        { signal: controller.signal }
+        apiUrl(`/backtest/candles?symbol=${sym}&timeframe=${tf}&provider=${prov}&replayTime=${encodeURIComponent(startTime.toISOString())}&limit=2000`),
+        { signal: controller.signal, headers: defaultHeaders() }
       );
       const candlesJson = await resCandles.json();
       if (!candlesJson.ok) throw new Error(candlesJson.error || 'Failed to fetch candles');
@@ -839,7 +833,10 @@ export default function Backtest() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/sessions/${targetSessionId}`, { signal: controller.signal });
+      const res = await fetch(apiUrl(`/backtest/sessions/${targetSessionId}`), {
+        signal: controller.signal,
+        headers: defaultHeaders(),
+      });
       const json = await res.json();
       if (!json.ok || !json.data) {
         throw new Error(json.error || 'Sesi replay tidak ditemukan');
@@ -876,8 +873,8 @@ export default function Backtest() {
       // Fetch windowed candles strictly ending at repTime (Zero Look-Ahead) lewat controller ber-guard
       const prov = s.provider || getProviderForSymbol(targetSymbol);
       const resCandles = await fetch(
-        `${API_BASE}/candles?symbol=${targetSymbol}&timeframe=${targetTf}&provider=${prov}&replayTime=${encodeURIComponent(repTime.toISOString())}&limit=2000`,
-        { signal: controller.signal }
+        apiUrl(`/backtest/candles?symbol=${targetSymbol}&timeframe=${targetTf}&provider=${prov}&replayTime=${encodeURIComponent(repTime.toISOString())}&limit=2000`),
+        { signal: controller.signal, headers: defaultHeaders() }
       );
       const candlesJson = await resCandles.json();
       if (!candlesJson.ok) throw new Error(candlesJson.error || 'Failed to fetch candles');
@@ -979,9 +976,9 @@ export default function Backtest() {
     if (!sessionId) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      fetch(`${API_BASE}/sessions/${sessionId}`, {
+      fetch(apiUrl(`/backtest/sessions/${sessionId}`), {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ drawingsJson: JSON.stringify(newDrawings) }),
       }).catch(console.error);
     }, 400);
@@ -1004,7 +1001,8 @@ export default function Backtest() {
       setLoading(true);
       const prov = getProviderForSymbol(symbol);
       const res = await fetch(
-        `${API_BASE}/random-start?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&provider=${encodeURIComponent(prov)}`
+        apiUrl(`/backtest/random-start?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&provider=${encodeURIComponent(prov)}`),
+        { headers: defaultHeaders() }
       );
       const json = await res.json();
       if (json.ok && json.data) {
@@ -1030,7 +1028,8 @@ export default function Backtest() {
       const prov = getProviderForSymbol(symbol);
       const sessionParam = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '';
       const res = await fetch(
-        `${API_BASE}/next-candle?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(lastTime)}${sessionParam}`
+        apiUrl(`/backtest/next-candle?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(lastTime)}${sessionParam}`),
+        { headers: defaultHeaders() }
       );
       const json = await res.json();
       if (!json.ok || !json.data) {
@@ -1153,9 +1152,9 @@ export default function Backtest() {
             (hitResult.type === 'TP' ? curTrade.tpPrice : curTrade.slPrice);
 
           try {
-            const closeRes = await fetch(`${API_BASE}/sessions/${sessionId}/trades/${curTrade.id}/close`, {
+            const closeRes = await fetch(apiUrl(`/backtest/sessions/${sessionId}/trades/${curTrade.id}/close`), {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: defaultHeaders({ 'Content-Type': 'application/json' }),
               body: JSON.stringify({
                 exitTime: nextTime.toISOString(),
                 exitPrice,
@@ -1177,7 +1176,10 @@ export default function Backtest() {
                 });
               }
 
-              fetch(`${API_BASE}/sessions/${sessionId}/sync-to-journal`, { method: 'POST' }).catch(console.error);
+              fetch(apiUrl(`/backtest/sessions/${sessionId}/sync-to-journal`), {
+                method: 'POST',
+                headers: defaultHeaders(),
+              }).catch(console.error);
             }
           } catch (closeErr) {
             console.error('Error closing hit trade:', closeErr);
@@ -1200,9 +1202,9 @@ export default function Backtest() {
       const newT = new Date(next[next.length - 1].time);
       setReplayTime(newT);
       if (sessionId) {
-        fetch(`${API_BASE}/sessions/${sessionId}`, {
+        fetch(apiUrl(`/backtest/sessions/${sessionId}`), {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: defaultHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ replayTime: newT.toISOString() }),
         }).catch(console.error);
       }
@@ -1252,9 +1254,9 @@ export default function Backtest() {
       if (!curSessionId) {
         const startTime = tradeParams.tradeTime || replayTime || (candles.length > 0 ? new Date(candles[candles.length - 1].time) : new Date());
         const prov = getProviderForSymbol(symbol);
-        const resSession = await fetch(`${API_BASE}/sessions`, {
+        const resSession = await fetch(apiUrl('/backtest/sessions'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: defaultHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             name: `Backtest ${symbol} ${timeframe} (${startTime.toISOString().slice(0, 10)})`,
             symbol,
@@ -1279,15 +1281,15 @@ export default function Backtest() {
       const tradeTime = tradeParams.tradeTime || replayTime || (candles.length > 0 ? new Date(candles[candles.length - 1].time) : new Date());
 
       // Ensure backend session replayTime is strictly synced to tradeTime before placing trade
-      await fetch(`${API_BASE}/sessions/${curSessionId}`, {
+      await fetch(apiUrl(`/backtest/sessions/${curSessionId}`), {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ replayTime: tradeTime.toISOString() }),
       });
 
-      const res = await fetch(`${API_BASE}/sessions/${curSessionId}/trades`, {
+      const res = await fetch(apiUrl(`/backtest/sessions/${curSessionId}/trades`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           side: tradeParams.side,
           entryPrice: tradeParams.entryPrice,
@@ -1351,9 +1353,9 @@ export default function Backtest() {
     setIsSubmittingTrade(true);
     try {
       const currentP = candles[candles.length - 1]?.close || activeTrade?.entryPrice || 0;
-      const res = await fetch(`${API_BASE}/sessions/${sessionId}/trades/${idToClose}/close`, {
+      const res = await fetch(apiUrl(`/backtest/sessions/${sessionId}/trades/${idToClose}/close`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           exitTime: replayTime?.toISOString(),
           exitPrice: currentP,
@@ -1371,7 +1373,10 @@ export default function Backtest() {
           amount: typeof closed.pnl === 'number' ? closed.pnl : undefined,
           rr: typeof closed.rr === 'number' ? closed.rr : undefined,
         });
-        fetch(`${API_BASE}/sessions/${sessionId}/sync-to-journal`, { method: 'POST' }).catch(console.error);
+        fetch(apiUrl(`/backtest/sessions/${sessionId}/sync-to-journal`), {
+          method: 'POST',
+          headers: defaultHeaders(),
+        }).catch(console.error);
       } else {
         showToast({
           kind: 'ERROR',
@@ -1399,9 +1404,9 @@ export default function Backtest() {
     }
     try {
       setIsSyncingDashboard(true);
-      const res = await fetch(`${API_BASE}/sessions/${sessionId}/sync-to-journal`, {
+      const res = await fetch(apiUrl(`/backtest/sessions/${sessionId}/sync-to-journal`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: defaultHeaders({ 'Content-Type': 'application/json' }),
       });
       const json = await res.json();
       if (json.ok && json.data && json.data.journalSessionId) {

@@ -3,8 +3,7 @@ import { Activity, AlertTriangle, Bot, Camera, Check, Cpu, Pause, Play, RefreshC
 import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-
-const API_BASE_URL = (import.meta as any).env.VITE_API_URL || '/api';
+import { apiUrl, defaultHeaders } from '../utils/api';
 
 type ParamSchema = { key: string; label: string; type: 'mode' | 'number' | 'boolean' | 'text'; min?: number; step?: number };
 type Template = { id: string; name: string; fileName: string; templateName?: string | null; category?: string | null; description?: string | null; defaultSymbol?: string | null; defaultTimeframe?: string | null; defaultMode?: string | null; parameterFamily?: string; parameterSchema?: ParamSchema[] };
@@ -126,7 +125,9 @@ export default function EAControlCenter() {
 
   const loadSymbols = async (terminalId: string) => {
     if (!terminalId) return;
-    const res = await fetch(`${API_BASE_URL}/ea-control/symbols?terminalId=${encodeURIComponent(terminalId)}`);
+    const res = await fetch(apiUrl(`/ea-control/symbols?terminalId=${encodeURIComponent(terminalId)}`), {
+      headers: defaultHeaders(),
+    });
     if (!res.ok) return;
     const data = await res.json();
     setSymbolData({ terminalId: data.terminalId || terminalId, symbols: data.symbols || [], updatedAt: data.updatedAt });
@@ -134,7 +135,9 @@ export default function EAControlCenter() {
 
   const loadCharts = async (terminalId: string) => {
     if (!terminalId) return;
-    const res = await fetch(`${API_BASE_URL}/ea-control/charts?terminalId=${encodeURIComponent(terminalId)}`);
+    const res = await fetch(apiUrl(`/ea-control/charts?terminalId=${encodeURIComponent(terminalId)}`), {
+      headers: defaultHeaders(),
+    });
     if (!res.ok) return;
     const data = await res.json();
     setChartData({ terminalId: data.terminalId || terminalId, charts: data.charts || [], updatedAt: data.updatedAt });
@@ -144,12 +147,12 @@ export default function EAControlCenter() {
     setLoading(true);
     try {
       const [tplRes, terminalRes, instanceRes, signalRes, logRes, commandRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/ea-control/templates`),
-        fetch(`${API_BASE_URL}/ea-control/terminals`),
-        fetch(`${API_BASE_URL}/ea-control/instances`),
-        fetch(`${API_BASE_URL}/ea-control/signals`),
-        fetch(`${API_BASE_URL}/ea-control/command-logs`),
-        fetch(`${API_BASE_URL}/ea-control/commands`),
+        fetch(apiUrl('/ea-control/templates'), { headers: defaultHeaders() }),
+        fetch(apiUrl('/ea-control/terminals'), { headers: defaultHeaders() }),
+        fetch(apiUrl('/ea-control/instances'), { headers: defaultHeaders() }),
+        fetch(apiUrl('/ea-control/signals'), { headers: defaultHeaders() }),
+        fetch(apiUrl('/ea-control/command-logs'), { headers: defaultHeaders() }),
+        fetch(apiUrl('/ea-control/commands'), { headers: defaultHeaders() }),
       ]);
       
       let nextTerminalId = stateRef.current.selectedTerminalId;
@@ -197,16 +200,19 @@ export default function EAControlCenter() {
   }, [activeInstance?.id, runtimeConfigEnabled, activeInstanceConfigStr]);
 
   const scanTemplates = async () => {
-    const res = await fetch(`${API_BASE_URL}/ea-control/templates/scan`, { method: 'POST' });
+    const res = await fetch(apiUrl('/ea-control/templates/scan'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+    });
     const data = await res.json();
     setTemplates(data.templates || []);
     setMessage(`Scanned ${data.templates?.length || 0} EA templates.`);
   };
 
   const queueCommand = async (commandType: string, payload: any, requiresConfirmation = false) => {
-    const res = await fetch(`${API_BASE_URL}/ea-control/commands`, {
+    const res = await fetch(apiUrl('/ea-control/commands'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: defaultHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ terminalId: selectedTerminalId || activeInstance?.terminalId, commandType, payload, requiresConfirmation, source: 'WEBSITE' }),
     });
     const data = await res.json();
@@ -246,9 +252,9 @@ export default function EAControlCenter() {
 
   const saveConfig = async () => {
     if (!activeInstance) return;
-    const res = await fetch(`${API_BASE_URL}/ea-control/instances/${activeInstance.id}/config`, {
+    const res = await fetch(apiUrl(`/ea-control/instances/${activeInstance.id}/config`), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: defaultHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ ...config, source: 'WEBSITE' }),
     });
     const data = await res.json().catch(() => ({}));
@@ -257,7 +263,10 @@ export default function EAControlCenter() {
   };
 
   const decideSignal = async (signal: Signal, action: 'approve' | 'reject' | 'dismiss') => {
-    await fetch(`${API_BASE_URL}/ea-control/signals/${signal.id}/${action}`, { method: 'POST' });
+    await fetch(apiUrl(`/ea-control/signals/${signal.id}/${action}`), {
+      method: 'POST',
+      headers: defaultHeaders(),
+    });
     load();
   };
   
@@ -265,13 +274,19 @@ export default function EAControlCenter() {
     const pending = signals.filter(s => s.status === 'PENDING');
     if (!pending.length) return;
     await Promise.all(pending.map(s => 
-      fetch(`${API_BASE_URL}/ea-control/signals/${s.id}/dismiss`, { method: 'POST' })
+      fetch(apiUrl(`/ea-control/signals/${s.id}/dismiss`), {
+        method: 'POST',
+        headers: defaultHeaders(),
+      })
     ));
     load();
   };
 
   const cancelCommand = async (command: any) => {
-    const res = await fetch(`${API_BASE_URL}/ea-control/commands/${command.id}/cancel`, { method: 'POST' });
+    const res = await fetch(apiUrl(`/ea-control/commands/${command.id}/cancel`), {
+      method: 'POST',
+      headers: defaultHeaders(),
+    });
     setMessage(res.ok ? `Command cancelled: ${command.commandType}` : 'Command cancellation failed.');
     load();
   };
@@ -279,9 +294,9 @@ export default function EAControlCenter() {
   const cancelPendingCommands = async () => {
     const terminalId = selectedTerminalId || activeInstance?.terminalId;
     if (!terminalId) return setMessage('Select a terminal before cancelling pending commands.');
-    const res = await fetch(`${API_BASE_URL}/ea-control/commands/cancel-pending`, {
+    const res = await fetch(apiUrl('/ea-control/commands/cancel-pending'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: defaultHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ terminalId }),
     });
     const data = await res.json();

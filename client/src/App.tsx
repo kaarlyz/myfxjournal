@@ -42,18 +42,21 @@ interface AnimatedRoutesProps {
 function AnimatedRoutes({ isAuthenticated }: AnimatedRoutesProps) {
   const location = useLocation();
   const isLanding = location.pathname === '/landing' || (location.pathname === '/' && !isAuthenticated);
-  const isFullBleed = location.pathname === '/backtest' || isLanding;
+  const isBacktest = location.pathname === '/backtest';
+  const isFullBleed = isBacktest || isLanding;
 
   return (
     <AnimatePresence mode="wait">
       <motion.div
         key={location.pathname}
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -15 }}
+        initial={isFullBleed ? undefined : { opacity: 0, y: 15 }}
+        animate={isFullBleed ? { opacity: 1 } : { opacity: 1, y: 0 }}
+        exit={isFullBleed ? undefined : { opacity: 0, y: -15 }}
         transition={{ duration: 0.25, ease: 'easeOut' }}
         className={
-          isFullBleed
+          isBacktest
+            ? "w-full h-full max-w-none p-0 flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden"
+            : isLanding
             ? "w-full max-w-none p-0 flex-1 flex flex-col min-w-0 min-h-0 overflow-x-hidden"
             : "w-full max-w-none px-3.5 sm:px-6 lg:px-8 2xl:px-12 py-4 md:py-6 pb-24 md:pb-8"
         }
@@ -204,15 +207,16 @@ interface AppShellProps {
 function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, error, timeStr, dateStr, isAuthenticated }: AppShellProps) {
   const location = useLocation();
   const isLanding = location.pathname === '/landing' || (location.pathname === '/' && !isAuthenticated);
-  const hideChrome = isBacktestPath(location.pathname) || isLanding;
+  const isBacktest = isBacktestPath(location.pathname);
+  const hideChrome = isBacktest || isLanding;
 
   return (
-    <div className={`app-shell ${isLanding ? '!block min-h-screen bg-white' : ''}`}>
-      {!isLanding && (
+    <div className={`app-shell ${hideChrome ? '!block min-h-screen bg-white' : ''}`}>
+      {!hideChrome && (
         <Sidebar mobileOpen={mobileNavOpen} setMobileOpen={setMobileNavOpen} />
       )}
 
-      <main className={`main-shell relative z-10 ${isLanding ? '!overflow-y-auto !h-auto !min-h-screen bg-white' : ''}`}>
+      <main className={`main-shell relative z-10 ${isLanding ? '!overflow-y-auto !h-auto !min-h-screen bg-white' : isBacktest ? '!overflow-hidden !h-screen !min-h-screen !p-0 !m-0 bg-white' : ''}`}>
         {!hideChrome && (
           <div className="topbar" aria-label="Application toolbar">
             <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold" style={{ fontFamily: 'Outfit, sans-serif' }}>
@@ -268,7 +272,7 @@ function AppShell({ mobileNavOpen, setMobileNavOpen, isBacktestPath, sseStatus, 
           </div>
         )}
 
-        {error && (
+        {error && !hideChrome && (
           <div
             className="banner-danger flex items-center justify-between gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm"
             role="alert"
