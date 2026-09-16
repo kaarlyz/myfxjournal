@@ -2362,6 +2362,15 @@ export default function Backtest() {
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
+                onClick={() => openMobileSheet('AI')}
+                className="mobile-icon-btn shrink-0 bg-[#FFD000] border-2 border-[#121212] text-[#121212]"
+                aria-label="AI Copilot"
+                title="AI Copilot"
+              >
+                <Sparkles className="w-4 h-4 text-[#1040C0]" />
+              </button>
+              <button
+                type="button"
                 onClick={() => openMobileSheet('TOOLS')}
                 className="mobile-icon-btn"
                 data-active={activeTool !== 'cursor'}
