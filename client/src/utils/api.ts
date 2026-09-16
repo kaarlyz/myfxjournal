@@ -1,4 +1,4 @@
-export const FALLBACK_NGROK_URL = 'https://8311-2404-c0-9603-ce2-3cba-4b01-ee59-1806.ngrok-free.app/api';
+export const FALLBACK_NGROK_URL = 'https://5576-2404-c0-9603-ce2-3cba-4b01-ee59-1806.ngrok-free.app/api';
 
 export const getApiBaseUrl = () => {
   if (typeof window !== 'undefined') {
