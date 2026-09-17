@@ -5,6 +5,8 @@ import { formatUsd, formatPercent } from '../../utils/formatters';
 import { Button } from '../ui/Button';
 import { SectionLabel } from '../ui/SectionLabel';
 import { apiUrl, defaultHeaders } from '../../utils/api';
+import { PremiumTooltip } from '../ui/PremiumTooltip';
+import { formatCompactUsd } from '../../utils/chartUtils';
 
 interface Props {
   sessionId: string;
@@ -49,32 +51,19 @@ export default function RiskRecalculationTab({ sessionId, session, metrics, trad
   const displayTrades = recalcData?.trades || trades;
 
   const chartData = displayTrades.map((t, idx) => ({
-    name: `T${idx + 1}`,
+    name: `#${idx + 1}`,
+    tradeNum: idx + 1,
+    actualTradeNum: t.tradeNumber || (idx + 1),
+    date: t.entryTime || t.exitTime || t.createdAt,
+    symbol: t.symbol,
+    side: t.side,
     rawBalance: t.balanceAfter || displayMetrics.initialBalance,
     recalculatedBalance: t.balanceAfter || displayMetrics.initialBalance,
+    equity: t.balanceAfter || displayMetrics.initialBalance,
+    pnl: t.recalculatedPnl || t.netPnlUsd || 0,
     rawPnl: t.netPnlUsd || 0,
     recalcPnl: t.recalculatedPnl || 0
   }));
-
-  const tooltipStyle = {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#121212',
-    borderWidth: 2,
-    borderRadius: 0,
-    boxShadow: '4px 4px 0px 0px #121212',
-    fontFamily: 'Outfit, sans-serif',
-    fontSize: '12px',
-    padding: '10px 14px'
-  };
-
-  const tooltipLabelStyle = {
-    color: '#717182',
-    fontSize: '10px',
-    fontWeight: 700,
-    letterSpacing: '0.1em',
-    textTransform: 'uppercase' as const,
-    marginBottom: '4px'
-  };
 
   return (
     <div className="space-y-6">
@@ -189,12 +178,9 @@ export default function RiskRecalculationTab({ sessionId, session, metrics, trad
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(18,18,18,0.1)" vertical={false} />
-                  <XAxis dataKey="name" stroke="#717182" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#717182" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    labelStyle={tooltipLabelStyle}
-                  />
+                  <XAxis dataKey="name" name="Trade Number" stroke="#717182" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => (v.startsWith('#') ? v : `#${v}`)} />
+                  <YAxis stroke="#717182" name="Equity ($)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => formatCompactUsd(v)} />
+                  <Tooltip content={<PremiumTooltip formatMode="currency" />} cursor={{ stroke: 'rgba(18,18,18,0.15)', strokeDasharray: '4 4' }} />
                   <Area 
                     type="monotone" 
                     dataKey="recalculatedBalance" 
@@ -202,7 +188,7 @@ export default function RiskRecalculationTab({ sessionId, session, metrics, trad
                     strokeWidth={3}
                     fillOpacity={1} 
                     fill="url(#colorRecalculated)" 
-                    name="Equity"
+                    name="Running Equity"
                   />
                 </AreaChart>
               </ResponsiveContainer>

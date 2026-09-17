@@ -287,14 +287,16 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
                     </defs>
                     {renderGrid()}
                       <XAxis
-                      dataKey="tradeNum"
-                      tick={{ fill: 'var(--text-muted)', fontSize: 11, dy: 4 }}
-                      tickLine={false}
-                      axisLine={false}
-                      minTickGap={30}
-                      interval="preserveStartEnd"
-                      padding={{ left: 12, right: 12 }}
-                    />
+                        dataKey="tradeNum"
+                        name="Trade Number"
+                        tick={{ fill: 'var(--text-muted)', fontSize: 11, dy: 4 }}
+                        tickFormatter={(v) => (v === 0 ? 'Start' : `#${v}`)}
+                        tickLine={false}
+                        axisLine={false}
+                        minTickGap={30}
+                        interval="preserveStartEnd"
+                        padding={{ left: 12, right: 12 }}
+                      />
                     <YAxis
                       tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
                       tickFormatter={(val) => formatCompactUsd(val)}
@@ -353,11 +355,12 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
                     <XAxis dataKey="tradeNum" hide />
                     <YAxis
                       stroke="#64748b"
+                      name="Drawdown (%)"
                       tick={{ fill: 'var(--text-muted)', fontSize: 11, fontWeight: 500 }}
                       tickFormatter={(val) => {
                         const num = Number(val);
-                        if (!Number.isFinite(num) || Math.abs(num) < 0.005) return '0.00%';
-                        return `${num.toFixed(2)}%`;
+                        if (!Number.isFinite(num) || Math.abs(num) < 0.005) return '0%';
+                        return `${num.toFixed(1)}%`;
                       }}
                       domain={drawdownDomain}
                       tickLine={false}
@@ -404,7 +407,9 @@ export default function DashboardCharts({ session, trades, onSelectionChange }: 
                     {renderGrid()}
                     <XAxis
                       dataKey="tradeNum"
+                      name="Trade Number"
                       tick={{ fill: 'var(--text-muted)', fontSize: 11, dy: 4 }}
+                      tickFormatter={(v) => `#${v}`}
                       tickLine={false}
                       axisLine={false}
                       minTickGap={20}

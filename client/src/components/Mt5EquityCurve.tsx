@@ -16,7 +16,9 @@ import { motion } from 'framer-motion';
 export function Mt5EquityCurve({ points }: { points: any[] }) {
   const [curveMode, setCurveMode] = useState<'BALANCE' | 'EQUITY' | 'BOTH'>('BOTH');
   const [expanded, setExpanded] = useState(false);
-  const data = useMemo(() => (points || []).map((p) => ({
+  const data = useMemo(() => (points || []).map((p, idx) => ({
+    tradeNum: idx + 1,
+    actualTradeNum: idx + 1,
     date: String(p.time).slice(0, 10),
     time: p.time,
     balance: Number(p.balance || 0),
@@ -24,9 +26,12 @@ export function Mt5EquityCurve({ points }: { points: any[] }) {
     depositLoad: Number(p.depositLoad || 0),
   })).map((point, index, rows) => {
     const peak = Math.max(...rows.slice(0, index + 1).map((row) => row.equity));
+    const ddUsd = peak > 0 ? point.equity - peak : 0;
+    const ddPct = peak > 0 ? (ddUsd / peak) * 100 : 0;
     return {
       ...point,
-      drawdown: peak > 0 ? point.equity - peak : 0,
+      drawdownUsd: ddUsd,
+      drawdown: ddPct,
     };
   }), [points]);
   const worstDrawdown = data.reduce<any | null>((worst, row) => !worst || row.drawdown < worst.drawdown ? row : worst, null);
@@ -64,11 +69,11 @@ export function Mt5EquityCurve({ points }: { points: any[] }) {
       <ResponsiveContainer width="100%" height="75%">
         <LineChart data={sampledData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="rgba(18,18,18,0.1)" vertical={false} strokeDasharray="4 4" />
-          <XAxis dataKey="date" tickFormatter={tick} stroke="#717182" fontSize={11} tickLine={false} axisLine={false} minTickGap={30} />
-          <YAxis stroke="#717182" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(val) => formatCompactUsd(val)} />
+          <XAxis dataKey="date" name="Date" tickFormatter={tick} stroke="#717182" fontSize={11} tickLine={false} axisLine={false} minTickGap={30} />
+          <YAxis stroke="#717182" name="Equity ($)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(val) => formatCompactUsd(val)} />
           <Tooltip content={<PremiumTooltip formatMode="currency" />} cursor={{ stroke: 'rgba(18,18,18,0.1)', strokeWidth: 1, strokeDasharray: '4 4' }} />
-          {(curveMode === 'BALANCE' || curveMode === 'BOTH') && <Line type="monotone" dataKey="balance" stroke="#1040C0" dot={false} strokeWidth={3} />}
-          {(curveMode === 'EQUITY' || curveMode === 'BOTH') && <Line type="monotone" dataKey="equity" stroke="var(--profit)" dot={false} strokeWidth={3} />}
+          {(curveMode === 'BALANCE' || curveMode === 'BOTH') && <Line type="monotone" dataKey="balance" name="Balance" stroke="#1040C0" dot={false} strokeWidth={3} />}
+          {(curveMode === 'EQUITY' || curveMode === 'BOTH') && <Line type="monotone" dataKey="equity" name="Running Equity" stroke="var(--profit)" dot={false} strokeWidth={3} />}
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -81,8 +86,8 @@ export function Mt5EquityCurve({ points }: { points: any[] }) {
         <div>
           <SectionLabel label="Drawdown & Deposit Load" shape="diamond" color="red" />
           {worstDrawdown && (
-            <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--loss)] mt-3 bg-[var(--loss-dim)] px-2 py-1 inline-block border-2 border-[var(--loss)]">
-              Worst DD {Number(worstDrawdown.drawdown).toFixed(2)} on {String(worstDrawdown.time || worstDrawdown.date).slice(0, 16)}
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--loss)] mt-3 bg-[var(--loss-dim)] px-2 py-1 inline-block border-2 border-[var(--loss)] font-mono">
+              Worst DD {Number(worstDrawdown.drawdown).toFixed(2)}% on {String(worstDrawdown.time || worstDrawdown.date).slice(0, 16)}
             </p>
           )}
         </div>
@@ -91,11 +96,21 @@ export function Mt5EquityCurve({ points }: { points: any[] }) {
       <ResponsiveContainer width="100%" height={worstDrawdown ? '60%' : '75%'}>
         <AreaChart data={sampledData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="rgba(18,18,18,0.1)" vertical={false} strokeDasharray="4 4" />
-          <XAxis dataKey="date" tickFormatter={tick} stroke="#717182" fontSize={11} tickLine={false} axisLine={false} minTickGap={30} />
-          <YAxis stroke="#717182" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(val) => formatCompactUsd(val)} />
-          <Tooltip content={<PremiumTooltip formatMode="currency" />} cursor={{ stroke: 'rgba(18,18,18,0.1)', strokeWidth: 1, strokeDasharray: '4 4' }} />
-          <Area type="monotone" dataKey="drawdown" stroke="var(--loss)" strokeWidth={2} fill="var(--loss-dim)" />
-          <Area type="monotone" dataKey="depositLoad" stroke="var(--warning)" strokeWidth={2} fill="var(--warning-dim)" />
+          <XAxis dataKey="date" name="Date" tickFormatter={tick} stroke="#717182" fontSize={11} tickLine={false} axisLine={false} minTickGap={30} />
+          <YAxis
+            stroke="#717182"
+            name="Drawdown (%)"
+            fontSize={11}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(val) => {
+              const n = Number(val);
+              return Math.abs(n) < 0.05 ? '0%' : `${n.toFixed(1)}%`;
+            }}
+          />
+          <Tooltip content={<PremiumTooltip formatMode="percent" />} cursor={{ stroke: 'rgba(18,18,18,0.1)', strokeWidth: 1, strokeDasharray: '4 4' }} />
+          <Area type="monotone" dataKey="drawdown" name="Drawdown (%)" stroke="var(--loss)" strokeWidth={2} fill="var(--loss-dim)" />
+          <Area type="monotone" dataKey="depositLoad" name="Deposit Load" stroke="var(--warning)" strokeWidth={2} fill="var(--warning-dim)" />
           {worstDrawdown && <ReferenceDot x={worstDrawdown.date} y={worstDrawdown.drawdown} r={6} fill="var(--loss)" stroke="#fff" strokeWidth={2} />}
         </AreaChart>
       </ResponsiveContainer>
@@ -131,7 +146,11 @@ export function Mt5EquityCurve({ points }: { points: any[] }) {
 }
 
 export function Mt5DailyPnlChart({ daily }: { daily: any[] }) {
-  const data = (daily || []).map((d) => ({ date: d.date, pnl: Number(d.dailyNetChange || 0) }));
+  const data = (daily || []).map((d, idx) => ({
+    date: d.date,
+    pnl: Number(d.dailyNetChange || 0),
+    tradeNum: idx + 1
+  }));
   if (!data.length) return null;
   return (
     <div className="bg-white border-2 border-[#121212] p-5 shadow-[4px_4px_0px_0px_#121212] h-72 relative">
@@ -140,10 +159,10 @@ export function Mt5DailyPnlChart({ daily }: { daily: any[] }) {
       <ResponsiveContainer width="100%" height="75%">
         <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="rgba(18,18,18,0.1)" vertical={false} strokeDasharray="4 4" />
-          <XAxis dataKey="date" tickFormatter={tick} stroke="#717182" fontSize={11} tickLine={false} axisLine={false} minTickGap={20} />
-          <YAxis stroke="#717182" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(val) => formatCompactUsd(val)} />
+          <XAxis dataKey="date" name="Date" tickFormatter={tick} stroke="#717182" fontSize={11} tickLine={false} axisLine={false} minTickGap={20} />
+          <YAxis stroke="#717182" name="Net PnL ($)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(val) => formatCompactUsd(val)} />
           <Tooltip content={<PremiumTooltip formatMode="currency" />} cursor={{ fill: 'rgba(18,18,18,0.05)' }} />
-          <Bar dataKey="pnl">
+          <Bar dataKey="pnl" name="Net PnL">
             {
               data.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? 'var(--profit)' : 'var(--loss)'} />
