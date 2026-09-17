@@ -1155,7 +1155,7 @@ export default function Backtest() {
           return prev;
         }
         // FIX 3: Efficient single-element concat without spread operator
-        return prev.concat(nextCandle);
+        return [...prev, nextCandle];
       });
       setReplayTime(nextTime);
 
