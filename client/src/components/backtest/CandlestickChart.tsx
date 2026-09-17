@@ -232,6 +232,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const vpRef = useRef<VP | null>(null);
+  const isDirtyRef = useRef<boolean>(true);
   const plannedDragHandleRef = useRef<{
     type: 'ENTRY' | 'SL' | 'TP';
     startMousePrice: number;
@@ -327,6 +328,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPressTriggeredRef = useRef<boolean>(false);
   const menuOpenedAtRef = useRef<number>(0);
+
+  useEffect(() => {
+    isDirtyRef.current = true;
+  }, [
+    candles, drawings, indicators, activeTrade, activeTrades, pendingOrders,
+    plannedOrder, selectedDrawingId, followReplay, candleWidth, panOffsetX,
+    priceZoom, pricePanOffset, manualPriceRange, isAutoScale, drawingDraft,
+    dimensions, mousePos, appMode, isTimeframeLoading, isLoading, error
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -752,6 +762,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     let animId: number;
 
     const render = () => {
+      if (!isDirtyRef.current) {
+        animId = requestAnimationFrame(render);
+        return;
+      }
+      isDirtyRef.current = false;
+
       const dpr = window.devicePixelRatio || 1;
       const cssW = dimensions.width || 900;
       const cssH = dimensions.height || 500;
@@ -778,7 +794,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       let maxVol = 0;
       const sIdx = vp.startIdx;
       const eIdx = vp.endIdx;
-      for (let i = sIdx; i <= eIdx; i++) {
+      for (let i = sIdx; i <= eIdx && i < total; i++) {
         const c = candles[i];
         if (!c) continue;
         if ((c.tickVolume || 0) > maxVol) maxVol = c.tickVolume || 0;
@@ -852,7 +868,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     ctx.beginPath(); ctx.moveTo(chartW, 0); ctx.lineTo(chartW, cssH); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, mainH); ctx.lineTo(cssW, mainH); ctx.stroke();
 
-    // 3. Adaptive Time Scale Labels (Pure dense candle indexing with deduplication)
+    // 3. Adaptive Time Scale Labels (Viewport-Only)
     const isDaily = timeframe === 'D1';
     const labelFmt = isDaily
       ? (cw > 14 ? 'yyyy-MM-dd' : 'MM/dd')
@@ -862,7 +878,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     let lastLabelX = -999;
     let lastLabelStr = '';
 
-    for (let i = 0; i < total; i += tStep) {
+    const startStepIdx = Math.max(0, Math.floor(sIdx / tStep) * tStep);
+    for (let i = startStepIdx; i <= eIdx && i < total; i += tStep) {
       const c = candles[i];
       if (!c) continue;
       const barsFromRight = (total - 1) - i;
@@ -882,7 +899,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.fillText(labelStr, x, cssH - 7);
     }
 
-    // 4. Volume Separator & Bars (Clipped strictly to volume viewport)
+    // 4. Volume Separator & Bars (Viewport-Only, Skip if cw < 3)
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, mainH - volH, chartW, volH);
@@ -891,60 +908,52 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, mainH - volH); ctx.lineTo(chartW, mainH - volH); ctx.stroke();
 
-    for (let i = 0; i < total; i++) {
-      const c = candles[i];
-      if (!c) continue;
-      const barsFromRight = (total - 1) - i;
-      const rawX = rightBoundary - (barsFromRight * cw);
-      if (rawX < -cw * 2 || rawX > chartW + cw * 2) continue;
-      const centerX = Math.round(rawX);
-      const vol = c.tickVolume || 0;
-      const h = maxVol > 0 ? (vol / maxVol) * (volH - 6) : 0;
-      const calcVolW = Math.max(3, Math.round(cw * 0.75));
-      const volW = calcVolW % 2 === 0 ? calcVolW + 1 : calcVolW;
-      const volX = centerX - Math.floor(volW / 2);
-      const isBull = c.close >= c.open;
-      const volColor = isBull ? 'rgba(22, 163, 74, 0.35)' : 'rgba(220, 38, 38, 0.35)';
-      ctx.fillStyle = volColor;
-      const vY = mainH - h;
-      const radius = Math.min(2, Math.floor(volW / 2), Math.floor(h / 2));
-      if (typeof (ctx as any).roundRect === 'function' && radius > 0 && h > 2) {
-        ctx.beginPath();
-        (ctx as any).roundRect(volX, vY, volW, h, [radius, radius, 0, 0]);
-        ctx.fill();
-      } else {
-        ctx.fillRect(volX, vY, volW, h);
+    if (cw >= 3) {
+      for (let i = sIdx; i <= eIdx && i < total; i++) {
+        const c = candles[i];
+        if (!c) continue;
+        const barsFromRight = (total - 1) - i;
+        const rawX = rightBoundary - (barsFromRight * cw);
+        const centerX = Math.round(rawX);
+        const vol = c.tickVolume || 0;
+        const h = maxVol > 0 ? (vol / maxVol) * (volH - 6) : 0;
+        const calcVolW = Math.max(3, Math.round(cw * 0.75));
+        const volW = calcVolW % 2 === 0 ? calcVolW + 1 : calcVolW;
+        const volX = centerX - Math.floor(volW / 2);
+        const isBull = c.close >= c.open;
+        const volColor = isBull ? 'rgba(22, 163, 74, 0.35)' : 'rgba(220, 38, 38, 0.35)';
+        ctx.fillStyle = volColor;
+        const vY = mainH - h;
+        const radius = Math.min(2, Math.floor(volW / 2), Math.floor(h / 2));
+        if (typeof (ctx as any).roundRect === 'function' && radius > 0 && h > 2) {
+          ctx.beginPath();
+          (ctx as any).roundRect(volX, vY, volW, h, [radius, radius, 0, 0]);
+          ctx.fill();
+        } else {
+          ctx.fillRect(volX, vY, volW, h);
+        }
       }
     }
     ctx.restore();
 
-    // 5. Candlesticks (OHLC) - TradingView Standard Candlestick Geometry
+    // 5. Candlesticks (OHLC) - Viewport-Only Candlestick Geometry
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, chartW, mainH - volH);
     ctx.clip();
 
-    for (let i = 0; i < total; i++) {
+    for (let i = sIdx; i <= eIdx && i < total; i++) {
       const candle = candles[i];
       if (!candle) continue;
-      // Strict distance from the latest bar:
       const barsFromRight = (total - 1) - i;
       const rawX = rightBoundary - (barsFromRight * cw);
-
-      // Culling guard: only skip drawing operations if completely offscreen,
-      // but NEVER use startIdx / endIdx to bound the loop
-      if (rawX < -cw * 2 || rawX > chartW + cw * 2) continue;
-
-      // 1. Center of the candle slot:
       const centerX = Math.round(rawX);
 
-      // 2. Proportional body width (at least 75% of available bar slot):
-      // Ensure bodyWidth is an odd integer so centerX is the exact mathematical middle pixel
+      // FIX 5: Set bodyWidth minimum to 2px when cw < 3
       const calcWidth = Math.max(3, Math.round(cw * 0.75));
-      const bodyWidth = calcWidth % 2 === 0 ? calcWidth + 1 : calcWidth;
+      const bodyWidth = cw < 3 ? 2 : (calcWidth % 2 === 0 ? calcWidth + 1 : calcWidth);
       const bodyLeft = centerX - Math.floor(bodyWidth / 2);
 
-      // 3. Y-coordinates:
       const yOpen = getY(candle.open);
       const yClose = getY(candle.close);
       const yHigh = getY(candle.high);
@@ -952,15 +961,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       const topY = Math.min(yOpen, yClose);
       const rawHeight = Math.abs(yClose - yOpen);
-      // Guarantee Dojis and flat bars are always visible as a solid 1.5px-2px slab:
-      const bodyHeight = Math.max(1.5, Math.round(rawHeight));
-      const bodyTop = rawHeight < 1.5 ? Math.round(topY) - 0.75 : Math.round(topY);
 
       const isBullish = candle.close >= candle.open;
       const bodyColor = isBullish ? '#16A34A' : '#DC2626';
       const borderColor = isBullish ? '#15803D' : '#B91C1C';
 
-      // 4. Sharp, Perfectly Centered Wicks (on +0.5 half-pixel offset for crisp 1px line)
+      // Sharp, Perfectly Centered Wicks
       const wickX = Math.floor(centerX) + 0.5;
       ctx.lineWidth = 1;
       ctx.strokeStyle = borderColor;
@@ -969,19 +975,37 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.lineTo(wickX, Math.round(yLow));
       ctx.stroke();
 
-      // 5. Render Solid Bodies Over Wicks with 1px crisp outline border
-      ctx.fillStyle = bodyColor;
-      ctx.fillRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
-      ctx.strokeStyle = borderColor;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
+      // FIX 6: Doji enhancement when rawHeight < 1.5
+      if (rawHeight < 1.5) {
+        const dojiY = Math.floor(topY) + 0.5;
+        ctx.strokeStyle = bodyColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(bodyLeft, dojiY);
+        ctx.lineTo(bodyLeft + bodyWidth, dojiY);
+        ctx.stroke();
+      } else {
+        const bodyHeight = Math.round(rawHeight);
+        const bodyTop = Math.round(topY);
+
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
+
+        // FIX 5: Only draw strokeRect border when cw >= 5
+        if (cw >= 5) {
+          ctx.strokeStyle = borderColor;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
+        }
+      }
     }
 
-    // 6. Indicators (SMAs) - Aligned to the exact same sequential X coordinates
+    // 6. Indicators (SMAs) - Viewport-Only
     const drawSMA = (vals: (number | null)[], color: string, lw: number) => {
       ctx.strokeStyle = color; ctx.lineWidth = lw;
       ctx.beginPath(); let started = false;
-      for (let i = 0; i < total; i++) {
+      const startLineIdx = Math.max(0, sIdx - 1);
+      for (let i = startLineIdx; i <= eIdx && i < total; i++) {
         const v = vals[i];
         if (v == null) {
           started = false;
@@ -989,10 +1013,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         }
         const barsFromRight = (total - 1) - i;
         const x = rightBoundary - (barsFromRight * cw);
-        if (x < -cw * 4 || x > chartW + cw * 4) {
-          started = false;
-          continue;
-        }
         const y = getY(v);
         started ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
         started = true;

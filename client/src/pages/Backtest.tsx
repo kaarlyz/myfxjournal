@@ -1097,8 +1097,14 @@ export default function Backtest() {
 
     try {
       // Discard stale candles in buffer that are <= lastT
-      while (candleBufferRef.current.length > 0 && new Date(candleBufferRef.current[0].time).getTime() <= lastT) {
-        candleBufferRef.current.shift();
+      while (candleBufferRef.current.length > 0) {
+        const bufTime = candleBufferRef.current[0].time;
+        const bufT = typeof bufTime === 'number' ? bufTime : new Date(bufTime).getTime();
+        if (bufT <= lastT) {
+          candleBufferRef.current.shift();
+        } else {
+          break;
+        }
       }
 
       // Background prefetch when buffer drops below 50 bars
@@ -1133,21 +1139,23 @@ export default function Backtest() {
         nextCandle = json.data;
       }
 
+      // FIX 4: Cache Date & timestamp once for reuse
       const nextTime = new Date(nextCandle.time);
+      const nextT = nextTime.getTime();
 
       setCandles((prev) => {
         if (prev.length === 0) return [nextCandle];
-        const lastT = new Date(prev[prev.length - 1].time).getTime();
-        const nextT = new Date(nextCandle.time).getTime();
-        if (nextT === lastT) {
-          const updated = [...prev];
+        const lastCandleT = new Date(prev[prev.length - 1].time).getTime();
+        if (nextT === lastCandleT) {
+          const updated = prev.slice();
           updated[updated.length - 1] = nextCandle;
           return updated;
         }
-        if (nextT < lastT) {
+        if (nextT < lastCandleT) {
           return prev;
         }
-        return [...prev, nextCandle];
+        // FIX 3: Efficient single-element concat without spread operator
+        return prev.concat(nextCandle);
       });
       setReplayTime(nextTime);
 
