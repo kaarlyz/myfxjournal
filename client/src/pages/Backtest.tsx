@@ -1063,8 +1063,10 @@ export default function Backtest() {
     try {
       const prov = getProviderForSymbol(symbol);
       const sessionParam = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '';
+      // Adaptive batch size: smaller for higher timeframes to avoid massive M1 resampling queries
+      const batchSize = timeframe === 'D1' ? 30 : timeframe === 'H4' ? 60 : timeframe === 'H1' ? 120 : 300;
       const res = await fetch(
-        apiUrl(`/backtest/candles?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(afterTime)}&limit=300${sessionParam}`),
+        apiUrl(`/backtest/candles?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(afterTime)}&limit=${batchSize}${sessionParam}`),
         { headers: defaultHeaders() }
       );
       const json = await res.json();
@@ -1107,8 +1109,9 @@ export default function Backtest() {
         }
       }
 
-      // Background prefetch when buffer drops below 50 bars
-      if (candleBufferRef.current.length < 50 && !isPrefetchingRef.current) {
+      // Background prefetch when buffer drops below threshold (adaptive per timeframe)
+      const refillThreshold = timeframe === 'D1' ? 10 : timeframe === 'H4' ? 20 : 50;
+      if (candleBufferRef.current.length < refillThreshold && !isPrefetchingRef.current) {
         const prefetchStartTime = candleBufferRef.current.length > 0
           ? new Date(candleBufferRef.current[candleBufferRef.current.length - 1].time).toISOString()
           : lastTime;

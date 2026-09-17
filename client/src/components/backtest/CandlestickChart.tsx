@@ -1396,7 +1396,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         ctx.fillStyle = 'rgba(239,68,68,0.10)';
         ctx.fillRect(0, Math.min(eY, slY), chartW, Math.abs(slY - eY));
 
-        // Entry candle highlight: find last candle whose range contains entryPrice
+        // Entry candle highlight: darken the profit & risk zone colors on the entry candle area
         for (let ci = Math.min(eIdx, total - 1); ci >= sIdx; ci--) {
           const ec = candles[ci];
           if (!ec) continue;
@@ -1406,14 +1406,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             const ecCenterX = Math.round(ecx);
             const hlW = Math.max(cw + 2, 6);
             const hlLeft = ecCenterX - Math.floor(hlW / 2);
-            const hlTop = Math.round(getY(ec.high)) - 2;
-            const hlBot = Math.round(getY(ec.low)) + 2;
-            ctx.fillStyle = trade.side === 'LONG' ? 'rgba(6,182,212,0.18)' : 'rgba(225,29,72,0.18)';
-            ctx.fillRect(hlLeft, hlTop, hlW, hlBot - hlTop);
-            ctx.strokeStyle = trade.side === 'LONG' ? '#06B6D4' : '#E11D48';
-            ctx.lineWidth = 1.5;
-            ctx.setLineDash([]);
-            ctx.strokeRect(hlLeft + 0.5, hlTop + 0.5, hlW - 1, (hlBot - hlTop) - 1);
+            const entryPixelY = Math.round(getY(trade.entryPrice));
+            const candleTopY = Math.round(getY(ec.high));
+            const candleBotY = Math.round(getY(ec.low));
+            // Profit side: darker green overlay from entry toward TP
+            const profitTop = trade.side === 'LONG' ? candleTopY : entryPixelY;
+            const profitBot = trade.side === 'LONG' ? entryPixelY : candleBotY;
+            ctx.fillStyle = 'rgba(16,185,129,0.25)';
+            ctx.fillRect(hlLeft, profitTop, hlW, Math.max(1, profitBot - profitTop));
+            // Risk side: darker red overlay from entry toward SL
+            const riskTop = trade.side === 'LONG' ? entryPixelY : candleTopY;
+            const riskBot = trade.side === 'LONG' ? candleBotY : entryPixelY;
+            ctx.fillStyle = 'rgba(239,68,68,0.25)';
+            ctx.fillRect(hlLeft, riskTop, hlW, Math.max(1, riskBot - riskTop));
             break;
           }
         }
