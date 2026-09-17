@@ -1396,6 +1396,28 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         ctx.fillStyle = 'rgba(239,68,68,0.10)';
         ctx.fillRect(0, Math.min(eY, slY), chartW, Math.abs(slY - eY));
 
+        // Entry candle highlight: find last candle whose range contains entryPrice
+        for (let ci = Math.min(eIdx, total - 1); ci >= sIdx; ci--) {
+          const ec = candles[ci];
+          if (!ec) continue;
+          if (ec.low <= trade.entryPrice && ec.high >= trade.entryPrice) {
+            const bfr = (total - 1) - ci;
+            const ecx = rightBoundary - (bfr * cw);
+            const ecCenterX = Math.round(ecx);
+            const hlW = Math.max(cw + 2, 6);
+            const hlLeft = ecCenterX - Math.floor(hlW / 2);
+            const hlTop = Math.round(getY(ec.high)) - 2;
+            const hlBot = Math.round(getY(ec.low)) + 2;
+            ctx.fillStyle = trade.side === 'LONG' ? 'rgba(6,182,212,0.18)' : 'rgba(225,29,72,0.18)';
+            ctx.fillRect(hlLeft, hlTop, hlW, hlBot - hlTop);
+            ctx.strokeStyle = trade.side === 'LONG' ? '#06B6D4' : '#E11D48';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([]);
+            ctx.strokeRect(hlLeft + 0.5, hlTop + 0.5, hlW - 1, (hlBot - hlTop) - 1);
+            break;
+          }
+        }
+
         ctx.setLineDash([4, 4]);
         const lines = [
           { p: trade.entryPrice, c: '#06B6D4', l: `${prefix}ENTRY (${trade.volume}L)` },
@@ -1426,14 +1448,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         const isLong = po.side === 'LONG';
         const entryColor = isLong ? '#0284C7' : '#E11D48';
 
-        // Shaded pending zones
+        // Shaded pending zones — TP always green (profit), SL always red (risk)
         if (tpY !== null) {
-          ctx.fillStyle = isLong ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)';
+          ctx.fillStyle = 'rgba(16,185,129,0.06)';
           ctx.fillRect(0, Math.min(eY, tpY), chartW, Math.abs(tpY - eY));
         }
 
         if (slY !== null) {
-          ctx.fillStyle = isLong ? 'rgba(239,68,68,0.06)' : 'rgba(16,185,129,0.06)';
+          ctx.fillStyle = 'rgba(239,68,68,0.06)';
           ctx.fillRect(0, Math.min(eY, slY), chartW, Math.abs(slY - eY));
         }
 
@@ -3453,12 +3475,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                 transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                 className="w-full bg-white/95 backdrop-blur-md border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl overflow-hidden"
               >
-                {/* Collapsed single-row horizontal pill: [ ⠿ BUY | {lot}L | SL {sl} | TP {tp} | BATAL | KONFIRMASI | ⌵ ] */}
+                {/* Collapsed single-row horizontal pill */}
                 {overlayCollapsed ? (
-                  <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/95">
+                  <div className="flex items-center gap-1.5 px-2 py-1.5 bg-white/95 overflow-x-auto scrollbar-none">
                     {/* Drag Grip */}
                     <div
-                      className="cursor-grab active:cursor-grabbing p-1 text-[#717182] hover:text-[#121212] select-none touch-none"
+                      className="cursor-grab active:cursor-grabbing p-0.5 text-[#717182] hover:text-[#121212] select-none touch-none shrink-0"
                       title="Geser posisi bar"
                     >
                       <GripHorizontal className="w-3.5 h-3.5 pointer-events-none" />
@@ -3466,19 +3488,24 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
                 {/* Side badge */}
                 <span
-                  className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 border border-[#121212] rounded font-mono shrink-0"
+                  className="text-[9px] font-black uppercase tracking-wider px-1 py-0.5 border border-[#121212] rounded font-mono shrink-0"
                   style={{ background: sideBg, color: sideColor }}
                 >
                   {plannedOrder.side}
                 </span>
 
+                {/* Order type badge */}
+                <span className="text-[9px] font-black uppercase text-[#717182] shrink-0">
+                  {plannedOrder.orderType ? getOrderTypeLabel(plannedOrder.orderType) : ''}
+                </span>
+
                 {/* Lot size */}
-                <span className="text-[11px] font-mono text-[#1040C0] font-black shrink-0">
+                <span className="text-[10px] font-mono text-[#1040C0] font-black shrink-0">
                   {plannedOrder.lotSize.toFixed(2)}L
                 </span>
 
-                {/* SL / TP Badges */}
-                <div className="hidden xs:flex items-center gap-1.5 text-[10px] font-mono font-bold shrink-0">
+                {/* SL / TP Badges — always visible */}
+                <div className="flex items-center gap-1 text-[9px] font-mono font-bold shrink-0">
                   <span className="text-[#DC2626]">
                     SL {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? plannedOrder.slPrice.toFixed(1) : '-'}
                   </span>
