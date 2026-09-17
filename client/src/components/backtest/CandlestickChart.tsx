@@ -901,8 +901,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const calcVolW = Math.max(3, Math.round(cw * 0.75));
       const volW = calcVolW % 2 === 0 ? calcVolW + 1 : calcVolW;
       const volX = centerX - Math.floor(volW / 2);
-      ctx.fillStyle = c.close >= c.open ? 'rgba(16,185,129,.22)' : 'rgba(239,68,68,.22)';
-      ctx.fillRect(volX, mainH - h, volW, h);
+      const isBull = c.close >= c.open;
+      const volColor = isBull ? 'rgba(22, 163, 74, 0.35)' : 'rgba(220, 38, 38, 0.35)';
+      ctx.fillStyle = volColor;
+      const vY = mainH - h;
+      const radius = Math.min(2, Math.floor(volW / 2), Math.floor(h / 2));
+      if (typeof (ctx as any).roundRect === 'function' && radius > 0 && h > 2) {
+        ctx.beginPath();
+        (ctx as any).roundRect(volX, vY, volW, h, [radius, radius, 0, 0]);
+        ctx.fill();
+      } else {
+        ctx.fillRect(volX, vY, volW, h);
+      }
     }
     ctx.restore();
 
@@ -945,20 +955,24 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const bodyTop = rawHeight < 1.5 ? Math.round(topY) - 0.75 : Math.round(topY);
 
       const isBullish = candle.close >= candle.open;
-      const color = isBullish ? '#10B981' : '#EF4444';
+      const bodyColor = isBullish ? '#16A34A' : '#DC2626';
+      const borderColor = isBullish ? '#15803D' : '#B91C1C';
 
       // 4. Sharp, Perfectly Centered Wicks (on +0.5 half-pixel offset for crisp 1px line)
-      const wickX = centerX + 0.5;
+      const wickX = Math.floor(centerX) + 0.5;
       ctx.lineWidth = 1;
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = borderColor;
       ctx.beginPath();
       ctx.moveTo(wickX, Math.round(yHigh));
       ctx.lineTo(wickX, Math.round(yLow));
       ctx.stroke();
 
-      // 5. Render Solid Bodies Over Wicks (cleanly overlays the center wick segment)
-      ctx.fillStyle = color;
+      // 5. Render Solid Bodies Over Wicks with 1px crisp outline border
+      ctx.fillStyle = bodyColor;
       ctx.fillRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
     }
 
     // 6. Indicators (SMAs) - Aligned to the exact same sequential X coordinates
@@ -1557,27 +1571,81 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.setLineDash([]);
     }
 
-    // 9b. Current / Latest Price Line
+    // 9b. Current / Latest Price Line & Live Pulsing Beacon
     const latestC = candles[candles.length - 1];
     if (latestC) {
       const lastY = getY(latestC.close);
       if (lastY >= 0 && lastY <= mainH) {
+        const isBull = latestC.close >= latestC.open;
+        const lineAccent = isBull ? '#16A34A' : '#DC2626';
+        const borderAccent = isBull ? '#15803D' : '#B91C1C';
+
+        // 1. Dashed horizontal price line across chart
         ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = '#38BDF8';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = lineAccent;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(0, lastY);
         ctx.lineTo(chartW, lastY);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Tag on price axis
-        ctx.fillStyle = '#0284C7';
-        ctx.fillRect(chartW + 1, lastY - 9, priceScaleW - 2, 18);
+        // 2. Realtime Pulsing Halo Dot on the active candle price
+        const lastCandleX = Math.round(rightBoundary);
+        if (lastCandleX >= -10 && lastCandleX <= chartW + 10) {
+          const now = performance.now();
+          const pulse = (Math.sin(now / 180) + 1) / 2; // Smooth 0 to 1 oscillation
+          const haloRadius = 4 + pulse * 6; // 4px to 10px
+          const haloAlpha = 0.4 - pulse * 0.3; // 0.4 to 0.1
+
+          // Pulsing Outer Halo
+          ctx.fillStyle = isBull ? `rgba(22, 163, 74, ${haloAlpha})` : `rgba(220, 38, 38, ${haloAlpha})`;
+          ctx.beginPath();
+          ctx.arc(lastCandleX, lastY, haloRadius, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Inner Solid Dot with white border
+          ctx.fillStyle = lineAccent;
+          ctx.beginPath();
+          ctx.arc(lastCandleX, lastY, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+
+        // 3. HD Price Tag Badge on right Y axis with rounded container & subtle shadow
+        const tagX = chartW + 2;
+        const tagY = lastY - 10;
+        const tagW = priceScaleW - 4;
+        const tagH = 20;
+
+        // Subtle Drop Shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+        if (typeof (ctx as any).roundRect === 'function') {
+          ctx.beginPath();
+          (ctx as any).roundRect(tagX + 1, tagY + 1.5, tagW, tagH, 4);
+          ctx.fill();
+        }
+
+        // Container Badge
+        ctx.fillStyle = lineAccent;
+        if (typeof (ctx as any).roundRect === 'function') {
+          ctx.beginPath();
+          (ctx as any).roundRect(tagX, tagY, tagW, tagH, 4);
+          ctx.fill();
+          ctx.strokeStyle = borderAccent;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        } else {
+          ctx.fillRect(tagX, tagY, tagW, tagH);
+        }
+
+        // Price Text
         ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 10px monospace';
-        ctx.textAlign = 'left';
-        ctx.fillText(latestC.close.toFixed(2), chartW + 6, lastY + 3.5);
+        ctx.font = 'bold 11px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(latestC.close.toFixed(2), tagX + tagW / 2, lastY + 3.5);
       }
     }
 
