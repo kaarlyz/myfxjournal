@@ -1126,15 +1126,18 @@ textarea:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 34px;
-  min-height: 34px;
-  padding: 6px;
-  border-radius: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px;
+  border-radius: 8px;
   background: #FFFFFF;
   color: #121212;
   border: 2px solid #121212;
   box-shadow: 2px 2px 0px 0px #121212;
-  transition: transform 100ms ease, box-shadow 100ms ease, background 100ms ease;
+  transition: transform 80ms ease, box-shadow 80ms ease, background 80ms ease;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .mobile-icon-btn:hover {

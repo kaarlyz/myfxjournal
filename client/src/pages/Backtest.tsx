@@ -2536,7 +2536,7 @@ export default function Backtest() {
       </div>
 
       {/* Primary actions. Bounded bottom shell dock, thumb-reachable. */}
-      <div className="relative z-30 w-full box-border border-t-2 border-[#121212] bg-white px-3 py-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] flex items-center justify-between gap-2 shrink-0 touch-none overscroll-none select-none">
+      <div className="relative z-30 w-full box-border border-t-2 border-[#121212] bg-white px-3 py-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none shrink-0 select-none">
         {/* Analysis: drawing tools & order panel on left, Replay CTA on right */}
         {appMode === 'analysis' && (
           <>

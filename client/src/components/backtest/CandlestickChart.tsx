@@ -2707,14 +2707,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
     axisDragStartRef.current = null;
 
-    // Inertia Momentum Panning on release
-    if (dragModeRef.current === 'PAN_CHART' && velocityRef.current && Math.abs(velocityRef.current.vx) > 0.08) {
-      let vx = velocityRef.current.vx * 14;
-      let vy = velocityRef.current.vy * 14;
+    // Inertia Momentum Panning on release with Rubber-Band Elastic Damping
+    if (dragModeRef.current === 'PAN_CHART' && velocityRef.current && (Math.abs(velocityRef.current.vx) > 0.05 || Math.abs(velocityRef.current.vy) > 0.05)) {
+      let vx = velocityRef.current.vx * 15;
+      let vy = velocityRef.current.vy * 15;
       velocityRef.current = null;
 
       const runInertia = () => {
-        if (Math.abs(vx) < 0.1 && Math.abs(vy) < 0.1) {
+        if (Math.abs(vx) < 0.02 && Math.abs(vy) < 0.02) {
           if (inertiaAnimIdRef.current) {
             cancelAnimationFrame(inertiaAnimIdRef.current);
             inertiaAnimIdRef.current = null;
@@ -2723,12 +2723,24 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         }
         const vp = vpRef.current;
         if (vp && candlesRef.current.length > 0) {
-          const newPanX = panXRef.current + vx;
           const minPanX = -Math.round(vp.chartW * 0.35);
           const maxPanX = Math.max(0, (candlesRef.current.length - 2) * vp.slot);
-          const clampedPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
-          panXRef.current = clampedPanX;
-          setPanOffsetX(clampedPanX);
+          const currentPanX = panXRef.current;
+          let targetPanX = currentPanX + vx;
+
+          // Soft elastic rubber-band damping at limits
+          if (targetPanX < minPanX) {
+            const overshoot = minPanX - targetPanX;
+            targetPanX = minPanX - overshoot * 0.35;
+            vx *= 0.5;
+          } else if (targetPanX > maxPanX) {
+            const overshoot = targetPanX - maxPanX;
+            targetPanX = maxPanX + overshoot * 0.35;
+            vx *= 0.5;
+          }
+
+          panXRef.current = targetPanX;
+          setPanOffsetX(targetPanX);
 
           if (!isAutoScaleRef.current && manualPriceRangeRef.current && vp.drawableHeight > 10) {
             const span = manualPriceRangeRef.current.max - manualPriceRangeRef.current.min;
@@ -2741,8 +2753,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             setManualPriceRange(newRange);
           }
 
-          vx *= 0.92;
-          vy *= 0.92;
+          vx *= 0.94; // Weighted tactile feel
+          vy *= 0.94;
           inertiaAnimIdRef.current = requestAnimationFrame(runInertia);
         }
       };
