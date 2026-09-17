@@ -332,7 +332,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   useEffect(() => {
     isDirtyRef.current = true;
   }, [
-    candles, drawings, indicators, activeTrade, activeTrades, pendingOrders,
+    candles, candles.length, drawings, indicators, activeTrade, activeTrades, pendingOrders, pendingOrders.length,
     plannedOrder, selectedDrawingId, followReplay, candleWidth, panOffsetX,
     priceZoom, pricePanOffset, manualPriceRange, isAutoScale, drawingDraft,
     dimensions, mousePos, appMode, isTimeframeLoading, isLoading, error
@@ -758,6 +758,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    // Force immediate dirty on every useEffect re-run (new props/state arrived)
+    isDirtyRef.current = true;
 
     let animId: number;
 
@@ -1396,30 +1399,45 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         ctx.fillStyle = 'rgba(239,68,68,0.10)';
         ctx.fillRect(0, Math.min(eY, slY), chartW, Math.abs(slY - eY));
 
-        // Entry candle highlight: darken the profit & risk zone colors on the entry candle area
-        for (let ci = Math.min(eIdx, total - 1); ci >= sIdx; ci--) {
-          const ec = candles[ci];
-          if (!ec) continue;
-          if (ec.low <= trade.entryPrice && ec.high >= trade.entryPrice) {
-            const bfr = (total - 1) - ci;
-            const ecx = rightBoundary - (bfr * cw);
-            const ecCenterX = Math.round(ecx);
-            const hlW = Math.max(cw + 2, 6);
-            const hlLeft = ecCenterX - Math.floor(hlW / 2);
-            const entryPixelY = Math.round(getY(trade.entryPrice));
-            const candleTopY = Math.round(getY(ec.high));
-            const candleBotY = Math.round(getY(ec.low));
-            // Profit side: darker green overlay from entry toward TP
-            const profitTop = trade.side === 'LONG' ? candleTopY : entryPixelY;
-            const profitBot = trade.side === 'LONG' ? entryPixelY : candleBotY;
-            ctx.fillStyle = 'rgba(16,185,129,0.25)';
-            ctx.fillRect(hlLeft, profitTop, hlW, Math.max(1, profitBot - profitTop));
-            // Risk side: darker red overlay from entry toward SL
-            const riskTop = trade.side === 'LONG' ? entryPixelY : candleTopY;
-            const riskBot = trade.side === 'LONG' ? candleBotY : entryPixelY;
-            ctx.fillStyle = 'rgba(239,68,68,0.25)';
-            ctx.fillRect(hlLeft, riskTop, hlW, Math.max(1, riskBot - riskTop));
-            break;
+        // Entry highlight: shade each candle from entry to latest with darker profit/risk colors
+        {
+          const entryPixelY = Math.round(getY(trade.entryPrice));
+          // Find first candle that touched entry price
+          let entryIdx = -1;
+          for (let ci = sIdx; ci <= Math.min(eIdx, total - 1); ci++) {
+            const ec = candles[ci];
+            if (!ec) continue;
+            if (ec.low <= trade.entryPrice && ec.high >= trade.entryPrice) {
+              entryIdx = ci;
+              break;
+            }
+          }
+          if (entryIdx >= 0) {
+            for (let ci = entryIdx; ci <= Math.min(eIdx, total - 1); ci++) {
+              const ec = candles[ci];
+              if (!ec) continue;
+              const bfr = (total - 1) - ci;
+              const ecx = rightBoundary - (bfr * cw);
+              const ecCenterX = Math.round(ecx);
+              const hlW = Math.max(cw, 4);
+              const hlLeft = ecCenterX - Math.floor(hlW / 2);
+              const candleTopY = Math.round(getY(ec.high));
+              const candleBotY = Math.round(getY(ec.low));
+              // Profit side of this candle (above entry for LONG, below for SHORT)
+              const profitTop = trade.side === 'LONG' ? candleTopY : Math.max(entryPixelY, candleTopY);
+              const profitBot = trade.side === 'LONG' ? Math.min(entryPixelY, candleBotY) : candleBotY;
+              if (profitBot > profitTop) {
+                ctx.fillStyle = 'rgba(16,185,129,0.18)';
+                ctx.fillRect(hlLeft, profitTop, hlW, profitBot - profitTop);
+              }
+              // Risk side of this candle
+              const riskTop = trade.side === 'LONG' ? Math.max(entryPixelY, candleTopY) : candleTopY;
+              const riskBot = trade.side === 'LONG' ? candleBotY : Math.min(entryPixelY, candleBotY);
+              if (riskBot > riskTop) {
+                ctx.fillStyle = 'rgba(239,68,68,0.18)';
+                ctx.fillRect(hlLeft, riskTop, hlW, riskBot - riskTop);
+              }
+            }
           }
         }
 
