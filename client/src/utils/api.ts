@@ -1,4 +1,4 @@
-export const FALLBACK_NGROK_URL = 'https://5576-2404-c0-9603-ce2-3cba-4b01-ee59-1806.ngrok-free.app/api';
+export const FALLBACK_NGROK_URL = 'https://college-actors-collectables-grants.trycloudflare.com/api';
 
 export const getApiBaseUrl = () => {
   if (typeof window !== 'undefined') {
@@ -14,10 +14,15 @@ export const getApiBaseUrl = () => {
     return clean.endsWith('/api') ? clean : `${clean}/api`;
   }
   if (typeof window !== 'undefined' && window.location?.hostname) {
+    const hostname = window.location.hostname;
     const isLocalhost =
-      window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1' ||
-      window.location.hostname === '::1';
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1';
+    // If accessed via cloudflare tunnel or same host proxy, relative /api works seamlessly
+    if (hostname.includes('trycloudflare.com')) {
+      return '/api';
+    }
     if (!isLocalhost) {
       return FALLBACK_NGROK_URL;
     }
