@@ -750,29 +750,40 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    const cssW = dimensions.width || 900;
-    const cssH = dimensions.height || 500;
-    canvas.width = Math.floor(cssW * dpr);
-    canvas.height = Math.floor(cssH * dpr);
-    ctx.scale(dpr, dpr);
+    let animId: number;
 
-    const vp = buildVP(cssW, cssH);
-    vpRef.current = vp;
-    const { priceScaleW, timeScaleH, volH, chartW, mainH, cw, rightMargin, paddedMin, paddedMax, totalRange, getY, timeToX } = vp;
-    const panX = vp.panOffsetX;
-    const total = candles.length;
-    const rightBoundary = chartW - rightMargin + panX;
+    const render = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = dimensions.width || 900;
+      const cssH = dimensions.height || 500;
+      const targetW = Math.floor(cssW * dpr);
+      const targetH = Math.floor(cssH * dpr);
 
-    let maxVol = 0;
-    for (let i = 0; i < total; i++) {
-      const c = candles[i];
-      if (!c) continue;
-      const barsFromRight = (total - 1) - i;
-      const x = rightBoundary - (barsFromRight * cw);
-      if (x < -cw * 2 || x > chartW + cw * 2) continue;
-      if ((c.tickVolume || 0) > maxVol) maxVol = c.tickVolume || 0;
-    }
+      // Cache canvas dimensions to avoid context reset and flickering
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+      }
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
+
+      const vp = buildVP(cssW, cssH);
+      vpRef.current = vp;
+      const { priceScaleW, timeScaleH, volH, chartW, mainH, cw, rightMargin, paddedMin, paddedMax, totalRange, getY, timeToX } = vp;
+      const panX = vp.panOffsetX;
+      const total = candles.length;
+      const rightBoundary = chartW - rightMargin + panX;
+
+      // Optimize volume scanning with viewport bounding box [vp.startIdx, vp.endIdx]
+      let maxVol = 0;
+      const sIdx = vp.startIdx;
+      const eIdx = vp.endIdx;
+      for (let i = sIdx; i <= eIdx; i++) {
+        const c = candles[i];
+        if (!c) continue;
+        if ((c.tickVolume || 0) > maxVol) maxVol = c.tickVolume || 0;
+      }
 
     // 1. Chart Background
     ctx.fillStyle = '#F8FAFC';
@@ -792,6 +803,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       } else {
         ctx.fillText(`Tidak ada data candle untuk ${symbol} (${timeframe})`, cssW / 2, cssH / 2);
       }
+      ctx.restore();
       return;
     }
 
@@ -993,6 +1005,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       if (d.type === 'hline' && d.price != null) {
         const y = getY(d.price);
+        if (y < -50 || y > mainH + 50) continue;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(chartW, y); ctx.stroke();
         ctx.fillStyle = isSel ? '#1D4ED8' : '#92400E';
         ctx.fillRect(chartW + 2, y - 9, priceScaleW - 4, 18);
@@ -1005,6 +1018,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         }
       } else if (d.type === 'vline' && d.time != null) {
         const x = timeToX(d.time);
+        if (x < -50 || x > chartW + 50) continue;
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, mainH); ctx.stroke();
         if (isSel) {
           ctx.fillStyle = '#60A5FA';
@@ -1014,6 +1028,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         d.startTime != null && d.startPrice != null && d.endTime != null && d.endPrice != null) {
         const x1 = timeToX(d.startTime), y1 = getY(d.startPrice);
         const x2 = timeToX(d.endTime),   y2 = getY(d.endPrice);
+        if (Math.max(x1, x2) < -50 || Math.min(x1, x2) > chartW + 50 ||
+            Math.max(y1, y2) < -50 || Math.min(y1, y2) > mainH + 50) continue;
 
         if (d.type === 'trendline') {
           ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
@@ -1613,6 +1629,16 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         ctx.fillText(format(t, crosshairFmt), mousePos.x, cssH - 8);
       }
     }
+
+      ctx.restore();
+      animId = requestAnimationFrame(render);
+    };
+
+    animId = requestAnimationFrame(render);
+
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+    };
   }, [
     candles, candleWidth, panOffsetX, priceZoom, pricePanOffset, dimensions,
     activeTrade, activeTrades, plannedOrder, indicators, drawings, drawingDraft, selectedDrawingId, mousePos,

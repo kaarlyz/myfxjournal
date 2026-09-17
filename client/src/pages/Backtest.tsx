@@ -1032,9 +1032,10 @@ export default function Backtest() {
 
   // ── 9. Sequential Step Forward Engine (Evaluates Active Trade) ──
   const stepForward = useCallback(async () => {
-    if (candles.length === 0 || appMode !== 'replay' || isSteppingRef.current) return;
+    const currentCandles = candlesRef.current;
+    if (currentCandles.length === 0 || appMode !== 'replay' || isSteppingRef.current) return;
     isSteppingRef.current = true;
-    const lastCandle = candles[candles.length - 1];
+    const lastCandle = currentCandles[currentCandles.length - 1];
     const lastTime = new Date(lastCandle.time).toISOString();
 
     try {
@@ -1205,11 +1206,12 @@ export default function Backtest() {
     } finally {
       isSteppingRef.current = false;
     }
-  }, [candles, timeframe, symbol, sessionId, appMode, showToast, getProviderForSymbol]);
+  }, [timeframe, symbol, sessionId, appMode, showToast, getProviderForSymbol]);
 
   // ── 10. Step Back Engine ──
   const stepBack = useCallback(() => {
-    if (candles.length <= 1 || appMode !== 'replay') return;
+    const currentCandles = candlesRef.current;
+    if (currentCandles.length <= 1 || appMode !== 'replay') return;
     setCandles((prev) => {
       const next = prev.slice(0, prev.length - 1);
       const newT = new Date(next[next.length - 1].time);
@@ -1223,12 +1225,12 @@ export default function Backtest() {
       }
       return next;
     });
-  }, [candles, appMode, sessionId]);
+  }, [appMode, sessionId]);
 
   // ── 11. Replay Loop ──
   useEffect(() => {
     if (!isPlaying || appMode !== 'replay') return;
-    const intervalMs = Math.max(80, 1000 / speed);
+    const intervalMs = speed === 10 ? 30 : speed === 5 ? 80 : Math.max(100, 1000 / speed);
     const timer = setInterval(() => { stepForward(); }, intervalMs);
     return () => clearInterval(timer);
   }, [isPlaying, speed, stepForward, appMode]);
