@@ -295,6 +295,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const axisDragStartRef = useRef<{ y: number; isDragging: boolean } | null>(null);
   const lastAxisDragEndTimeRef = useRef<number>(0);
   const lastTouchMoveTimeRef = useRef<number>(0);
+  const inertiaAnimIdRef = useRef<number | null>(null);
+  const velocityRef = useRef<{ vx: number; vy: number; timestamp: number } | null>(null);
+  const lastPanAnchorRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   // Drawings in ref for real-time pointer interactions
   const drawingsRef = useRef<DrawingItem[]>(drawings);
@@ -375,7 +378,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   activeTradeRef.current = activeTrade;
 
    const prevCandlesRef = useRef<ChartCandle[]>(candles);
-   const lastPanAnchorRef = useRef<{ time: number; x: number } | null>(null);
 
 
   // Preserve user's viewport on data prepend / append
@@ -2066,6 +2068,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // ── Pointer Down Handler ──
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
+    if (inertiaAnimIdRef.current) {
+      cancelAnimationFrame(inertiaAnimIdRef.current);
+      inertiaAnimIdRef.current = null;
+    }
+    velocityRef.current = null;
+    lastPanAnchorRef.current = null;
+
     setContextMenu(null);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
@@ -2214,6 +2223,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         startMin: currentBounds.min,
         startMax: currentBounds.max,
       };
+      lastPanAnchorRef.current = { x, y, time: performance.now() };
       return;
     }
 
@@ -2585,6 +2595,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const dx = x - panStartRef.current.startX;
       const dy = y - panStartRef.current.startY;
 
+      const nowPerf = performance.now();
+      if (lastPanAnchorRef.current) {
+        const dt = Math.max(1, nowPerf - lastPanAnchorRef.current.time);
+        const vx = (x - lastPanAnchorRef.current.x) / dt;
+        const vy = (y - lastPanAnchorRef.current.y) / dt;
+        velocityRef.current = { vx, vy, timestamp: nowPerf };
+      }
+      lastPanAnchorRef.current = { x, y, time: nowPerf };
+
       // 1 px pointer movement = 1 px visual chart movement!
       const newPanX = panStartRef.current.startPanX + dx;
       const minPanX = -Math.round(vp.chartW * 0.35);
@@ -2688,6 +2707,48 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
     axisDragStartRef.current = null;
 
+    // Inertia Momentum Panning on release
+    if (dragModeRef.current === 'PAN_CHART' && velocityRef.current && Math.abs(velocityRef.current.vx) > 0.08) {
+      let vx = velocityRef.current.vx * 14;
+      let vy = velocityRef.current.vy * 14;
+      velocityRef.current = null;
+
+      const runInertia = () => {
+        if (Math.abs(vx) < 0.1 && Math.abs(vy) < 0.1) {
+          if (inertiaAnimIdRef.current) {
+            cancelAnimationFrame(inertiaAnimIdRef.current);
+            inertiaAnimIdRef.current = null;
+          }
+          return;
+        }
+        const vp = vpRef.current;
+        if (vp && candlesRef.current.length > 0) {
+          const newPanX = panXRef.current + vx;
+          const minPanX = -Math.round(vp.chartW * 0.35);
+          const maxPanX = Math.max(0, (candlesRef.current.length - 2) * vp.slot);
+          const clampedPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
+          panXRef.current = clampedPanX;
+          setPanOffsetX(clampedPanX);
+
+          if (!isAutoScaleRef.current && manualPriceRangeRef.current && vp.drawableHeight > 10) {
+            const span = manualPriceRangeRef.current.max - manualPriceRangeRef.current.min;
+            const priceShift = (vy / vp.drawableHeight) * span;
+            const newRange = {
+              min: manualPriceRangeRef.current.min + priceShift,
+              max: manualPriceRangeRef.current.max + priceShift,
+            };
+            manualPriceRangeRef.current = newRange;
+            setManualPriceRange(newRange);
+          }
+
+          vx *= 0.92;
+          vy *= 0.92;
+          inertiaAnimIdRef.current = requestAnimationFrame(runInertia);
+        }
+      };
+      inertiaAnimIdRef.current = requestAnimationFrame(runInertia);
+    }
+
     activePointersRef.current.delete(e.pointerId);
     if (activePointersRef.current.size < 2 && dragModeRef.current === 'PINCH_ZOOM') {
       dragModeRef.current = 'NONE';
@@ -2700,8 +2761,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       draggingHandleRef.current = null;
       plannedDragHandleRef.current = null;
     }
-    // Note: Do not auto-close active drawing draft on pointerUp.
-    // Preserves drafting preview ("mode geser") until deliberate second tap/click.
   };
 
   // ── Double Click: Price Scale Auto-Reset or Replay Start ──
@@ -2773,189 +2832,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     triggerContextMenu(e.clientX, e.clientY);
-  };
-
-  const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (e.touches.length === 1) {
-      const touch = e.touches[0];
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = touch.clientX - rect.left;
-      const y = touch.clientY - rect.top;
-      touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
-      lastTouchRef.current = { x: touch.clientX, y: touch.clientY };
-
-      const vp = vpRef.current;
-      if (vp && x >= vp.chartW) {
-        axisDragStartRef.current = { y: touch.clientY, isDragging: false };
-      }
-
-      // Start 500ms timer:
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = setTimeout(() => {
-        isLongPressTriggeredRef.current = true;
-        menuOpenedAtRef.current = Date.now();
-        dragModeRef.current = 'NONE';
-        panStartRef.current = null;
-
-        // Trigger haptic feedback if available:
-        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-          try {
-            navigator.vibrate(40);
-          } catch (_) {}
-        }
-        // Open chart options menu at touch coordinates (clamped within screen):
-        openContextMenuAt(touch.clientX, touch.clientY);
-      }, 500);
-    } else {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-      touchStartPosRef.current = null;
-      lastTouchRef.current = null;
-      axisDragStartRef.current = null;
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (e.cancelable) e.preventDefault(); // Stop browser scrolling entirely
-
-    // If finger moves more than 8px (scrolling/panning), cancel long-press:
-    if (touchStartPosRef.current && e.touches.length > 0) {
-      const touch = e.touches[0];
-      const dist = Math.hypot(
-        touch.clientX - touchStartPosRef.current.x,
-        touch.clientY - touchStartPosRef.current.y
-      );
-      if (dist > 8 && longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-    }
-
-    if (e.touches.length === 1 && lastTouchRef.current) {
-      const touch = e.touches[0];
-      const deltaX = touch.clientX - lastTouchRef.current.x;
-      const deltaY = touch.clientY - lastTouchRef.current.y;
-      lastTouchRef.current = { x: touch.clientX, y: touch.clientY };
-      lastTouchMoveTimeRef.current = Date.now();
-
-      const vp = vpRef.current;
-      if (!vp) return;
-
-      // 1. Right Price Scale Dragging (Vertical Price Stretch / Zoom)
-      if ((dragModeRef.current === 'SCALE_PRICE' || axisDragStartRef.current) && priceScaleStartRef.current) {
-        if (axisDragStartRef.current) {
-          const totalDy = touch.clientY - axisDragStartRef.current.y;
-          if (Math.abs(totalDy) > 5) {
-            axisDragStartRef.current.isDragging = true;
-          }
-        }
-        if (axisDragStartRef.current && !axisDragStartRef.current.isDragging) {
-          return;
-        }
-
-        if (isAutoScaleRef.current) {
-          setIsAutoScale(false);
-          isAutoScaleRef.current = false;
-        }
-        const pss = priceScaleStartRef.current;
-        const rect = e.currentTarget.getBoundingClientRect();
-        const canvasY = touch.clientY - rect.top;
-        const dy = canvasY - pss.startY;
-        const factor = 1 - dy * 0.008;
-        const clampedFactor = Math.min(8.0, Math.max(0.15, factor));
-        const startSpan = pss.startMax - pss.startMin;
-        const newSpan = startSpan / clampedFactor;
-        const anchorRatio = (pss.anchorPrice - pss.startMin) / Math.max(0.001, startSpan);
-        const newMin = pss.anchorPrice - anchorRatio * newSpan;
-        const newMax = newMin + newSpan;
-        const newRange = { min: newMin, max: newMax };
-        manualPriceRangeRef.current = newRange;
-        setManualPriceRange(newRange);
-        return;
-      }
-
-      // 2. Chart Pan (X and Y)
-      if (dragModeRef.current === 'PAN_CHART') {
-        const newPanX = panXRef.current + deltaX;
-        const minPanX = -Math.round(vp.chartW * 0.35);
-        const maxPanX = Math.max(0, (candles.length - 2) * vp.slot);
-        const clampedPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
-
-        panXRef.current = clampedPanX;
-        setPanOffsetX(clampedPanX);
-
-        if (appMode === 'replay' && clampedPanX > 20 && onDisableFollowReplay) {
-          onDisableFollowReplay();
-        }
-
-        // Vertical Pan / Mode Breaker
-        if (isAutoScaleRef.current) {
-          if (panStartRef.current) {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const canvasY = touch.clientY - rect.top;
-            const totalDy = canvasY - panStartRef.current.startY;
-            if (Math.abs(totalDy) > 5) {
-              setIsAutoScale(false);
-              isAutoScaleRef.current = false;
-              const currentBounds = lastAutoBoundsRef.current;
-              panStartRef.current.startY = canvasY;
-              panStartRef.current.startMin = currentBounds.min;
-              panStartRef.current.startMax = currentBounds.max;
-              manualPriceRangeRef.current = { ...currentBounds };
-              setManualPriceRange({ ...currentBounds });
-            }
-          }
-        } else if (panStartRef.current?.startMin !== undefined && panStartRef.current?.startMax !== undefined) {
-          const span = panStartRef.current.startMax - panStartRef.current.startMin;
-          const priceShift = (deltaY / vp.drawableHeight) * span;
-          const prevMin = manualPriceRangeRef.current?.min ?? panStartRef.current.startMin;
-          const prevMax = manualPriceRangeRef.current?.max ?? panStartRef.current.startMax;
-          const newRange = {
-            min: prevMin + priceShift,
-            max: prevMax + priceShift,
-          };
-          manualPriceRangeRef.current = newRange;
-          setManualPriceRange(newRange);
-        }
-
-        // Debounced Prefetch:
-        const now = Date.now();
-        if (now - lastFetchCheckRef.current > 400) {
-          lastFetchCheckRef.current = now;
-          if (vp.startIdx < 40) {
-            onLoadOlderCandles?.();
-          }
-          if (appMode === 'analysis' && vp.endIdx >= candles.length - 10) {
-            onLoadNewerCandles?.();
-          }
-        }
-      }
-    }
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    touchStartPosRef.current = null;
-    lastTouchRef.current = null;
-
-    if (axisDragStartRef.current?.isDragging) {
-      lastAxisDragEndTimeRef.current = Date.now();
-    }
-    axisDragStartRef.current = null;
-
-    if (isLongPressTriggeredRef.current) {
-      if (e.cancelable) {
-        e.preventDefault();
-      }
-      setTimeout(() => {
-        isLongPressTriggeredRef.current = false;
-      }, 150);
-    }
   };
 
   const latestC = candles[candles.length - 1];
@@ -3167,10 +3043,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           }}
           onDoubleClick={handleDoubleClick}
           onContextMenu={handleContextMenu}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchEnd}
         />
       </div>
 
