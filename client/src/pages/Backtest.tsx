@@ -422,6 +422,16 @@ export default function Backtest() {
     candlesRef.current = candles;
   }, [candles]);
 
+  const isPlayingRef = useRef<boolean>(isPlaying);
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  const speedRef = useRef<number>(speed);
+  useEffect(() => {
+    speedRef.current = speed;
+  }, [speed]);
+
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isFetchingOlderRef = useRef<boolean>(false);
   const isFetchingNewerRef = useRef<boolean>(false);
@@ -1033,7 +1043,7 @@ export default function Backtest() {
   // ── 9. Sequential Step Forward Engine (Evaluates Active Trade) ──
   const stepForward = useCallback(async () => {
     const currentCandles = candlesRef.current;
-    if (currentCandles.length === 0 || appMode !== 'replay' || isSteppingRef.current) return;
+    if (currentCandles.length === 0 || appMode !== 'replay' || isSteppingRef.current || !isPlayingRef.current) return;
     isSteppingRef.current = true;
     const lastCandle = currentCandles[currentCandles.length - 1];
     const lastTime = new Date(lastCandle.time).toISOString();
@@ -1230,9 +1240,27 @@ export default function Backtest() {
   // ── 11. Replay Loop ──
   useEffect(() => {
     if (!isPlaying || appMode !== 'replay') return;
-    const intervalMs = speed === 10 ? 30 : speed === 5 ? 80 : Math.max(100, 1000 / speed);
-    const timer = setInterval(() => { stepForward(); }, intervalMs);
-    return () => clearInterval(timer);
+    let timer: NodeJS.Timeout | null = null;
+    let isCancelled = false;
+
+    const tick = () => {
+      if (isCancelled || !isPlayingRef.current || appMode !== 'replay') return;
+      void stepForward().finally(() => {
+        if (isCancelled || !isPlayingRef.current || appMode !== 'replay') return;
+        const curSpeed = speedRef.current;
+        const intervalMs = curSpeed === 10 ? 30 : curSpeed === 5 ? 80 : Math.max(100, 1000 / curSpeed);
+        timer = setTimeout(tick, intervalMs);
+      });
+    };
+
+    const curSpeed = speedRef.current;
+    const initialMs = curSpeed === 10 ? 30 : curSpeed === 5 ? 80 : Math.max(100, 1000 / curSpeed);
+    timer = setTimeout(tick, initialMs);
+
+    return () => {
+      isCancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [isPlaying, speed, stepForward, appMode]);
 
   // ── 12. Open Trade Handler (Strict Single Active Trade) ──

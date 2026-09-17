@@ -185,8 +185,8 @@ router.get('/candles', async (req: Request, res: Response) => {
       defaultLimit = 600;
       maxLimit = 600;
     } else if (targetTF === 'D1') {
-      defaultLimit = 700;
-      maxLimit = 700;
+      defaultLimit = 365;
+      maxLimit = 365;
     }
 
     const limit = Math.min(Math.max(1, parseInt(req.query.limit as string, 10) || defaultLimit), maxLimit);
@@ -213,9 +213,10 @@ router.get('/candles', async (req: Request, res: Response) => {
     } else if (targetTF === 'H1') {
       rawLimit = limit * 60 * 2;
     } else if (targetTF === 'H4') {
-      rawLimit = Math.min(limit * 240 * 1.5, 180000);
+      rawLimit = Math.min(limit * 240, 36000);
     } else if (targetTF === 'D1') {
-      rawLimit = Math.min(limit * 1440, 350000);
+      const d1Limit = Math.min(limit, 500);
+      rawLimit = Math.min(d1Limit * 1440, 72000);
     }
 
     let rawCandles: any[] = [];

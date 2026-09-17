@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { Settings, Trash2, Plus, X, RotateCcw, RotateCw, Check, Zap, Edit3, XCircle, ChevronDown, ChevronUp, GripHorizontal, Minimize2, Maximize2, Video } from 'lucide-react';
@@ -523,9 +523,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     return out;
   }, [candles]);
 
-  const sma20v = indicators.sma20 ? computeSMA(20) : [];
-  const sma50v = indicators.sma50 ? computeSMA(50) : [];
-  const sma200v = indicators.sma200 ? computeSMA(200) : [];
+  const sma20v = useMemo(() => (indicators.sma20 ? computeSMA(20) : []), [indicators.sma20, computeSMA]);
+  const sma50v = useMemo(() => (indicators.sma50 ? computeSMA(50) : []), [indicators.sma50, computeSMA]);
+  const sma200v = useMemo(() => (indicators.sma200 ? computeSMA(200) : []), [indicators.sma200, computeSMA]);
 
   // ── Build Viewport Projection (Canonical Pixel-Based Viewport) ──
   const buildVP = useCallback((cssW: number, cssH: number): VP => {
@@ -583,12 +583,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     // Dynamic Price Range Calculation strictly across visible viewport candles (+5 bar margin)
     let rawMin = Infinity, rawMax = -Infinity;
     let visibleCount = 0;
-    for (let i = 0; i < candles.length; i++) {
+    for (let i = startIdx; i <= endIdx; i++) {
       const c = candles[i];
       if (!c) continue;
-      const barsFromRight = lastGlobalIdx - i;
-      const x = (chartW - rightMargin) - (barsFromRight * cw) + panX;
-      if (x < -cw * 5 || x > chartW + cw * 5) continue;
       visibleCount++;
       if (isFinite(c.low) && c.low > 0 && c.low < rawMin) rawMin = c.low;
       if (isFinite(c.high) && c.high > 0 && c.high > rawMax) rawMax = c.high;
