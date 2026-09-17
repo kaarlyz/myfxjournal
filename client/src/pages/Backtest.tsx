@@ -441,6 +441,16 @@ export default function Backtest() {
   const originalPendingOrderRef = useRef<PendingOrderRecord | null>(null);
   const isSteppingRef = useRef<boolean>(false);
 
+  // ── Client-Side Pre-Buffered Candle Engine Refs ──
+  const candleBufferRef = useRef<ChartCandle[]>([]);
+  const isPrefetchingRef = useRef<boolean>(false);
+  const prefetchSeqRef = useRef<number>(0);
+
+  const clearCandleBuffer = useCallback(() => {
+    prefetchSeqRef.current++;
+    candleBufferRef.current = [];
+  }, []);
+
   const [activeToast, setActiveToast] = useState<TradeToastItem | null>(null);
   const showToast = useCallback((item: Omit<TradeToastItem, 'id'>) => {
     setActiveToast({ ...item, id: Math.random().toString(36).slice(2, 9) });
@@ -652,6 +662,7 @@ export default function Backtest() {
 
   // ── 2d. Timeframe Switch Handler ──
   const handleTimeframeChange = async (newTF: ChartTimeframe) => {
+    clearCandleBuffer();
     if (timeframeAbortControllerRef.current) {
       timeframeAbortControllerRef.current.abort();
     }
@@ -717,6 +728,7 @@ export default function Backtest() {
 
   // ── 2e. Symbol Switch Handler ──
   const handleSymbolChange = (newSymbol: string) => {
+    clearCandleBuffer();
     hasUserSelectedSymbolRef.current = true;
     setSymbol(newSymbol);
     fetchTimelineBounds(newSymbol, timeframe);
@@ -729,6 +741,7 @@ export default function Backtest() {
 
   // ── 3. Replay Mode: Initialize Session with strict cutoff ──
   const initReplaySession = useCallback(async (startTime: Date, tf: ChartTimeframe = timeframe, sym: string = symbol) => {
+    clearCandleBuffer();
     if (candlesAbortControllerRef.current) {
       candlesAbortControllerRef.current.abort();
     }
@@ -825,6 +838,7 @@ export default function Backtest() {
 
   // ── 6. Exit Replay → back to Analysis ──
   const handleExitReplay = () => {
+    clearCandleBuffer();
     hasNotifiedResumeRef.current = null;
     try {
       localStorage.removeItem(SESSION_STORAGE_KEY);
@@ -841,6 +855,7 @@ export default function Backtest() {
 
   // ── 6b. Resume Saved Replay Session ──
   const resumeSession = useCallback(async (targetSessionId: string) => {
+    clearCandleBuffer();
     if (isResumingRef.current) return;
     isResumingRef.current = true;
     hasUserSelectedSymbolRef.current = true;
@@ -1040,6 +1055,37 @@ export default function Backtest() {
     }
   };
 
+  // ── Client-Side Pre-Buffered Candle Engine ──
+  const prefetchFutureCandles = useCallback(async (afterTime: string) => {
+    if (isPrefetchingRef.current) return;
+    isPrefetchingRef.current = true;
+    const seq = prefetchSeqRef.current;
+    try {
+      const prov = getProviderForSymbol(symbol);
+      const sessionParam = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '';
+      const res = await fetch(
+        apiUrl(`/backtest/candles?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(afterTime)}&limit=300${sessionParam}`),
+        { headers: defaultHeaders() }
+      );
+      const json = await res.json();
+      if (prefetchSeqRef.current !== seq) return;
+      if (json.ok && json.data && Array.isArray(json.data.candles)) {
+        const newCandles: ChartCandle[] = json.data.candles;
+        if (newCandles.length > 0) {
+          const existingTimes = new Set(candleBufferRef.current.map((c) => new Date(c.time).getTime()));
+          const filtered = newCandles.filter((c) => !existingTimes.has(new Date(c.time).getTime()));
+          candleBufferRef.current = [...candleBufferRef.current, ...filtered];
+        }
+      }
+    } catch (err) {
+      console.error('Prefetch candles error:', err);
+    } finally {
+      if (prefetchSeqRef.current === seq) {
+        isPrefetchingRef.current = false;
+      }
+    }
+  }, [symbol, timeframe, sessionId, getProviderForSymbol]);
+
   // ── 9. Sequential Step Forward Engine (Evaluates Active Trade) ──
   const stepForward = useCallback(async () => {
     const currentCandles = candlesRef.current;
@@ -1047,27 +1093,46 @@ export default function Backtest() {
     isSteppingRef.current = true;
     const lastCandle = currentCandles[currentCandles.length - 1];
     const lastTime = new Date(lastCandle.time).toISOString();
+    const lastT = new Date(lastCandle.time).getTime();
 
     try {
-      const prov = getProviderForSymbol(symbol);
-      const sessionParam = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '';
-      const res = await fetch(
-        apiUrl(`/backtest/next-candle?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(lastTime)}${sessionParam}`),
-        { headers: defaultHeaders() }
-      );
-      const json = await res.json();
-      if (!json.ok || !json.data) {
-        setIsPlaying(false);
-        showToast({
-          kind: 'INFO',
-          symbol,
-          title: 'AKHIR DATASET',
-          message: 'Telah mencapai akhir data historis yang tersedia.',
-        });
-        return;
+      // Discard stale candles in buffer that are <= lastT
+      while (candleBufferRef.current.length > 0 && new Date(candleBufferRef.current[0].time).getTime() <= lastT) {
+        candleBufferRef.current.shift();
       }
 
-      const nextCandle: ChartCandle = json.data;
+      // Background prefetch when buffer drops below 50 bars
+      if (candleBufferRef.current.length < 50 && !isPrefetchingRef.current) {
+        const prefetchStartTime = candleBufferRef.current.length > 0
+          ? new Date(candleBufferRef.current[candleBufferRef.current.length - 1].time).toISOString()
+          : lastTime;
+        void prefetchFutureCandles(prefetchStartTime);
+      }
+
+      let nextCandle: ChartCandle;
+      if (candleBufferRef.current.length > 0) {
+        nextCandle = candleBufferRef.current.shift()!;
+      } else {
+        const prov = getProviderForSymbol(symbol);
+        const sessionParam = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '';
+        const res = await fetch(
+          apiUrl(`/backtest/next-candle?symbol=${symbol}&timeframe=${timeframe}&provider=${prov}&afterTime=${encodeURIComponent(lastTime)}${sessionParam}`),
+          { headers: defaultHeaders() }
+        );
+        const json = await res.json();
+        if (!json.ok || !json.data) {
+          setIsPlaying(false);
+          showToast({
+            kind: 'INFO',
+            symbol,
+            title: 'AKHIR DATASET',
+            message: 'Telah mencapai akhir data historis yang tersedia.',
+          });
+          return;
+        }
+        nextCandle = json.data;
+      }
+
       const nextTime = new Date(nextCandle.time);
 
       setCandles((prev) => {
@@ -1216,10 +1281,11 @@ export default function Backtest() {
     } finally {
       isSteppingRef.current = false;
     }
-  }, [timeframe, symbol, sessionId, appMode, showToast, getProviderForSymbol]);
+  }, [timeframe, symbol, sessionId, appMode, showToast, getProviderForSymbol, prefetchFutureCandles]);
 
   // ── 10. Step Back Engine ──
   const stepBack = useCallback(() => {
+    clearCandleBuffer();
     const currentCandles = candlesRef.current;
     if (currentCandles.length <= 1 || appMode !== 'replay') return;
     setCandles((prev) => {
@@ -1235,7 +1301,7 @@ export default function Backtest() {
       }
       return next;
     });
-  }, [appMode, sessionId]);
+  }, [appMode, sessionId, clearCandleBuffer]);
 
   // ── 11. Replay Loop ──
   useEffect(() => {
