@@ -949,9 +949,17 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const rawX = rightBoundary - (barsFromRight * cw);
       const centerX = Math.round(rawX);
 
-      // FIX 5: Set bodyWidth minimum to 2px when cw < 3
-      const calcWidth = Math.max(3, Math.round(cw * 0.75));
-      const bodyWidth = cw < 3 ? 2 : (calcWidth % 2 === 0 ? calcWidth + 1 : calcWidth);
+      // Adaptive body width: always odd for symmetric centering on wick
+      // cw >= 6: 75% fill with border. cw 4-5: 3px fill-only. cw 2-3: 2px fill-only.
+      let bodyWidth: number;
+      if (cw >= 6) {
+        const w = Math.round(cw * 0.75);
+        bodyWidth = w % 2 === 0 ? w + 1 : w; // odd
+      } else if (cw >= 4) {
+        bodyWidth = 3;
+      } else {
+        bodyWidth = 2;
+      }
       const bodyLeft = centerX - Math.floor(bodyWidth / 2);
 
       const yOpen = getY(candle.open);
@@ -959,43 +967,62 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const yHigh = getY(candle.high);
       const yLow = getY(candle.low);
 
-      const topY = Math.min(yOpen, yClose);
       const rawHeight = Math.abs(yClose - yOpen);
-
       const isBullish = candle.close >= candle.open;
       const bodyColor = isBullish ? '#16A34A' : '#DC2626';
       const borderColor = isBullish ? '#15803D' : '#B91C1C';
+      const wickColor = isBullish ? '#15803D' : '#B91C1C';
 
-      // Sharp, Perfectly Centered Wicks
+      // --- WICK (upper + lower shadow) ---
+      // Always 1px sharp line, snapped to half-pixel for crispness
       const wickX = Math.floor(centerX) + 0.5;
       ctx.lineWidth = 1;
-      ctx.strokeStyle = borderColor;
-      ctx.beginPath();
-      ctx.moveTo(wickX, Math.round(yHigh));
-      ctx.lineTo(wickX, Math.round(yLow));
-      ctx.stroke();
+      ctx.strokeStyle = wickColor;
 
-      // FIX 6: Doji enhancement when rawHeight < 1.5
-      if (rawHeight < 1.5) {
-        const dojiY = Math.floor(topY) + 0.5;
+      // Upper wick: from high to top of body
+      const bodyTopY = Math.min(yOpen, yClose);
+      const bodyBotY = Math.max(yOpen, yClose);
+      const wickHighY = Math.round(yHigh);
+      const wickLowY = Math.round(yLow);
+
+      if (wickHighY < Math.round(bodyTopY)) {
+        ctx.beginPath();
+        ctx.moveTo(wickX, wickHighY);
+        ctx.lineTo(wickX, Math.round(bodyTopY));
+        ctx.stroke();
+      }
+      // Lower wick: from bottom of body to low
+      if (wickLowY > Math.round(bodyBotY)) {
+        ctx.beginPath();
+        ctx.moveTo(wickX, Math.round(bodyBotY));
+        ctx.lineTo(wickX, wickLowY);
+        ctx.stroke();
+      }
+
+      // --- BODY ---
+      // True doji: open === close (or body < 0.3px). Draw horizontal tick mark.
+      const isDoji = rawHeight < 0.5;
+      if (isDoji) {
+        const dojiY = Math.floor(bodyTopY) + 0.5;
         ctx.strokeStyle = bodyColor;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(bodyLeft, dojiY);
-        ctx.lineTo(bodyLeft + bodyWidth, dojiY);
+        ctx.moveTo(bodyLeft - 1, dojiY);
+        ctx.lineTo(bodyLeft + bodyWidth + 1, dojiY);
         ctx.stroke();
       } else {
-        const bodyHeight = Math.round(rawHeight);
-        const bodyTop = Math.round(topY);
+        // Ensure minimum 2px body height so candle is always visible
+        const bodyHeight = Math.max(2, Math.round(rawHeight));
+        const bodyTop = Math.round(bodyTopY);
 
         ctx.fillStyle = bodyColor;
         ctx.fillRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
 
-        // FIX 5: Only draw strokeRect border when cw >= 5
-        if (cw >= 5) {
+        // Border only when candle is wide enough that border doesn't eat the fill
+        if (cw >= 7 && bodyWidth >= 5 && bodyHeight >= 4) {
           ctx.strokeStyle = borderColor;
           ctx.lineWidth = 1;
-          ctx.strokeRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
+          ctx.strokeRect(bodyLeft + 0.5, bodyTop + 0.5, bodyWidth - 1, bodyHeight - 1);
         }
       }
     }
