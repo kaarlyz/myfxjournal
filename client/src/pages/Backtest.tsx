@@ -1465,7 +1465,7 @@ export default function Backtest() {
       });
       return;
     }
-    const lotSize = calculatePositionSize(balance, riskPercent, entryPrice, slPrice);
+    const lotSize = calculatePositionSize(balance, riskPercent, entryPrice, slPrice, getSymbolContractSize(symbol));
     const riskAmount = (balance * riskPercent) / 100;
     handleOpenTrade({
       side: isLong ? 'LONG' : 'SHORT',
