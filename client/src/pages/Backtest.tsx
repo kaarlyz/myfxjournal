@@ -1043,7 +1043,7 @@ export default function Backtest() {
   // ── 9. Sequential Step Forward Engine (Evaluates Active Trade) ──
   const stepForward = useCallback(async () => {
     const currentCandles = candlesRef.current;
-    if (currentCandles.length === 0 || appMode !== 'replay' || isSteppingRef.current || !isPlayingRef.current) return;
+    if (currentCandles.length === 0 || appMode !== 'replay' || isSteppingRef.current) return;
     isSteppingRef.current = true;
     const lastCandle = currentCandles[currentCandles.length - 1];
     const lastTime = new Date(lastCandle.time).toISOString();
