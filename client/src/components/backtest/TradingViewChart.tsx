@@ -796,7 +796,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       <canvas
         ref={dragCanvasRef}
         className="absolute top-0 left-0"
-        style={{ zIndex: 100, pointerEvents: 'auto' }}
+        style={{ zIndex: 40, pointerEvents: plannedOrder && plannedOrder.entryPrice > 0 ? 'auto' : 'none' }}
         onPointerDown={handleDragCanvasPointerDown}
       />
 
