@@ -205,9 +205,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const activeDragTypeRef = useRef<'ENTRY' | 'SL' | 'TP' | null>(null);
   const prevFollowReplayRef = useRef<boolean>(followReplay);
 
-  // Function to calculate price pixel coordinates
+  const plannedOrderRef = useRef<PlannedOrderPreview | null | undefined>(plannedOrder);
+  useEffect(() => {
+    plannedOrderRef.current = plannedOrder;
+  }, [plannedOrder]);
+
+  // Function to calculate price pixel coordinates using latest ref
   const updateOverlayCoords = useCallback(() => {
-    if (!candleSeriesRef.current || !plannedOrder || !(plannedOrder.entryPrice > 0)) {
+    const po = plannedOrderRef.current;
+    if (!candleSeriesRef.current || !po || !(po.entryPrice > 0)) {
       setOverlayCoords((prev) => {
         if (prev.entryY === null && prev.slY === null && prev.tpY === null) return prev;
         return { entryY: null, slY: null, tpY: null };
@@ -216,14 +222,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
 
     const series = candleSeriesRef.current;
-    const entryY = series.priceToCoordinate(plannedOrder.entryPrice);
+    const entryY = series.priceToCoordinate(po.entryPrice);
     const slY =
-      plannedOrder.slPrice && plannedOrder.slPrice > 0
-        ? series.priceToCoordinate(plannedOrder.slPrice)
+      po.slPrice && po.slPrice > 0
+        ? series.priceToCoordinate(po.slPrice)
         : null;
     const tpY =
-      plannedOrder.tpPrice && plannedOrder.tpPrice > 0
-        ? series.priceToCoordinate(plannedOrder.tpPrice)
+      po.tpPrice && po.tpPrice > 0
+        ? series.priceToCoordinate(po.tpPrice)
         : null;
 
     setOverlayCoords({
@@ -231,7 +237,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       slY: slY ?? null,
       tpY: tpY ?? null,
     });
-  }, [plannedOrder]);
+  }, []);
 
   // 1. Initialize Lightweight Chart Engine (v5.2)
   useEffect(() => {
@@ -638,7 +644,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       {/* Interactive Draggable Order Overlay */}
       {plannedOrder && plannedOrder.entryPrice > 0 && (
-        <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
           {/* Shaded Risk Zone (Red rgba(239, 68, 68, 0.18)) */}
           {overlayCoords.entryY !== null && overlayCoords.slY !== null && (
             <div
@@ -669,13 +675,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               className="absolute left-0 right-0 flex items-center pointer-events-none"
               style={{ top: `${overlayCoords.entryY}px`, transform: 'translateY(-50%)' }}
             >
-              <div className="w-full border-t-2 border-[#06B6D4] border-solid" />
+              <div className="w-full border-t-2 border-[#06B6D4] border-solid opacity-90 shadow-sm" />
               <div
                 onPointerDown={(e) => handleDragStart('ENTRY', e)}
-                className="absolute left-3 bg-[#06B6D4] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/40 touch-none"
+                className="absolute left-3 bg-[#06B6D4] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/50 touch-none ring-2 ring-[#06B6D4]/30"
               >
                 <span>↕ GESER ENTRY</span>
-                <span className="opacity-90 font-normal">
+                <span className="opacity-95 font-normal">
                   ({formatPriceDisplay(plannedOrder.entryPrice, symbol)})
                 </span>
               </div>
@@ -688,13 +694,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               className="absolute left-0 right-0 flex items-center pointer-events-none"
               style={{ top: `${overlayCoords.slY}px`, transform: 'translateY(-50%)' }}
             >
-              <div className="w-full border-t-2 border-[#EF4444] border-dashed" />
+              <div className="w-full border-t-2 border-[#EF4444] border-dashed opacity-90 shadow-sm" />
               <div
                 onPointerDown={(e) => handleDragStart('SL', e)}
-                className="absolute left-[150px] bg-[#EF4444] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/40 touch-none"
+                className="absolute left-[160px] bg-[#EF4444] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/50 touch-none ring-2 ring-[#EF4444]/30"
               >
                 <span>↕ GESER SL</span>
-                <span className="opacity-90 font-normal">
+                <span className="opacity-95 font-normal">
                   ({formatPriceDisplay(plannedOrder.slPrice, symbol)})
                 </span>
               </div>
@@ -707,13 +713,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               className="absolute left-0 right-0 flex items-center pointer-events-none"
               style={{ top: `${overlayCoords.tpY}px`, transform: 'translateY(-50%)' }}
             >
-              <div className="w-full border-t-2 border-[#10B981] border-dashed" />
+              <div className="w-full border-t-2 border-[#10B981] border-dashed opacity-90 shadow-sm" />
               <div
                 onPointerDown={(e) => handleDragStart('TP', e)}
-                className="absolute left-[280px] bg-[#10B981] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/40 touch-none"
+                className="absolute left-[295px] bg-[#10B981] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/50 touch-none ring-2 ring-[#10B981]/30"
               >
                 <span>↕ GESER TP</span>
-                <span className="opacity-90 font-normal">
+                <span className="opacity-95 font-normal">
                   ({formatPriceDisplay(plannedOrder.tpPrice, symbol)})
                 </span>
               </div>
