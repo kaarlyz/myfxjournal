@@ -43,7 +43,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
-import { CandlestickChart, ChartCandle, ChartIndicators, DrawingItem, PlannedOrderPreview } from '../components/backtest/CandlestickChart';
+import { CandlestickChart, ChartCandle, ChartIndicators, DrawingItem, PlannedOrderPreview } from '../components/backtest/TradingViewChart';
 import { DrawingToolbar, DrawingTool } from '../components/backtest/DrawingToolbar';
 import { ReplayControls, ReplaySpeed, ChartTimeframe, AppMode } from '../components/backtest/ReplayControls';
 import { SymbolPicker, SymbolOption, getCanonicalProvider } from '../components/backtest/SymbolPicker';

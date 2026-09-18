@@ -446,12 +446,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     // Hence, no pixel offset adjustment is needed and zero teleport occurs.
   }, [candles, appMode, followReplay]);
 
-  // When toggling followReplay explicitly in replay mode
+  // When toggling followReplay explicitly in replay mode - do NOT force reset to 0 so user keeps their offset
   useEffect(() => {
-    if (appMode === 'replay' && followReplay) {
-      panXRef.current = 0;
-      setPanOffsetX(0);
-    }
+    // Keep user's customized pan offset intact
   }, [followReplay, appMode]);
 
   // Track previous symbol and timeframe to reset viewport on transitions
@@ -559,8 +556,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const drawableHeight = Math.max(20, mainH - volH - paddingTop - paddingBottom);
 
     const slot = cw;
-    // Generous breathing room right margin (TradingView style rightOffset of 15-20 bars)
-    const rightMargin = Math.max(90, Math.round(cw * 14));
+    // Generous breathing room right margin (TradingView style rightOffset of 18-20 bars)
+    const rightMargin = Math.max(120, Math.round(cw * 18));
     const lastGlobalIdx = Math.max(0, candles.length - 1);
 
     // Clamp panX within allowable bounds to prevent all candles from vanishing off-screen
