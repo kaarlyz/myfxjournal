@@ -307,27 +307,58 @@ router.post('/config', async (req: Request, res: Response) => {
 // POST /api/ai/analyze-chart (Backtest Realtime Copilot)
 router.post('/analyze-chart', async (req: Request, res: Response) => {
   try {
-    const { symbol = 'XAUUSD', timeframe = 'M1', currentPrice, recentCandles = [], balance = 10000, language = 'id' } = req.body || {};
+    const {
+      symbol = 'XAUUSD',
+      timeframe = 'M1',
+      currentPrice,
+      recentCandles = [],
+      balance = 10000,
+      language = 'id',
+      minRR = 1.5,
+      riskPercent = 1.0,
+      strategyBias = 'ALL',
+      recentTrades = []
+    } = req.body || {};
 
     if (!currentPrice || recentCandles.length === 0) {
       return res.status(400).json({ ok: false, error: 'Missing currentPrice or recentCandles data' });
     }
 
+    const targetMinRR = typeof minRR === 'number' && minRR > 0 ? minRR : 1.5;
+    const targetRiskPercent = typeof riskPercent === 'number' && riskPercent > 0 ? riskPercent : 1.0;
+    const targetStrategyBias = ['ALL', 'SMC_FVG', 'TREND_PULLBACK', 'BREAKOUT'].includes(strategyBias) ? strategyBias : 'ALL';
+
     const copilotSystemPrompt = `You are MurplyFX AI — a sharp, responsive Price Action, Trend Pullback, and Smart Money Concepts (SMC) Quant Scalper Copilot.
-Your objective: Analyze the provided OHLC candle array (60 bars), technical metrics (ATR, Swing High/Low, SMA trend, Premium/Discount zone), and current market price to find actionable, high-probability scalping / daytrading setups.
+Your objective: Analyze the provided OHLC candle array (60 bars), technical metrics (ATR, Swing High/Low, SMA trend, Premium/Discount zone), current market price, user trader preferences (min R:R ratio, risk %, strategy bias), and recent session trades history to find actionable, high-probability scalping / daytrading setups.
+
+TRADER PREFERENCES & PARAMETERS:
+- Target Minimum R:R: 1:${targetMinRR} (plannedRR MUST be >= ${targetMinRR})
+- Risk per Trade: ${targetRiskPercent}%
+- Strategy Bias: ${targetStrategyBias}
 
 DYNAMIC & RESPONSIVE SETUP DETECTION:
-Identify setups with clear edge. Look for ANY of these valid price action triggers:
-1. SMC Liquidity Sweep & Retest (BSL/SSL sweep + FVG/OB pullback).
-2. Trend Continuation & Pullback (strong SMA trend + EMA/price pullback rejection).
-3. Breakout & Displacement Momentum (clear structural breakout with strong candle bodies).
+${
+  targetStrategyBias === 'SMC_FVG'
+    ? 'Focus strictly on SMC Liquidity Sweeps & FVG/Order Block Retests (BSL/SSL sweep + FVG/OB pullback).'
+    : targetStrategyBias === 'TREND_PULLBACK'
+    ? 'Focus strictly on Trend Continuation & Pullback setups (strong SMA trend + EMA/price pullback rejection).'
+    : targetStrategyBias === 'BREAKOUT'
+    ? 'Focus strictly on Breakout & Displacement Momentum (clear structural breakout with strong candle bodies).'
+    : 'Look for ANY of these valid price action triggers:\n1. SMC Liquidity Sweep & Retest (BSL/SSL sweep + FVG/OB pullback).\n2. Trend Continuation & Pullback (strong SMA trend + EMA/price pullback rejection).\n3. Breakout & Displacement Momentum (clear structural breakout with strong candle bodies).'
+}
+
+ADAPTIVE TECHNICAL TRADE EVALUATION & RECENT TRADES CONTEXT:
+Incorporate recentTrades into your technical evaluation context:
+- Analyze if previous trades were stopped out prematurely (SL hit due to noise/tight SL), counter-trend, or hit TP cleanly.
+- Adapt current entry, SL, and TP structure to avoid repeating previous technical mistakes (e.g. widening SL if recent trades suffered wick stop-outs, aligning with macro SMA trend if recent counter-trend trades failed, or adjusting TP placement to satisfy minimum R:R).
 
 SIGNAL RULES & PARAMETERS:
-- If there is clear directional momentum or a valid pullback/breakout rejection:
+- If there is clear directional momentum or a valid pullback/breakout rejection aligned with Strategy Bias:
   - Output "action": "BUY" or "SELL".
   - Set "confidence": 65-95 depending on setup clarity.
   - Set "orderType": "MARKET" for immediate entries, or "BUY_LIMIT" / "SELL_LIMIT" / "BUY_STOP" / "SELL_STOP" for pending pullback/breakout entries.
-  - Provide exact entryPrice, logical structural slPrice, and tpPrice with R:R of AT LEAST 1:1.5 (plannedRR >= 1.5).
+  - Provide exact entryPrice, logical structural slPrice, and tpPrice with R:R of AT LEAST 1:${targetMinRR} (plannedRR >= ${targetMinRR}).
+  - Set "riskPercent": ${targetRiskPercent}.
 - If price is tightly ranging in a dead zone with zero momentum or direction, output "action": "WAIT" with confidence: 40.
 
 CRITICAL REQUIREMENT: Respond ONLY with a valid, clean JSON object matching this exact schema:
@@ -337,17 +368,18 @@ CRITICAL REQUIREMENT: Respond ONLY with a valid, clean JSON object matching this
   "confidence": 75,
   "setupName": "M1 Trend Pullback & Order Block Rejection",
   "reasoning": "Short 1-2 sentence sharp technical reasoning in natural trader slang.",
+  "technicalEvaluation": "1-2 sentences explaining technical adjustments made relative to recent trade outcomes, strategy bias, and target RR.",
   "entryPrice": 2725.50,
   "slPrice": 2722.00,
   "tpPrice": 2730.75,
   "plannedRR": 1.75,
-  "riskPercent": 1.0,
+  "riskPercent": ${targetRiskPercent},
   "slDistancePips": 3.5
 }
 
 Rules:
-1. If "action" is "WAIT", set confidence to 40, set orderType, entryPrice, slPrice, tpPrice, plannedRR, slDistancePips to null.
-2. If "action" is "BUY" or "SELL", ensure plannedRR >= 1.5.
+1. If "action" is "WAIT", set confidence to 40, set orderType, entryPrice, slPrice, tpPrice, plannedRR, slDistancePips to null, and technicalEvaluation to explanation of market state.
+2. If "action" is "BUY" or "SELL", ensure plannedRR >= ${targetMinRR}.
 3. Calculate slDistancePips based on symbol (for XAUUSD 1.0 = 10 pips, for Forex 0.0010 = 10 pips).
 4. Do not include any text outside the JSON. Format numbers cleanly.`;
 
@@ -364,6 +396,12 @@ Rules:
       timeframe,
       currentPrice,
       accountBalance: balance,
+      traderPreferences: {
+        minRR: targetMinRR,
+        riskPercent: targetRiskPercent,
+        strategyBias: targetStrategyBias
+      },
+      recentTrades: Array.isArray(recentTrades) ? recentTrades : [],
       candleCount: sampleCandles.length,
       smcMetrics,
       candles: sampleCandles.map((c: any) => ({

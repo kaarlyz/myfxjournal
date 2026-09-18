@@ -3226,6 +3226,7 @@ export default function Backtest() {
                 currentPrice={currentPrice}
                 candles={candles}
                 balance={balance}
+                recentTrades={tradeHistory.slice(-5)}
                 isAutoPilotActive={isAutoPilotActive}
                 onToggleAutoPilot={(active) => {
                   setIsPlaying(false);
@@ -3476,6 +3477,7 @@ export default function Backtest() {
                     currentPrice={currentPrice}
                     candles={candles}
                     balance={balance}
+                    recentTrades={tradeHistory.slice(-5)}
                     isAutoPilotActive={isAutoPilotActive}
                     onToggleAutoPilot={(active) => {
                       setIsPlaying(false);

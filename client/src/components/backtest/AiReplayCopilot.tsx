@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Brain, RefreshCw, Zap, Check, ArrowUpRight, ArrowDownRight, AlertTriangle, ShieldCheck, Play } from 'lucide-react';
+import { Sparkles, Brain, RefreshCw, Zap, Check, ArrowUpRight, ArrowDownRight, AlertTriangle, ShieldCheck, Play, SlidersHorizontal } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Card, CardBody } from '../ui/Card';
@@ -11,6 +11,7 @@ export interface AiCopilotSignal {
   confidence: number;
   setupName: string;
   reasoning: string;
+  technicalEvaluation?: string;
   entryPrice: number | null;
   slPrice: number | null;
   tpPrice: number | null;
@@ -25,6 +26,7 @@ interface AiReplayCopilotProps {
   currentPrice: number;
   candles: Array<{ time: any; open: number; high: number; low: number; close: number; volume?: number }>;
   balance: number;
+  recentTrades?: any[];
   onApplySignal: (signal: AiCopilotSignal) => void;
   onExecuteMarket?: (params: { side: 'LONG' | 'SHORT'; entryPrice: number; slPrice?: number | null; tpPrice?: number | null; riskPercent?: number | null }) => void;
   onPlacePending?: (params: { side: 'LONG' | 'SHORT'; orderType: string; price: number; slPrice?: number | null; tpPrice?: number | null; riskPercent?: number | null }) => void;
@@ -45,6 +47,7 @@ export function AiReplayCopilot({
   currentPrice,
   candles,
   balance,
+  recentTrades = [],
   onApplySignal,
   onExecuteMarket,
   onPlacePending,
@@ -62,6 +65,11 @@ export function AiReplayCopilot({
   const [appliedToast, setAppliedToast] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [autoRecalibrate, setAutoRecalibrate] = useState<boolean>(true);
+
+  // Trader Preferences State
+  const [minRR, setMinRR] = useState<number>(1.5);
+  const [riskPercent, setRiskPercent] = useState<number>(1.0);
+  const [strategyBias, setStrategyBias] = useState<'ALL' | 'SMC_FVG' | 'TREND_PULLBACK' | 'BREAKOUT'>('ALL');
 
   // Compute Live Market R:R if signal active
   const liveMarketRR = React.useMemo(() => {
@@ -94,6 +102,18 @@ export function AiReplayCopilot({
       const endpointUrl = apiUrl('/ai/analyze-chart');
       console.log('[AI Copilot] Requesting:', endpointUrl);
 
+      const formattedRecentTrades = (recentTrades || []).map((t: any) => ({
+        side: t.side,
+        entryPrice: t.entryPrice,
+        exitPrice: t.exitPrice ?? undefined,
+        pnl: t.pnl ?? t.netPnlUsd ?? undefined,
+        status: t.status === 'CLOSED'
+          ? ((t.pnl ?? 0) > 0 ? 'WIN' : (t.pnl ?? 0) < 0 ? 'LOSS' : 'BE')
+          : (t.status || 'OPEN'),
+        exitReason: t.exitReason ?? undefined,
+        setupName: t.setupTag ?? t.setupName ?? undefined,
+      }));
+
       const res = await fetch(endpointUrl, {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
@@ -104,7 +124,11 @@ export function AiReplayCopilot({
           currentPrice,
           recentCandles,
           balance,
-          language: 'id'
+          language: 'id',
+          minRR,
+          riskPercent,
+          strategyBias,
+          recentTrades: formattedRecentTrades
         })
       });
 
@@ -135,7 +159,11 @@ export function AiReplayCopilot({
 
   const handleApply = () => {
     if (!signal || signal.action === 'WAIT') return;
-    onApplySignal(signal);
+    onApplySignal({
+      ...signal,
+      riskPercent: signal.riskPercent ?? riskPercent,
+      plannedRR: signal.plannedRR ?? minRR
+    });
     setAppliedToast('✅ Sinyal AI Diterapkan! Parameter OrderPanel terisi otomatis.');
     setTimeout(() => setAppliedToast(null), 4000);
   };
@@ -149,7 +177,7 @@ export function AiReplayCopilot({
     if (autoRecalibrate && liveMarketRR && (!liveMarketRR.isValid || isPullbackLimitSetup)) {
       const slP = signal.slPrice ?? (side === 'LONG' ? currentPrice - 5 : currentPrice + 5);
       const riskDist = Math.abs(currentPrice - slP);
-      const targetRR = signal.plannedRR && signal.plannedRR >= 1.5 ? signal.plannedRR : 2.0;
+      const targetRR = signal.plannedRR && signal.plannedRR >= minRR ? signal.plannedRR : minRR;
       targetTp = side === 'LONG'
         ? Math.round((currentPrice + riskDist * targetRR) * 100) / 100
         : Math.round((currentPrice - riskDist * targetRR) * 100) / 100;
@@ -161,7 +189,7 @@ export function AiReplayCopilot({
         entryPrice: currentPrice,
         slPrice: signal.slPrice,
         tpPrice: targetTp,
-        riskPercent: signal.riskPercent,
+        riskPercent: signal.riskPercent ?? riskPercent,
       });
       setAppliedToast(`⚡ Market Order Executed @ ${currentPrice}${autoRecalibrate ? ' (TP Auto-Recalibrated)' : ''}`);
       setTimeout(() => setAppliedToast(null), 4000);
@@ -186,7 +214,7 @@ export function AiReplayCopilot({
         price: signal.entryPrice,
         slPrice: signal.slPrice,
         tpPrice: signal.tpPrice,
-        riskPercent: signal.riskPercent,
+        riskPercent: signal.riskPercent ?? riskPercent,
       });
       setAppliedToast(`📌 Pending Order (${orderType}) Berhasil Ditempatkan!`);
       setTimeout(() => setAppliedToast(null), 4000);
@@ -239,6 +267,89 @@ export function AiReplayCopilot({
 
       {isExpanded && (
         <CardBody className="p-3 space-y-3 bg-[#F8F9FA]">
+          {/* TRADER PREFERENCES & RISK/RR PARAMETERS */}
+          <div className="p-2.5 bg-white border-2 border-[#121212] rounded-lg shadow-[2px_2px_0px_0px_#121212] space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-mono font-black text-[11px] uppercase tracking-wider text-[#121212]">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-[#1040C0]" />
+                <span>Trader Preferences</span>
+              </div>
+              <Badge variant="neutral" className="text-[9px] font-mono font-bold px-1.5 py-0 bg-[#E2E8F0] text-[#121212]">
+                CUSTOM RISK & RR
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#121212]/15">
+              {/* Target Min R:R Pills */}
+              <div className="space-y-1">
+                <div className="text-[9px] font-mono font-bold text-[#717182] uppercase">Target Min R:R</div>
+                <div className="flex items-center gap-1">
+                  {[1.5, 2.0, 3.0].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setMinRR(val)}
+                      className={`flex-1 py-1 text-[10px] font-mono font-black rounded border border-[#121212] transition-all cursor-pointer ${
+                        minRR === val
+                          ? 'bg-[#1040C0] text-white shadow-[1px_1px_0px_0px_#121212]'
+                          : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'
+                      }`}
+                    >
+                      1:{val.toFixed(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Risk % Pills */}
+              <div className="space-y-1">
+                <div className="text-[9px] font-mono font-bold text-[#717182] uppercase">Risk %</div>
+                <div className="flex items-center gap-1">
+                  {[0.5, 1.0, 2.0].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setRiskPercent(val)}
+                      className={`flex-1 py-1 text-[10px] font-mono font-black rounded border border-[#121212] transition-all cursor-pointer ${
+                        riskPercent === val
+                          ? 'bg-[#FFD000] text-[#121212] shadow-[1px_1px_0px_0px_#121212]'
+                          : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'
+                      }`}
+                    >
+                      {val.toFixed(1)}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Strategy Bias Selector */}
+            <div className="space-y-1">
+              <div className="text-[9px] font-mono font-bold text-[#717182] uppercase">Strategy Bias</div>
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { id: 'ALL', label: 'All' },
+                  { id: 'SMC_FVG', label: 'SMC FVG' },
+                  { id: 'TREND_PULLBACK', label: 'Pullback' },
+                  { id: 'BREAKOUT', label: 'Breakout' },
+                ].map((bias) => (
+                  <button
+                    key={bias.id}
+                    type="button"
+                    onClick={() => setStrategyBias(bias.id as any)}
+                    className={`py-1 text-[9px] font-mono font-black truncate rounded border border-[#121212] transition-all cursor-pointer px-1 text-center ${
+                      strategyBias === bias.id
+                        ? 'bg-[#121212] text-white shadow-[1px_1px_0px_0px_#121212]'
+                        : 'bg-white text-[#121212] hover:bg-[#F0F0F0]'
+                    }`}
+                  >
+                    {bias.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* AUTO-PILOT BACKTEST MODE BANNER */}
           {onToggleAutoPilot && (
             <div className="p-2.5 bg-[#FFFDEB] border-2 border-[#121212] rounded-lg shadow-[2px_2px_0px_0px_#121212] space-y-2">
@@ -351,6 +462,16 @@ export function AiReplayCopilot({
                 💡 <b>Reasoning:</b> <span className="break-words">{signal.reasoning}</span>
               </div>
 
+              {/* Technical Evaluation Badge / Card */}
+              {signal.technicalEvaluation && (
+                <div className="bg-[#EFF6FF] border-2 border-[#1040C0] p-2.5 text-xs text-[#121212] font-medium leading-relaxed break-words">
+                  <div className="font-mono font-black text-[10px] uppercase text-[#1040C0] mb-0.5 flex items-center gap-1">
+                    <Brain className="w-3.5 h-3.5" /> Adaptive Technical Evaluation
+                  </div>
+                  <span className="break-words">{signal.technicalEvaluation}</span>
+                </div>
+              )}
+
               {/* R:R Protection Warning Box if Live Market R:R < 1.0 or Pullback Limit recommended */}
               {signal.action !== 'WAIT' && liveMarketRR && (!liveMarketRR.isValid || isPullbackLimitSetup) && (
                 <div className="bg-[#FFFBEB] border-2 border-[#D97706] p-2 text-xs font-bold text-[#B45309] space-y-1">
@@ -387,7 +508,7 @@ export function AiReplayCopilot({
                   </div>
                   <div className="bg-[#FFFBEB] border border-[#121212] p-1.5 min-w-0">
                     <div className="text-[9px] text-[#D97706] font-bold uppercase truncate">RR Target</div>
-                    <div className="font-black text-[#D97706] truncate">{signal.plannedRR ?? 0}R ({signal.riskPercent ?? 1}%)</div>
+                    <div className="font-black text-[#D97706] truncate">{signal.plannedRR ?? 0}R ({signal.riskPercent ?? riskPercent}%)</div>
                   </div>
                 </div>
               )}
