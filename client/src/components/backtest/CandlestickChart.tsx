@@ -560,11 +560,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const rightMargin = Math.max(120, Math.round(cw * 18));
     const lastGlobalIdx = Math.max(0, candles.length - 1);
 
-    // Clamp panX within allowable bounds to prevent all candles from vanishing off-screen
+    // Allow generous left and right panning across the entire timeline
     if (candles.length > 0) {
-      const minPanX = -Math.round(chartW * 0.35);
-      const maxPanX = Math.max(0, (candles.length - 1) * cw);
-      if (panX < minPanX || panX > maxPanX + chartW) {
+      const minPanX = -Math.round(chartW * 2.5); // Allow pulling candles far to the left
+      const maxPanX = Math.max(chartW * 2.0, (candles.length - 1) * cw + chartW);
+      if (panX < minPanX || panX > maxPanX) {
         panX = Math.max(minPanX, Math.min(maxPanX, panX));
         panXRef.current = panX;
       }
@@ -1540,13 +1540,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       // Shaded Profit Zone (only when TP exists)
       if (tpY !== null) {
-        ctx.fillStyle = 'rgba(16,185,129,0.12)';
+        ctx.fillStyle = 'rgba(16,185,129,0.18)';
         ctx.fillRect(0, Math.min(eY, tpY), chartW, Math.abs(tpY - eY));
       }
 
       // Shaded Risk Zone (only when SL exists)
       if (slY !== null) {
-        ctx.fillStyle = 'rgba(239,68,68,0.12)';
+        ctx.fillStyle = 'rgba(239,68,68,0.18)';
         ctx.fillRect(0, Math.min(eY, slY), chartW, Math.abs(slY - eY));
       }
 
@@ -2235,20 +2235,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       return;
     }
 
-    // 3. Cursor / Crosshair Mode: Check drawings or Pan
+    // 3. Cursor / Crosshair Mode: Check planned order first across all tools
+    const plannedHit = hitTestPlannedOrder(e.clientX, e.clientY);
+    if (plannedHit && plannedOrder) {
+      dragModeRef.current = 'PLANNED_ORDER_HANDLE';
+      plannedDragHandleRef.current = {
+        type: plannedHit,
+        startMousePrice: price,
+        startEntry: plannedOrder.entryPrice,
+        startSL: plannedOrder.slPrice || 0,
+        startTP: plannedOrder.tpPrice || 0,
+      };
+      return;
+    }
+
     if (activeTool === 'cursor' || activeTool === 'crosshair') {
-      const plannedHit = hitTestPlannedOrder(e.clientX, e.clientY);
-      if (plannedHit && plannedOrder) {
-        dragModeRef.current = 'PLANNED_ORDER_HANDLE';
-        plannedDragHandleRef.current = {
-          type: plannedHit,
-          startMousePrice: price,
-          startEntry: plannedOrder.entryPrice,
-          startSL: plannedOrder.slPrice || 0,
-          startTP: plannedOrder.tpPrice || 0,
-        };
-        return;
-      }
 
       // Check if user clicked on a placed Pending Order on chart
       const poHit = hitTestPendingOrder(e.clientX, e.clientY);
