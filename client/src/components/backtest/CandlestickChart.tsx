@@ -1812,8 +1812,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         e.preventDefault();
         e.stopPropagation();
         const dx = -e.deltaX;
-        const minPanX = -Math.round(vp.chartW * 0.35);
-        const maxPanX = Math.max(0, lastGlobalIdx * vp.slot + 100);
+        const minPanX = -Math.round(vp.chartW * 2.5);
+        const maxPanX = Math.max(vp.chartW * 2.0, (candlesRef.current.length - 1) * vp.slot + vp.chartW);
         const newPanX = Math.max(minPanX, Math.min(maxPanX, panXRef.current + dx));
         panXRef.current = newPanX;
         setPanOffsetX(newPanX);
@@ -1850,8 +1850,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       // mouseX = (vp.chartW - newRightMargin) - (lastGlobalIdx - anchorGIdx) * newCW + newPanX
       let newPanX = mouseX - (vp.chartW - newRightMargin) + (lastGlobalIdx - anchorGIdx) * newCW;
 
-      const minPanX = -Math.round(vp.chartW * 0.35);
-      const maxPanX = Math.max(0, lastGlobalIdx * newCW + 100);
+      const minPanX = -Math.round(vp.chartW * 2.5);
+      const maxPanX = Math.max(vp.chartW * 2.0, (candlesRef.current.length - 1) * newCW + vp.chartW);
       newPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
 
       cwRef.current = newCW;
@@ -2434,8 +2434,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           const newRightMargin = Math.max(35, newCW * 5);
 
           let newPanX = midX - (vp.chartW - newRightMargin) + (lastGlobalIdx - anchorGIdx) * newCW;
-          const minPanX = -Math.round(vp.chartW * 0.35);
-          const maxPanX = Math.max(0, lastGlobalIdx * newCW + 100);
+          const minPanX = -Math.round(vp.chartW * 2.5);
+          const maxPanX = Math.max(vp.chartW * 2.0, (candlesRef.current.length - 1) * newCW + vp.chartW);
           newPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
 
           // Vertical Anchor Compensation
@@ -2681,8 +2681,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       // 1 px pointer movement = 1 px visual chart movement!
       const newPanX = panStartRef.current.startPanX + dx;
-      const minPanX = -Math.round(vp.chartW * 0.35);
-      const maxPanX = Math.max(0, (candles.length - 2) * vp.slot);
+      const minPanX = -Math.round(vp.chartW * 2.5);
+      const maxPanX = Math.max(vp.chartW * 2.0, (candles.length - 1) * vp.slot + vp.chartW);
       const clampedPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
 
       panXRef.current = clampedPanX;
@@ -2798,8 +2798,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         }
         const vp = vpRef.current;
         if (vp && candlesRef.current.length > 0) {
-          const minPanX = -Math.round(vp.chartW * 0.35);
-          const maxPanX = Math.max(0, (candlesRef.current.length - 2) * vp.slot);
+          const minPanX = -Math.round(vp.chartW * 2.5);
+          const maxPanX = Math.max(vp.chartW * 2.0, (candlesRef.current.length - 1) * vp.slot + vp.chartW);
           const currentPanX = panXRef.current;
           let targetPanX = currentPanX + vx;
 
