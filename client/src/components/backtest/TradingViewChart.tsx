@@ -574,53 +574,58 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [plannedOrder]);
 
+  // Global pointer move & up listeners to guarantee smooth, continuous drag tracking
+  useEffect(() => {
+    const handleGlobalPointerMove = (e: PointerEvent) => {
+      if (!activeDragTypeRef.current || !candleSeriesRef.current || !plannedOrder || !chartContainerRef.current) {
+        return;
+      }
+
+      const rect = chartContainerRef.current.getBoundingClientRect();
+      const relativeY = e.clientY - rect.top;
+      const rawPrice = candleSeriesRef.current.coordinateToPrice(relativeY);
+      if (rawPrice === null || isNaN(rawPrice) || rawPrice <= 0) return;
+
+      const newPrice = formatPriceStep(rawPrice, symbol);
+      const type = activeDragTypeRef.current;
+
+      let newEntry = plannedOrder.entryPrice;
+      let newSl = plannedOrder.slPrice || 0;
+      let newTp = plannedOrder.tpPrice || 0;
+
+      if (type === 'ENTRY') newEntry = newPrice;
+      else if (type === 'SL') newSl = newPrice;
+      else if (type === 'TP') newTp = newPrice;
+
+      onPlannedOrderChange?.({
+        entryPrice: newEntry,
+        slPrice: newSl,
+        tpPrice: newTp,
+      });
+    };
+
+    const handleGlobalPointerUp = () => {
+      if (activeDragTypeRef.current) {
+        activeDragTypeRef.current = null;
+      }
+    };
+
+    window.addEventListener('pointermove', handleGlobalPointerMove, { passive: true });
+    window.addEventListener('pointerup', handleGlobalPointerUp);
+    window.addEventListener('pointercancel', handleGlobalPointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handleGlobalPointerMove);
+      window.removeEventListener('pointerup', handleGlobalPointerUp);
+      window.removeEventListener('pointercancel', handleGlobalPointerUp);
+    };
+  }, [plannedOrder, symbol, onPlannedOrderChange]);
+
   // Handle Drag Interactions for Entry, SL, and TP handles
   const handleDragStart = (type: 'ENTRY' | 'SL' | 'TP', e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     activeDragTypeRef.current = type;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const handleDragMove = (e: React.PointerEvent) => {
-    if (
-      !activeDragTypeRef.current ||
-      !candleSeriesRef.current ||
-      !plannedOrder ||
-      !chartContainerRef.current
-    )
-      return;
-
-    const rect = chartContainerRef.current.getBoundingClientRect();
-    const relativeY = e.clientY - rect.top;
-    const rawPrice = candleSeriesRef.current.coordinateToPrice(relativeY);
-    if (rawPrice === null || isNaN(rawPrice) || rawPrice <= 0) return;
-
-    const newPrice = formatPriceStep(rawPrice, symbol);
-    const type = activeDragTypeRef.current;
-
-    let newEntry = plannedOrder.entryPrice;
-    let newSl = plannedOrder.slPrice || 0;
-    let newTp = plannedOrder.tpPrice || 0;
-
-    if (type === 'ENTRY') newEntry = newPrice;
-    else if (type === 'SL') newSl = newPrice;
-    else if (type === 'TP') newTp = newPrice;
-
-    onPlannedOrderChange?.({
-      entryPrice: newEntry,
-      slPrice: newSl,
-      tpPrice: newTp,
-    });
-  };
-
-  const handleDragEnd = (e: React.PointerEvent) => {
-    if (activeDragTypeRef.current) {
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch (_) {}
-      activeDragTypeRef.current = null;
-    }
   };
 
   return (
@@ -667,9 +672,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               <div className="w-full border-t-2 border-[#06B6D4] border-solid" />
               <div
                 onPointerDown={(e) => handleDragStart('ENTRY', e)}
-                onPointerMove={handleDragMove}
-                onPointerUp={handleDragEnd}
-                onPointerCancel={handleDragEnd}
                 className="absolute left-3 bg-[#06B6D4] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/40 touch-none"
               >
                 <span>↕ GESER ENTRY</span>
@@ -689,9 +691,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               <div className="w-full border-t-2 border-[#EF4444] border-dashed" />
               <div
                 onPointerDown={(e) => handleDragStart('SL', e)}
-                onPointerMove={handleDragMove}
-                onPointerUp={handleDragEnd}
-                onPointerCancel={handleDragEnd}
                 className="absolute left-[150px] bg-[#EF4444] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/40 touch-none"
               >
                 <span>↕ GESER SL</span>
@@ -711,9 +710,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               <div className="w-full border-t-2 border-[#10B981] border-dashed" />
               <div
                 onPointerDown={(e) => handleDragStart('TP', e)}
-                onPointerMove={handleDragMove}
-                onPointerUp={handleDragEnd}
-                onPointerCancel={handleDragEnd}
                 className="absolute left-[280px] bg-[#10B981] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/40 touch-none"
               >
                 <span>↕ GESER TP</span>
