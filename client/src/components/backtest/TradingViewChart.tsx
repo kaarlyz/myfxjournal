@@ -162,6 +162,68 @@ function formatPriceDisplay(price: number, symbol?: string): string {
   return price.toFixed(2);
 }
 
+// Draw a single handle line + badge on the canvas
+function drawHandle(
+  ctx: CanvasRenderingContext2D,
+  y: number,
+  label: string,
+  priceText: string,
+  color: string,
+  borderColor: string,
+  shadowColor: string,
+  dashed: boolean,
+  badgeX: number,
+  width: number,
+) {
+  // Horizontal line
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.9;
+  if (dashed) {
+    ctx.setLineDash([6, 4]);
+  } else {
+    ctx.setLineDash([]);
+  }
+  ctx.beginPath();
+  ctx.moveTo(0, y);
+  ctx.lineTo(width, y);
+  ctx.stroke();
+  ctx.restore();
+
+  // Badge
+  const badgeText = `↕ ${label}  (${priceText})`;
+  ctx.save();
+  ctx.font = 'bold 11px "JetBrains Mono", "Fira Code", monospace';
+  const textW = ctx.measureText(badgeText).width;
+  const padX = 8;
+  const padY = 4;
+  const badgeW = textW + padX * 2;
+  const badgeH = 20;
+  const bx = badgeX;
+  const by = y - badgeH / 2;
+
+  // Shadow (neo-brutalist 1px offset)
+  ctx.fillStyle = shadowColor;
+  ctx.fillRect(bx + 1, by + 1, badgeW, badgeH);
+
+  // Badge background
+  ctx.fillStyle = color;
+  ctx.fillRect(bx, by, badgeW, badgeH);
+
+  // Badge border
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  ctx.strokeRect(bx, by, badgeW, badgeH);
+
+  // Badge text
+  ctx.fillStyle = '#FFFFFF';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(badgeText, bx + padX, y);
+  ctx.restore();
+}
+
 export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   candles,
   timeframe = 'M1',
@@ -179,6 +241,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const dragCanvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
@@ -194,14 +257,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const plannedSlLineRef = useRef<any>(null);
   const plannedTpLineRef = useRef<any>(null);
 
-  // Overlay Y pixel coordinates — use refs for zero-delay DOM manipulation
-  const overlayEntryRef = useRef<HTMLDivElement>(null);
-  const overlaySlRef = useRef<HTMLDivElement>(null);
-  const overlayTpRef = useRef<HTMLDivElement>(null);
-  const overlayRiskZoneRef = useRef<HTMLDivElement>(null);
-  const overlayProfitZoneRef = useRef<HTMLDivElement>(null);
-  const overlayContainerRef = useRef<HTMLDivElement>(null);
-
   // Dragging state tracking ref
   const activeDragTypeRef = useRef<'ENTRY' | 'SL' | 'TP' | null>(null);
   const prevFollowReplayRef = useRef<boolean>(followReplay);
@@ -211,85 +266,78 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     plannedOrderRef.current = plannedOrder;
   }, [plannedOrder]);
 
-  // Direct DOM update — zero React re-render, zero delay
-  const syncOverlayDOM = useCallback(() => {
-    const po = plannedOrderRef.current;
+  // ─── Canvas Redraw ────────────────────────────────────────────────────────
+  const redrawDragCanvas = useCallback(() => {
+    const canvas = dragCanvasRef.current;
     const series = candleSeriesRef.current;
-    const container = overlayContainerRef.current;
-    const chartEl = chartContainerRef.current;
-    const parentEl = containerRef.current;
-    if (!container) return;
+    if (!canvas) return;
 
-    if (!series || !po || !(po.entryPrice > 0)) {
-      container.style.display = 'none';
-      return;
-    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    // Phase 1: position overlay to exactly match chartContainerRef bounds within containerRef
-    if (chartEl && parentEl) {
-      const chartRect = chartEl.getBoundingClientRect();
-      const parentRect = parentEl.getBoundingClientRect();
-      container.style.left = `${chartRect.left - parentRect.left}px`;
-      container.style.top = `${chartRect.top - parentRect.top}px`;
-      container.style.width = `${chartRect.width}px`;
-      container.style.height = `${chartRect.height}px`;
-    }
-    container.style.display = '';
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const po = plannedOrderRef.current;
+    if (!series || !po || !(po.entryPrice > 0)) return;
 
     const entryY = series.priceToCoordinate(po.entryPrice);
     const slY = po.slPrice && po.slPrice > 0 ? series.priceToCoordinate(po.slPrice) : null;
     const tpY = po.tpPrice && po.tpPrice > 0 ? series.priceToCoordinate(po.tpPrice) : null;
 
-    // Entry line
-    if (overlayEntryRef.current) {
-      if (entryY !== null) {
-        overlayEntryRef.current.style.display = '';
-        overlayEntryRef.current.style.top = `${entryY}px`;
-      } else {
-        overlayEntryRef.current.style.display = 'none';
-      }
+    // Shaded risk zone (entry↔sl)
+    if (entryY !== null && slY !== null) {
+      const zoneTop = Math.min(entryY, slY);
+      const zoneH = Math.abs(entryY - slY);
+      ctx.save();
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.18)';
+      ctx.fillRect(0, zoneTop, w, zoneH);
+      ctx.restore();
     }
-    // SL line
-    if (overlaySlRef.current) {
-      if (slY !== null) {
-        overlaySlRef.current.style.display = '';
-        overlaySlRef.current.style.top = `${slY}px`;
-      } else {
-        overlaySlRef.current.style.display = 'none';
-      }
-    }
-    // TP line
-    if (overlayTpRef.current) {
-      if (tpY !== null) {
-        overlayTpRef.current.style.display = '';
-        overlayTpRef.current.style.top = `${tpY}px`;
-      } else {
-        overlayTpRef.current.style.display = 'none';
-      }
-    }
-    // Risk zone (entry↔sl)
-    if (overlayRiskZoneRef.current) {
-      if (entryY !== null && slY !== null) {
-        overlayRiskZoneRef.current.style.display = '';
-        overlayRiskZoneRef.current.style.top = `${Math.min(entryY, slY)}px`;
-        overlayRiskZoneRef.current.style.height = `${Math.abs(entryY - slY)}px`;
-      } else {
-        overlayRiskZoneRef.current.style.display = 'none';
-      }
-    }
-    // Profit zone (entry↔tp)
-    if (overlayProfitZoneRef.current) {
-      if (entryY !== null && tpY !== null) {
-        overlayProfitZoneRef.current.style.display = '';
-        overlayProfitZoneRef.current.style.top = `${Math.min(entryY, tpY)}px`;
-        overlayProfitZoneRef.current.style.height = `${Math.abs(entryY - tpY)}px`;
-      } else {
-        overlayProfitZoneRef.current.style.display = 'none';
-      }
-    }
-  }, []);
 
-  // 1. Initialize Lightweight Chart Engine (v5.2)
+    // Shaded profit zone (entry↔tp)
+    if (entryY !== null && tpY !== null) {
+      const zoneTop = Math.min(entryY, tpY);
+      const zoneH = Math.abs(entryY - tpY);
+      ctx.save();
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.18)';
+      ctx.fillRect(0, zoneTop, w, zoneH);
+      ctx.restore();
+    }
+
+    // SL line + badge
+    if (slY !== null) {
+      drawHandle(
+        ctx, slY,
+        'SL', formatPriceDisplay(po.slPrice ?? 0, symbol),
+        '#EF4444', '#DC2626', '#DC2626',
+        true, 140, w,
+      );
+    }
+
+    // TP line + badge
+    if (tpY !== null) {
+      drawHandle(
+        ctx, tpY,
+        'TP', formatPriceDisplay(po.tpPrice ?? 0, symbol),
+        '#10B981', '#059669', '#059669',
+        true, 270, w,
+      );
+    }
+
+    // Entry line + badge (drawn last so it's on top)
+    if (entryY !== null) {
+      drawHandle(
+        ctx, entryY,
+        'ENTRY', formatPriceDisplay(po.entryPrice, symbol),
+        '#06B6D4', '#0891B2', '#0891B2',
+        false, 12, w,
+      );
+    }
+  }, [symbol]);
+
+  // ─── Initialize Lightweight Chart Engine (v5.2) ───────────────────────────
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -333,7 +381,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         borderColor: '#CBD5E1',
         timeVisible: true,
         secondsVisible: timeframe === 'M1',
-        barSpacing: 12,
+        barSpacing: 10,
         minBarSpacing: 1.5,
         rightOffset: 18,
         fixLeftEdge: false,
@@ -416,19 +464,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
     });
 
-    // Subscribe visible logical range and crosshair move for overlay line sync
-    const handleRangeOrCrosshair = () => {
-      syncOverlayDOM();
-    };
+    // Redraw drag canvas on crosshair move and visible range change
+    chart.subscribeCrosshairMove(redrawDragCanvas);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(redrawDragCanvas);
 
-    chart.timeScale().subscribeVisibleLogicalRangeChange(handleRangeOrCrosshair);
-    chart.subscribeCrosshairMove(handleRangeOrCrosshair);
-
-    // Phase 4: pointerdown/pointermove on the chart container covers price-axis drag
-    // (TV doesn't fire visibleLogicalRange or crosshair events during vertical scale drag)
+    // Also catch price-axis vertical scale drag (TV doesn't fire the above events for those)
     let priceAxisDragging = false;
     const onChartPointerDown = () => { priceAxisDragging = true; };
-    const onChartPointerMove = () => { if (priceAxisDragging) syncOverlayDOM(); };
+    const onChartPointerMove = () => { if (priceAxisDragging) redrawDragCanvas(); };
     const onChartPointerUp = () => { priceAxisDragging = false; };
     const chartEl = chartContainerRef.current;
     chartEl?.addEventListener('pointerdown', onChartPointerDown);
@@ -436,13 +479,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     chartEl?.addEventListener('pointerup', onChartPointerUp);
     chartEl?.addEventListener('pointercancel', onChartPointerUp);
 
-    // Responsive Auto-Resize
+    // Responsive Auto-Resize — sync both chart and drag canvas
     const resizeObserver = new ResizeObserver((entries) => {
       if (!entries || entries.length === 0 || !chartRef.current) return;
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) {
         chartRef.current.applyOptions({ width, height });
-        syncOverlayDOM();
+        const canvas = dragCanvasRef.current;
+        if (canvas) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+        redrawDragCanvas();
       }
     });
     resizeObserver.observe(chartContainerRef.current);
@@ -454,8 +502,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       chartEl?.removeEventListener('pointerup', onChartPointerUp);
       chartEl?.removeEventListener('pointercancel', onChartPointerUp);
       try {
-        chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeOrCrosshair);
-        chart.unsubscribeCrosshairMove(handleRangeOrCrosshair);
+        chart.timeScale().unsubscribeVisibleLogicalRangeChange(redrawDragCanvas);
+        chart.unsubscribeCrosshairMove(redrawDragCanvas);
       } catch (_) {}
       chart.remove();
       chartRef.current = null;
@@ -478,7 +526,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     prevFollowReplayRef.current = followReplay;
   }, [followReplay]);
 
-  // 2. Feed Data into Series (Deduplicated & Sorted)
+  // Feed Data into Series (Deduplicated & Sorted)
   useEffect(() => {
     if (!candleSeriesRef.current || !volumeSeriesRef.current || candles.length === 0) return;
 
@@ -536,16 +584,16 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
     }
 
-    // Sync overlay coordinates when candles update
-    syncOverlayDOM();
-  }, [candles, indicators, syncOverlayDOM]);
+    // Redraw drag canvas after candles update
+    redrawDragCanvas();
+  }, [candles, indicators, redrawDragCanvas]);
 
-  // 3. Sync Overlay Coordinates when plannedOrder changes
+  // Redraw drag canvas when plannedOrder changes
   useEffect(() => {
-    syncOverlayDOM();
-  }, [plannedOrder, syncOverlayDOM]);
+    redrawDragCanvas();
+  }, [plannedOrder, redrawDragCanvas]);
 
-  // 4. Render Active Trade Price Lines
+  // Render Active Trade Price Lines
   useEffect(() => {
     if (!candleSeriesRef.current) return;
     const s = candleSeriesRef.current;
@@ -595,7 +643,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [activeTrade]);
 
-  // 5. Render Planned Order Price Lines on Right Price Scale
+  // Render Planned Order Price Lines on Right Price Scale (axis labels)
   useEffect(() => {
     if (!candleSeriesRef.current) return;
     const s = candleSeriesRef.current;
@@ -645,7 +693,45 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [plannedOrder]);
 
-  // Global pointer move & up listeners to guarantee smooth, continuous drag tracking
+  // ─── Drag Canvas Pointer Events ────────────────────────────────────────────
+  // onPointerDown on the drag canvas: hit-test handles or pass through to TV
+  const handleDragCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = dragCanvasRef.current;
+    const series = candleSeriesRef.current;
+    const po = plannedOrderRef.current;
+
+    if (!canvas || !series || !po || !(po.entryPrice > 0)) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const HIT_RADIUS = 12;
+
+    const entryY = series.priceToCoordinate(po.entryPrice);
+    const slY = po.slPrice && po.slPrice > 0 ? series.priceToCoordinate(po.slPrice) : null;
+    const tpY = po.tpPrice && po.tpPrice > 0 ? series.priceToCoordinate(po.tpPrice) : null;
+
+    let hitType: 'ENTRY' | 'SL' | 'TP' | null = null;
+    if (entryY !== null && Math.abs(clickY - entryY) <= HIT_RADIUS) hitType = 'ENTRY';
+    else if (slY !== null && Math.abs(clickY - slY) <= HIT_RADIUS) hitType = 'SL';
+    else if (tpY !== null && Math.abs(clickY - tpY) <= HIT_RADIUS) hitType = 'TP';
+
+    if (hitType) {
+      // Start drag — consume the event
+      e.preventDefault();
+      e.stopPropagation();
+      activeDragTypeRef.current = hitType;
+      canvas.setPointerCapture(e.pointerId);
+    } else {
+      // Not near any handle — pass through to TradingView
+      canvas.style.pointerEvents = 'none';
+      // Restore on next frame so subsequent pointer events work correctly
+      requestAnimationFrame(() => {
+        if (canvas) canvas.style.pointerEvents = 'auto';
+      });
+    }
+  }, []);
+
+  // Global pointer move & up listeners for smooth drag tracking
   useEffect(() => {
     const handleGlobalPointerMove = (e: PointerEvent) => {
       const po = plannedOrderRef.current;
@@ -674,6 +760,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         slPrice: newSl,
         tpPrice: newTp,
       });
+
+      // Immediately redraw canvas to reflect the change
+      redrawDragCanvas();
     };
 
     const handleGlobalPointerUp = () => {
@@ -691,14 +780,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       window.removeEventListener('pointerup', handleGlobalPointerUp);
       window.removeEventListener('pointercancel', handleGlobalPointerUp);
     };
-  }, [symbol, onPlannedOrderChange]);
-
-  // Handle Drag Interactions for Entry, SL, and TP handles
-  const handleDragStart = (type: 'ENTRY' | 'SL' | 'TP', e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    activeDragTypeRef.current = type;
-  };
+  }, [symbol, onPlannedOrderChange, redrawDragCanvas]);
 
   return (
     <div
@@ -706,83 +788,17 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       className="relative w-full h-full min-h-[400px] flex flex-col bg-[#FAF7EE] select-none"
     >
       {/* TradingView Chart Canvas Container — TV owns this div entirely */}
-      <div ref={chartContainerRef} className="w-full flex-1 min-h-0 relative" />
+      <div ref={chartContainerRef} className="w-full flex-1 min-h-0" />
 
-      {/* Phase 1: Interactive Draggable Order Overlay — SIBLING to chartContainerRef, NOT inside it.
-          TV's canvas eats all pointer events inside chartContainerRef. This overlay sits above via z-index. */}
-      <div
-        ref={overlayContainerRef}
-        className="absolute pointer-events-none overflow-hidden"
-        style={{ zIndex: 50, display: 'none' }}
-      >
-        {/* Shaded Risk Zone (Entry↔SL) */}
-        <div
-          ref={overlayRiskZoneRef}
-          className="absolute left-0 right-0 pointer-events-none"
-          style={{ backgroundColor: 'rgba(239, 68, 68, 0.18)', display: 'none' }}
-        />
-
-        {/* Shaded Profit Zone (Entry↔TP) */}
-        <div
-          ref={overlayProfitZoneRef}
-          className="absolute left-0 right-0 pointer-events-none"
-          style={{ backgroundColor: 'rgba(16, 185, 129, 0.18)', display: 'none' }}
-        />
-
-        {/* Entry Line (Cyan) */}
-        <div
-          ref={overlayEntryRef}
-          className="absolute left-0 right-0 flex items-center pointer-events-none"
-          style={{ transform: 'translateY(-50%)', display: 'none' }}
-        >
-          <div className="w-full border-t-2 border-[#06B6D4] border-solid opacity-90" />
-          <div
-            onPointerDown={(e) => handleDragStart('ENTRY', e)}
-            className="absolute left-3 bg-[#06B6D4] text-white text-[11px] font-mono font-bold px-2.5 py-1 border border-[#0891B2] flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none shadow-[1px_1px_0px_0px_#0891B2]"
-          >
-            <span>↕ ENTRY</span>
-            <span className="opacity-90 font-normal">
-              ({formatPriceDisplay(plannedOrder?.entryPrice ?? 0, symbol)})
-            </span>
-          </div>
-        </div>
-
-        {/* SL Line (Red) */}
-        <div
-          ref={overlaySlRef}
-          className="absolute left-0 right-0 flex items-center pointer-events-none"
-          style={{ transform: 'translateY(-50%)', display: 'none' }}
-        >
-          <div className="w-full border-t-2 border-[#EF4444] border-dashed opacity-90" />
-          <div
-            onPointerDown={(e) => handleDragStart('SL', e)}
-            className="absolute left-[140px] bg-[#EF4444] text-white text-[11px] font-mono font-bold px-2.5 py-1 border border-[#DC2626] flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none shadow-[1px_1px_0px_0px_#DC2626]"
-          >
-            <span>↕ SL</span>
-            <span className="opacity-90 font-normal">
-              ({formatPriceDisplay(plannedOrder?.slPrice ?? 0, symbol)})
-            </span>
-          </div>
-        </div>
-
-        {/* TP Line (Green) */}
-        <div
-          ref={overlayTpRef}
-          className="absolute left-0 right-0 flex items-center pointer-events-none"
-          style={{ transform: 'translateY(-50%)', display: 'none' }}
-        >
-          <div className="w-full border-t-2 border-[#10B981] border-dashed opacity-90" />
-          <div
-            onPointerDown={(e) => handleDragStart('TP', e)}
-            className="absolute left-[270px] bg-[#10B981] text-white text-[11px] font-mono font-bold px-2.5 py-1 border border-[#059669] flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none shadow-[1px_1px_0px_0px_#059669]"
-          >
-            <span>↕ TP</span>
-            <span className="opacity-90 font-normal">
-              ({formatPriceDisplay(plannedOrder?.tpPrice ?? 0, symbol)})
-            </span>
-          </div>
-        </div>
-      </div>
+      {/* Drag canvas — sibling to chartContainerRef, rendered OUTSIDE TV's container.
+          Handles all Entry/SL/TP line drawing and drag interactions via Canvas 2D API.
+          When not near a handle, pointer events pass through to TradingView. */}
+      <canvas
+        ref={dragCanvasRef}
+        className="absolute top-0 left-0"
+        style={{ zIndex: 100, pointerEvents: 'auto' }}
+        onPointerDown={handleDragCanvasPointerDown}
+      />
 
       {/* Loading & Status Overlay */}
       {isLoading && (
