@@ -972,35 +972,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       const rawHeight = Math.abs(yClose - yOpen);
       const isBullish = candle.close >= candle.open;
-      const bodyColor = isBullish ? '#16A34A' : '#DC2626';
-      const borderColor = isBullish ? '#15803D' : '#B91C1C';
-      const wickColor = isBullish ? '#15803D' : '#B91C1C';
+      const bodyColor = isBullish ? '#089981' : '#F23645';
+      const borderColor = isBullish ? '#087F6B' : '#D12434';
+      const wickColor = isBullish ? '#089981' : '#F23645';
 
-      // --- WICK (upper + lower shadow) ---
-      // Always 1px sharp line, snapped to half-pixel for crispness
+      // --- WICK (Continuous single vertical spine matching TradingView) ---
       const wickX = Math.floor(centerX) + 0.5;
       ctx.lineWidth = 1;
       ctx.strokeStyle = wickColor;
+      ctx.beginPath();
+      ctx.moveTo(wickX, Math.round(yHigh));
+      ctx.lineTo(wickX, Math.round(yLow));
+      ctx.stroke();
 
-      // Upper wick: from high to top of body
       const bodyTopY = Math.min(yOpen, yClose);
       const bodyBotY = Math.max(yOpen, yClose);
-      const wickHighY = Math.round(yHigh);
-      const wickLowY = Math.round(yLow);
-
-      if (wickHighY < Math.round(bodyTopY)) {
-        ctx.beginPath();
-        ctx.moveTo(wickX, wickHighY);
-        ctx.lineTo(wickX, Math.round(bodyTopY));
-        ctx.stroke();
-      }
-      // Lower wick: from bottom of body to low
-      if (wickLowY > Math.round(bodyBotY)) {
-        ctx.beginPath();
-        ctx.moveTo(wickX, Math.round(bodyBotY));
-        ctx.lineTo(wickX, wickLowY);
-        ctx.stroke();
-      }
 
       // --- BODY ---
       // True doji: open === close (or body < 0.3px). Draw horizontal tick mark.
@@ -1010,19 +996,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         ctx.strokeStyle = bodyColor;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(bodyLeft - 1, dojiY);
-        ctx.lineTo(bodyLeft + bodyWidth + 1, dojiY);
+        ctx.moveTo(bodyLeft, dojiY);
+        ctx.lineTo(bodyLeft + bodyWidth, dojiY);
         ctx.stroke();
       } else {
-        // Ensure minimum 2px body height so candle is always visible
-        const bodyHeight = Math.max(2, Math.round(rawHeight));
+        const bodyHeight = Math.max(1, Math.round(rawHeight));
         const bodyTop = Math.round(bodyTopY);
 
         ctx.fillStyle = bodyColor;
         ctx.fillRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
 
-        // Border only when candle is wide enough that border doesn't eat the fill
-        if (cw >= 7 && bodyWidth >= 5 && bodyHeight >= 4) {
+        // Thin crisp border on candles with width >= 5
+        if (bodyWidth >= 5 && bodyHeight >= 4) {
           ctx.strokeStyle = borderColor;
           ctx.lineWidth = 1;
           ctx.strokeRect(bodyLeft + 0.5, bodyTop + 0.5, bodyWidth - 1, bodyHeight - 1);
