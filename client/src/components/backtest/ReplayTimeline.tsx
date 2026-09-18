@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
 import { Clock, MapPin } from 'lucide-react';
 
@@ -73,15 +73,18 @@ export const ReplayTimeline: React.FC<ReplayTimelineProps> = ({
     }
   };
 
-  // Milestone years for timeline ticks
-  const milestones = [
-    { label: '2021', time: new Date('2021-09-01T00:00:00Z').getTime() },
-    { label: '2022', time: new Date('2022-01-01T00:00:00Z').getTime() },
-    { label: '2023', time: new Date('2023-01-01T00:00:00Z').getTime() },
-    { label: '2024', time: new Date('2024-01-01T00:00:00Z').getTime() },
-    { label: '2025', time: new Date('2025-01-01T00:00:00Z').getTime() },
-    { label: '2026', time: new Date('2026-01-01T00:00:00Z').getTime() },
-  ];
+  // Dynamic Milestone years based on visible range to prevent text collision
+  const milestones = useMemo(() => {
+    const startYear = dateFrom.getFullYear();
+    const endYear = dateTo.getFullYear();
+    const span = endYear - startYear;
+    const step = span > 10 ? 4 : span > 5 ? 2 : 1;
+    const list: { label: string; time: number }[] = [];
+    for (let y = startYear; y <= endYear; y += step) {
+      list.push({ label: String(y), time: new Date(`${y}-01-01T00:00:00Z`).getTime() });
+    }
+    return list;
+  }, [dateFrom, dateTo]);
 
   return (
     <div className="bg-white border-2 border-[#121212] shadow-[3px_3px_0px_0px_#121212] px-4 py-2 select-none text-[#121212]">

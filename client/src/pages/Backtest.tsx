@@ -47,6 +47,7 @@ import { CandlestickChart, ChartCandle, ChartIndicators, DrawingItem, PlannedOrd
 import { DrawingToolbar, DrawingTool } from '../components/backtest/DrawingToolbar';
 import { ReplayControls, ReplaySpeed, ChartTimeframe, AppMode } from '../components/backtest/ReplayControls';
 import { SymbolPicker, SymbolOption, getCanonicalProvider } from '../components/backtest/SymbolPicker';
+import { getCachedCandles, setCachedCandles } from '../services/indexedDbCache';
 import { ReplayTimeline } from '../components/backtest/ReplayTimeline';
 import { JumpToDateDialog } from '../components/backtest/JumpToDateDialog';
 import { OrderPanel, type OrderPanelHandle } from '../components/backtest/OrderPanel';
@@ -511,6 +512,14 @@ export default function Backtest() {
     setError(null);
     const fetchStartTime = Date.now();
     try {
+      // 1. Instant Cache Check via IndexedDB
+      const cached = await getCachedCandles(sym, tf);
+      if (cached && cached.length > 0 && candleRequestSeqRef.current === reqSeq) {
+        setCandles(cached);
+        setReplayTime(new Date(cached[cached.length - 1].time));
+        setLoading(false);
+      }
+
       const prov = getProviderForSymbol(sym);
       const res = await fetch(
         apiUrl(`/backtest/candles?symbol=${sym}&timeframe=${tf}&provider=${prov}&limit=1500`),
@@ -524,6 +533,8 @@ export default function Backtest() {
       setCandles(fetchedCandles);
       if (fetchedCandles.length > 0) {
         setReplayTime(new Date(fetchedCandles[fetchedCandles.length - 1].time));
+        // Persist to IndexedDB
+        setCachedCandles(sym, tf, fetchedCandles);
       } else {
         setError(`candles ${sym} kosong (${tf}). Silakan pilih instrumen lain.`);
       }

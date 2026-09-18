@@ -405,6 +405,14 @@ router.get('/next-candle', async (req: Request, res: Response) => {
 
     const tfMinutes = TIMEFRAME_MINUTES[targetTF] || 1;
 
+    // Fast-path: For XAUUSD, query high-speed Parquet DuckDB engine first
+    if (symbol.toUpperCase() === 'XAUUSD') {
+      const pqNext = await parquetProvider.getNextCandle({ symbol, timeframe: targetTF, afterTime });
+      if (pqNext) {
+        return res.json({ ok: true, data: pqNext });
+      }
+    }
+
     if (targetTF === 'M1') {
       const nextCandle = await prisma.mt5CandleData.findFirst({
         where: {

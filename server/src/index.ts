@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import path from 'path';
 import prisma from './prisma';
@@ -41,6 +42,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
+app.use(compression());
 app.use(cors({
   origin: '*', // For local/personal development, accept all origins
 }));
@@ -125,6 +127,8 @@ async function tryListen(port: number) {
 }
 
 // Initialize database check and listen
+import { isParquetAvailable } from './integrations/mt5-sync/parquetDataProvider';
+
 async function startServer() {
   try {
     // Check DB Connection
@@ -168,6 +172,9 @@ async function startServer() {
     }
 
     console.log(`Server ReplayFX Journal berjalan di: http://localhost:${boundPort}`);
+
+    // Pre-warm Parquet DuckDB engine on boot so first request is instant
+    isParquetAvailable().catch(() => {});
   } catch (error) {
     console.error('Gagal memulai server:', error);
     process.exit(1);

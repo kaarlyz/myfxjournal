@@ -422,8 +422,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       if (appendedCount > 0) {
         if (appMode === 'replay' && followReplay) {
-          panXRef.current = 0;
-          setPanOffsetX(0);
+          // Keep current pan offset so user viewport stays locked at their desired position!
         } else {
           const cw = cwRef.current;
           const slot = cw;
@@ -560,7 +559,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const drawableHeight = Math.max(20, mainH - volH - paddingTop - paddingBottom);
 
     const slot = cw;
-    const rightMargin = Math.max(35, cw * 5);
+    // Generous breathing room right margin (TradingView style rightOffset of 15-20 bars)
+    const rightMargin = Math.max(90, Math.round(cw * 14));
     const lastGlobalIdx = Math.max(0, candles.length - 1);
 
     // Clamp panX within allowable bounds to prevent all candles from vanishing off-screen
