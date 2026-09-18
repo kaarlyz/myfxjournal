@@ -45,13 +45,16 @@
 
 ### Chart Replay (ReplayFX)
 | Fitur | Deskripsi |
-|-------|-----------|
-| **Tick-Accurate Replay** | Replay M1–D1 dari 725jt+ tick kanonis via DuckDB, tanpa look-ahead bias |
+|---|---|
+| **Tick-Accurate Replay** | Replay M1–D1 dari 725jt+ raw tick Dukascopy via DuckDB streaming Parquet (2003–2026), tanpa look-ahead bias |
+| **TradingView-Grade Aesthetics** | Single continuous spine wick, half-pixel anti-aliasing snapping, dan palet presisi (#089981 / #F23645) |
+| **Pre-Aggregated Parquet & 0% CPU Spike** | Multi-timeframe Parquet layer (M1 s/d D1) dengan latency switch instan (<30 ms) |
+| **IndexedDB Offline Client Cache** | Caching candle lokal browser client (`KAFX_MarketData_Cache`) dengan instant render zero-delay |
+| **Interactive Visual Order** | Drag & drop batas Entry, Stop Loss, dan Take Profit interaktif dengan live preview Risk:Reward |
+| **Dynamic Milestone Timeline** | Scrubber timeline 23 tahun (2003–2026) dengan auto-spacing milestone tahun anti-tabrakan teks |
 | **Custom Symbol Picker** | Bottom-sheet picker di mobile + popover desktop (provider, jumlah candle, range tanggal) |
-| **Atomic Order Fill** | Pending terpicu jadi posisi dalam satu batch render, tanpa flicker |
-| **Auto-Recenter Canvas** | Ganti pair/timeframe langsung auto-scale + clamp viewport, anti blank |
-| **GPU-Accelerated Drag** | Order overlay & trade pill pakai transform ref (zero re-render) |
-| **Mobile 384px** | Compact header, pill terkunci anti-overlap, backdrop + scroll-lock |
+| **Atomic Order Fill** | Pending order (Limit/Stop) terpicu otomatis menjadi posisi terbuka dalam satu batch render |
+| **Server Compression (Gzip)** | Payload candle JSON terkompresi otomatis, hemat bandwidth 75% di jaringan tunnel/HP |
 
 ### Live Trading & MT5
 | Fitur | Deskripsi |
