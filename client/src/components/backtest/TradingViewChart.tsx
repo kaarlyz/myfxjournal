@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
   createChart,
   CandlestickSeries,
@@ -91,7 +91,7 @@ export interface CandlestickChartProps {
   onEditPendingOrder?: (order: PendingOrderRecord) => void;
   onCloseActiveTrade?: () => void;
   plannedOrder?: PlannedOrderPreview | null;
-  onPlannedOrderChange?: (newPlanned: any) => void;
+  onPlannedOrderChange?: (newPlanned: { entryPrice: number; slPrice: number; tpPrice: number }) => void;
   onExecutePlannedTrade?: (pos?: any) => void;
   isVisualOrderActive?: boolean;
   onConfirmVisualOrder?: () => void;
@@ -117,7 +117,7 @@ function toUtcTimestamp(timeInput: string | Date | number): UTCTimestamp {
 function calculateSMAData(candles: { time: UTCTimestamp; close: number }[], period: number) {
   const result: { time: UTCTimestamp; value: number }[] = [];
   if (candles.length < period) return result;
-  
+
   let sum = 0;
   for (let i = 0; i < period; i++) {
     sum += candles[i].close;
@@ -131,6 +131,37 @@ function calculateSMAData(candles: { time: UTCTimestamp; close: number }[], peri
   return result;
 }
 
+// Format price stepping based on symbol
+function formatPriceStep(price: number, symbol?: string): number {
+  const sym = (symbol || '').toUpperCase();
+  if (
+    sym.includes('EUR') ||
+    sym.includes('GBP') ||
+    sym.includes('AUD') ||
+    sym.includes('NZD') ||
+    (sym.includes('USD') && !sym.includes('XAU') && !sym.includes('JPY'))
+  ) {
+    return Math.round(price * 100000) / 100000;
+  }
+  return Math.round(price * 100) / 100;
+}
+
+// Format price display text
+function formatPriceDisplay(price: number, symbol?: string): string {
+  if (!price || isNaN(price)) return '0.00';
+  const sym = (symbol || '').toUpperCase();
+  if (
+    sym.includes('EUR') ||
+    sym.includes('GBP') ||
+    sym.includes('AUD') ||
+    sym.includes('NZD') ||
+    (sym.includes('USD') && !sym.includes('XAU') && !sym.includes('JPY'))
+  ) {
+    return price.toFixed(5);
+  }
+  return price.toFixed(2);
+}
+
 export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   candles,
   timeframe = 'M1',
@@ -142,16 +173,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   indicators = { sma20: true, sma50: true, sma200: false },
   onReplaySelectionClick,
   followReplay = true,
+  onDisableFollowReplay,
   plannedOrder,
+  onPlannedOrderChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const sma20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const sma50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const sma200SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
-  
+
   // Price lines for Active Trade & Planned Order
   const activeEntryLineRef = useRef<any>(null);
   const activeSlLineRef = useRef<any>(null);
@@ -160,15 +194,54 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const plannedSlLineRef = useRef<any>(null);
   const plannedTpLineRef = useRef<any>(null);
 
-  // 1. Initialize Chart
-  useEffect(() => {
-    if (!containerRef.current) return;
+  // Overlay Y pixel coordinates
+  const [overlayCoords, setOverlayCoords] = useState<{
+    entryY: number | null;
+    slY: number | null;
+    tpY: number | null;
+  }>({ entryY: null, slY: null, tpY: null });
 
-    const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight || 450,
+  // Dragging state tracking ref
+  const activeDragTypeRef = useRef<'ENTRY' | 'SL' | 'TP' | null>(null);
+  const prevFollowReplayRef = useRef<boolean>(followReplay);
+
+  // Function to calculate price pixel coordinates
+  const updateOverlayCoords = useCallback(() => {
+    if (!candleSeriesRef.current || !plannedOrder || !(plannedOrder.entryPrice > 0)) {
+      setOverlayCoords((prev) => {
+        if (prev.entryY === null && prev.slY === null && prev.tpY === null) return prev;
+        return { entryY: null, slY: null, tpY: null };
+      });
+      return;
+    }
+
+    const series = candleSeriesRef.current;
+    const entryY = series.priceToCoordinate(plannedOrder.entryPrice);
+    const slY =
+      plannedOrder.slPrice && plannedOrder.slPrice > 0
+        ? series.priceToCoordinate(plannedOrder.slPrice)
+        : null;
+    const tpY =
+      plannedOrder.tpPrice && plannedOrder.tpPrice > 0
+        ? series.priceToCoordinate(plannedOrder.tpPrice)
+        : null;
+
+    setOverlayCoords({
+      entryY: entryY ?? null,
+      slY: slY ?? null,
+      tpY: tpY ?? null,
+    });
+  }, [plannedOrder]);
+
+  // 1. Initialize Lightweight Chart Engine (v5.2)
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: chartContainerRef.current.clientHeight || 450,
       layout: {
-        background: { type: ColorType.Solid, color: '#FAF7EE' }, // Paper ledger cream
+        background: { type: ColorType.Solid, color: '#FAF7EE' },
         textColor: '#1E293B',
         fontSize: 11,
         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -206,10 +279,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         secondsVisible: timeframe === 'M1',
         barSpacing: 8,
         minBarSpacing: 1.5,
-        rightOffset: 15,
+        rightOffset: 18,
         fixLeftEdge: false,
         fixRightEdge: false,
-        shiftVisibleRangeOnNewBar: true,
+        shiftVisibleRangeOnNewBar: followReplay,
       },
       handleScroll: {
         mouseWheel: true,
@@ -224,7 +297,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       },
     });
 
-    // Add Candlestick Series (TradingView v5.2 Standard Colors)
+    // Add Candlestick Series
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#089981',
       downColor: '#F23645',
@@ -239,13 +312,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       },
     });
 
-    // Add Volume Histogram Series (Overlay at bottom)
+    // Add Volume Histogram Series
     const volumeSeries = chart.addSeries(HistogramSeries, {
       color: 'rgba(8, 153, 129, 0.35)',
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume_scale',
     });
-    
+
     chart.priceScale('volume_scale').applyOptions({
       scaleMargins: {
         top: 0.82,
@@ -255,19 +328,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     // Add SMA Series
     const sma20 = chart.addSeries(LineSeries, {
-      color: '#3B82F6', // Blue
+      color: '#3B82F6',
       lineWidth: 2,
       priceLineVisible: false,
       crosshairMarkerVisible: false,
     });
     const sma50 = chart.addSeries(LineSeries, {
-      color: '#F97316', // Orange
+      color: '#F97316',
       lineWidth: 2,
       priceLineVisible: false,
       crosshairMarkerVisible: false,
     });
     const sma200 = chart.addSeries(LineSeries, {
-      color: '#8B5CF6', // Purple
+      color: '#8B5CF6',
       lineWidth: 2,
       priceLineVisible: false,
       crosshairMarkerVisible: false,
@@ -288,28 +361,56 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
     });
 
+    // Subscribe visible logical range and crosshair move for overlay line sync
+    const handleRangeOrCrosshair = () => {
+      updateOverlayCoords();
+    };
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleRangeOrCrosshair);
+    chart.subscribeCrosshairMove(handleRangeOrCrosshair);
+
     // Responsive Auto-Resize
     const resizeObserver = new ResizeObserver((entries) => {
       if (!entries || entries.length === 0 || !chartRef.current) return;
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) {
         chartRef.current.applyOptions({ width, height });
+        updateOverlayCoords();
       }
     });
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(chartContainerRef.current);
 
     return () => {
       resizeObserver.disconnect();
+      try {
+        chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeOrCrosshair);
+        chart.unsubscribeCrosshairMove(handleRangeOrCrosshair);
+      } catch (_) {}
       chart.remove();
       chartRef.current = null;
     };
   }, []);
 
-  // 2. Feed Data into Series
+  // Update timeScale options dynamically when followReplay changes
+  useEffect(() => {
+    if (!chartRef.current) return;
+    chartRef.current.applyOptions({
+      timeScale: {
+        shiftVisibleRangeOnNewBar: followReplay,
+      },
+    });
+
+    // Only scrollToPosition when followReplay is explicitly toggled ON by user
+    if (followReplay && !prevFollowReplayRef.current) {
+      chartRef.current.timeScale().scrollToPosition(18, false);
+    }
+    prevFollowReplayRef.current = followReplay;
+  }, [followReplay]);
+
+  // 2. Feed Data into Series (Deduplicated & Sorted)
   useEffect(() => {
     if (!candleSeriesRef.current || !volumeSeriesRef.current || candles.length === 0) return;
 
-    // Deduplicate and strictly sort ascending
     const timeMap = new Map<number, ChartCandle>();
     for (const c of candles) {
       const ts = toUtcTimestamp(c.time);
@@ -364,20 +465,32 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
     }
 
-    if (followReplay && chartRef.current) {
-      chartRef.current.timeScale().scrollToRealTime();
-    }
-  }, [candles, indicators, followReplay]);
+    // Sync overlay coordinates when candles update
+    updateOverlayCoords();
+  }, [candles, indicators, updateOverlayCoords]);
 
-  // 3. Render Active Trade Price Lines
+  // 3. Sync Overlay Coordinates when plannedOrder changes
+  useEffect(() => {
+    updateOverlayCoords();
+  }, [plannedOrder, updateOverlayCoords]);
+
+  // 4. Render Active Trade Price Lines
   useEffect(() => {
     if (!candleSeriesRef.current) return;
     const s = candleSeriesRef.current;
 
-    // Clean up old lines
-    if (activeEntryLineRef.current) { s.removePriceLine(activeEntryLineRef.current); activeEntryLineRef.current = null; }
-    if (activeSlLineRef.current) { s.removePriceLine(activeSlLineRef.current); activeSlLineRef.current = null; }
-    if (activeTpLineRef.current) { s.removePriceLine(activeTpLineRef.current); activeTpLineRef.current = null; }
+    if (activeEntryLineRef.current) {
+      s.removePriceLine(activeEntryLineRef.current);
+      activeEntryLineRef.current = null;
+    }
+    if (activeSlLineRef.current) {
+      s.removePriceLine(activeSlLineRef.current);
+      activeSlLineRef.current = null;
+    }
+    if (activeTpLineRef.current) {
+      s.removePriceLine(activeTpLineRef.current);
+      activeTpLineRef.current = null;
+    }
 
     if (activeTrade) {
       activeEntryLineRef.current = s.createPriceLine({
@@ -411,25 +524,34 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [activeTrade]);
 
-  // 4. Render Planned Order Price Lines
+  // 5. Render Planned Order Price Lines on Right Price Scale
   useEffect(() => {
     if (!candleSeriesRef.current) return;
     const s = candleSeriesRef.current;
 
-    if (plannedEntryLineRef.current) { s.removePriceLine(plannedEntryLineRef.current); plannedEntryLineRef.current = null; }
-    if (plannedSlLineRef.current) { s.removePriceLine(plannedSlLineRef.current); plannedSlLineRef.current = null; }
-    if (plannedTpLineRef.current) { s.removePriceLine(plannedTpLineRef.current); plannedTpLineRef.current = null; }
+    if (plannedEntryLineRef.current) {
+      s.removePriceLine(plannedEntryLineRef.current);
+      plannedEntryLineRef.current = null;
+    }
+    if (plannedSlLineRef.current) {
+      s.removePriceLine(plannedSlLineRef.current);
+      plannedSlLineRef.current = null;
+    }
+    if (plannedTpLineRef.current) {
+      s.removePriceLine(plannedTpLineRef.current);
+      plannedTpLineRef.current = null;
+    }
 
-    if (plannedOrder) {
+    if (plannedOrder && plannedOrder.entryPrice > 0) {
       plannedEntryLineRef.current = s.createPriceLine({
         price: plannedOrder.entryPrice,
-        color: '#F59E0B',
+        color: '#06B6D4',
         lineWidth: 2,
-        lineStyle: LineStyle.Dotted,
+        lineStyle: LineStyle.Solid,
         axisLabelVisible: true,
         title: `PLAN ${plannedOrder.side} ${plannedOrder.lotSize}L`,
       });
-      if (plannedOrder.slPrice) {
+      if (plannedOrder.slPrice && plannedOrder.slPrice > 0) {
         plannedSlLineRef.current = s.createPriceLine({
           price: plannedOrder.slPrice,
           color: '#EF4444',
@@ -439,7 +561,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           title: 'PLAN SL',
         });
       }
-      if (plannedOrder.tpPrice) {
+      if (plannedOrder.tpPrice && plannedOrder.tpPrice > 0) {
         plannedTpLineRef.current = s.createPriceLine({
           price: plannedOrder.tpPrice,
           color: '#10B981',
@@ -452,17 +574,166 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [plannedOrder]);
 
+  // Handle Drag Interactions for Entry, SL, and TP handles
+  const handleDragStart = (type: 'ENTRY' | 'SL' | 'TP', e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    activeDragTypeRef.current = type;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handleDragMove = (e: React.PointerEvent) => {
+    if (
+      !activeDragTypeRef.current ||
+      !candleSeriesRef.current ||
+      !plannedOrder ||
+      !chartContainerRef.current
+    )
+      return;
+
+    const rect = chartContainerRef.current.getBoundingClientRect();
+    const relativeY = e.clientY - rect.top;
+    const rawPrice = candleSeriesRef.current.coordinateToPrice(relativeY);
+    if (rawPrice === null || isNaN(rawPrice) || rawPrice <= 0) return;
+
+    const newPrice = formatPriceStep(rawPrice, symbol);
+    const type = activeDragTypeRef.current;
+
+    let newEntry = plannedOrder.entryPrice;
+    let newSl = plannedOrder.slPrice || 0;
+    let newTp = plannedOrder.tpPrice || 0;
+
+    if (type === 'ENTRY') newEntry = newPrice;
+    else if (type === 'SL') newSl = newPrice;
+    else if (type === 'TP') newTp = newPrice;
+
+    onPlannedOrderChange?.({
+      entryPrice: newEntry,
+      slPrice: newSl,
+      tpPrice: newTp,
+    });
+  };
+
+  const handleDragEnd = (e: React.PointerEvent) => {
+    if (activeDragTypeRef.current) {
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch (_) {}
+      activeDragTypeRef.current = null;
+    }
+  };
+
   return (
-    <div className="relative w-full h-full min-h-[400px] flex flex-col bg-[#FAF7EE] select-none">
-      {/* Chart Canvas Container */}
-      <div ref={containerRef} className="w-full flex-1 min-h-0 relative" />
+    <div
+      ref={containerRef}
+      className="relative w-full h-full min-h-[400px] flex flex-col bg-[#FAF7EE] select-none"
+    >
+      {/* TradingView Chart Canvas Container */}
+      <div ref={chartContainerRef} className="w-full flex-1 min-h-0 relative" />
+
+      {/* Interactive Draggable Order Overlay */}
+      {plannedOrder && plannedOrder.entryPrice > 0 && (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
+          {/* Shaded Risk Zone (Red rgba(239, 68, 68, 0.18)) */}
+          {overlayCoords.entryY !== null && overlayCoords.slY !== null && (
+            <div
+              className="absolute left-0 right-0 pointer-events-none transition-none"
+              style={{
+                top: `${Math.min(overlayCoords.entryY, overlayCoords.slY)}px`,
+                height: `${Math.abs(overlayCoords.entryY - overlayCoords.slY)}px`,
+                backgroundColor: 'rgba(239, 68, 68, 0.18)',
+              }}
+            />
+          )}
+
+          {/* Shaded Profit Zone (Green rgba(16, 185, 129, 0.18)) */}
+          {overlayCoords.entryY !== null && overlayCoords.tpY !== null && (
+            <div
+              className="absolute left-0 right-0 pointer-events-none transition-none"
+              style={{
+                top: `${Math.min(overlayCoords.entryY, overlayCoords.tpY)}px`,
+                height: `${Math.abs(overlayCoords.entryY - overlayCoords.tpY)}px`,
+                backgroundColor: 'rgba(16, 185, 129, 0.18)',
+              }}
+            />
+          )}
+
+          {/* Entry Line (Cyan #06B6D4) with Pill Handle */}
+          {overlayCoords.entryY !== null && (
+            <div
+              className="absolute left-0 right-0 flex items-center pointer-events-none"
+              style={{ top: `${overlayCoords.entryY}px`, transform: 'translateY(-50%)' }}
+            >
+              <div className="w-full border-t-2 border-[#06B6D4] border-solid" />
+              <div
+                onPointerDown={(e) => handleDragStart('ENTRY', e)}
+                onPointerMove={handleDragMove}
+                onPointerUp={handleDragEnd}
+                onPointerCancel={handleDragEnd}
+                className="absolute left-3 bg-[#06B6D4] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/40 touch-none"
+              >
+                <span>↕ GESER ENTRY</span>
+                <span className="opacity-90 font-normal">
+                  ({formatPriceDisplay(plannedOrder.entryPrice, symbol)})
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* SL Line (Red #EF4444) with Pill Handle */}
+          {overlayCoords.slY !== null && plannedOrder.slPrice && plannedOrder.slPrice > 0 && (
+            <div
+              className="absolute left-0 right-0 flex items-center pointer-events-none"
+              style={{ top: `${overlayCoords.slY}px`, transform: 'translateY(-50%)' }}
+            >
+              <div className="w-full border-t-2 border-[#EF4444] border-dashed" />
+              <div
+                onPointerDown={(e) => handleDragStart('SL', e)}
+                onPointerMove={handleDragMove}
+                onPointerUp={handleDragEnd}
+                onPointerCancel={handleDragEnd}
+                className="absolute left-[150px] bg-[#EF4444] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/40 touch-none"
+              >
+                <span>↕ GESER SL</span>
+                <span className="opacity-90 font-normal">
+                  ({formatPriceDisplay(plannedOrder.slPrice, symbol)})
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* TP Line (Green #10B981) with Pill Handle */}
+          {overlayCoords.tpY !== null && plannedOrder.tpPrice && plannedOrder.tpPrice > 0 && (
+            <div
+              className="absolute left-0 right-0 flex items-center pointer-events-none"
+              style={{ top: `${overlayCoords.tpY}px`, transform: 'translateY(-50%)' }}
+            >
+              <div className="w-full border-t-2 border-[#10B981] border-dashed" />
+              <div
+                onPointerDown={(e) => handleDragStart('TP', e)}
+                onPointerMove={handleDragMove}
+                onPointerUp={handleDragEnd}
+                onPointerCancel={handleDragEnd}
+                className="absolute left-[280px] bg-[#10B981] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/40 touch-none"
+              >
+                <span>↕ GESER TP</span>
+                <span className="opacity-90 font-normal">
+                  ({formatPriceDisplay(plannedOrder.tpPrice, symbol)})
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Loading & Status Overlay */}
       {isLoading && (
         <div className="absolute inset-0 bg-[#FAF7EE]/60 backdrop-blur-[1px] flex items-center justify-center z-20 pointer-events-none">
           <div className="flex items-center gap-2 bg-[#FFFDEB] border-2 border-[#121212] px-3 py-1.5 shadow-[2px_2px_0px_0px_#121212]">
             <div className="w-3 h-3 border-2 border-[#121212] border-t-transparent animate-spin rounded-full" />
-            <span className="text-xs font-bold text-[#121212] uppercase tracking-wider">Loading {symbol} ({timeframe})...</span>
+            <span className="text-xs font-bold text-[#121212] uppercase tracking-wider">
+              Loading {symbol} ({timeframe})...
+            </span>
           </div>
         </div>
       )}
