@@ -464,8 +464,27 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
     });
 
-    // Redraw drag canvas on crosshair move and visible range change
-    chart.subscribeCrosshairMove(redrawDragCanvas);
+    // Redraw drag canvas on crosshair move and toggle pointer-events based on handle proximity
+    const handleCrosshairMove = (param: any) => {
+      redrawDragCanvas();
+      // Toggle pointer-events on drag canvas: enable only when cursor is near a handle
+      const canvas = dragCanvasRef.current;
+      const series = candleSeriesRef.current;
+      const po = plannedOrderRef.current;
+      if (!canvas || !series || !po || !(po.entryPrice > 0) || activeDragTypeRef.current) return;
+      const point = param?.point;
+      if (!point) { canvas.style.pointerEvents = 'none'; return; }
+      const mouseY = point.y;
+      const HIT_RADIUS = 16;
+      const entryY = series.priceToCoordinate(po.entryPrice);
+      const slY = po.slPrice && po.slPrice > 0 ? series.priceToCoordinate(po.slPrice) : null;
+      const tpY = po.tpPrice && po.tpPrice > 0 ? series.priceToCoordinate(po.tpPrice) : null;
+      const nearHandle = (entryY !== null && Math.abs(mouseY - entryY) <= HIT_RADIUS)
+        || (slY !== null && Math.abs(mouseY - slY) <= HIT_RADIUS)
+        || (tpY !== null && Math.abs(mouseY - tpY) <= HIT_RADIUS);
+      canvas.style.pointerEvents = nearHandle ? 'auto' : 'none';
+    };
+    chart.subscribeCrosshairMove(handleCrosshairMove);
     chart.timeScale().subscribeVisibleLogicalRangeChange(redrawDragCanvas);
 
     // Also catch price-axis vertical scale drag (TV doesn't fire the above events for those)
@@ -503,7 +522,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       chartEl?.removeEventListener('pointercancel', onChartPointerUp);
       try {
         chart.timeScale().unsubscribeVisibleLogicalRangeChange(redrawDragCanvas);
-        chart.unsubscribeCrosshairMove(redrawDragCanvas);
+        chart.unsubscribeCrosshairMove(handleCrosshairMove);
       } catch (_) {}
       chart.remove();
       chartRef.current = null;
@@ -720,14 +739,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       e.preventDefault();
       e.stopPropagation();
       activeDragTypeRef.current = hitType;
-      canvas.setPointerCapture(e.pointerId);
+      // Do NOT use setPointerCapture — it blocks other UI elements
     } else {
-      // Not near any handle — pass through to TradingView
-      canvas.style.pointerEvents = 'none';
-      // Restore on next frame so subsequent pointer events work correctly
-      requestAnimationFrame(() => {
-        if (canvas) canvas.style.pointerEvents = 'auto';
-      });
+      // Not near any handle — do nothing, let event pass through (canvas has pointerEvents=none when cursor not near handle)
     }
   }, []);
 
@@ -738,6 +752,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       if (!activeDragTypeRef.current || !candleSeriesRef.current || !po || !chartContainerRef.current) {
         return;
       }
+
+      // Keep canvas interactive during drag
+      const canvas = dragCanvasRef.current;
+      if (canvas) canvas.style.pointerEvents = 'auto';
 
       const rect = chartContainerRef.current.getBoundingClientRect();
       const relativeY = e.clientY - rect.top;
@@ -768,6 +786,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const handleGlobalPointerUp = () => {
       if (activeDragTypeRef.current) {
         activeDragTypeRef.current = null;
+        // Reset pointer-events to none so chart can be interacted with again
+        const canvas = dragCanvasRef.current;
+        if (canvas) canvas.style.pointerEvents = 'none';
       }
     };
 
@@ -796,7 +817,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       <canvas
         ref={dragCanvasRef}
         className="absolute top-0 left-0"
-        style={{ zIndex: 40, pointerEvents: plannedOrder && plannedOrder.entryPrice > 0 ? 'auto' : 'none' }}
+        style={{ zIndex: 40, pointerEvents: 'none' }}
         onPointerDown={handleDragCanvasPointerDown}
       />
 
