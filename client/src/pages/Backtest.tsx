@@ -1246,7 +1246,7 @@ export default function Backtest() {
       if (curTrade && curTrade.status === 'OPEN' && sessionId) {
         const hitResult = evaluateCandleHit(
           {
-            side: curTrade.side,
+            side: ((curTrade.side as string) === 'BUY' || (curTrade.side as string) === 'LONG' ? 'LONG' : 'SHORT') as TradeSide,
             entryPrice: curTrade.entryPrice,
             slPrice: curTrade.slPrice,
             tpPrice: curTrade.tpPrice,

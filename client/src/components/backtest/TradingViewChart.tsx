@@ -216,11 +216,23 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const po = plannedOrderRef.current;
     const series = candleSeriesRef.current;
     const container = overlayContainerRef.current;
+    const chartEl = chartContainerRef.current;
+    const parentEl = containerRef.current;
     if (!container) return;
 
     if (!series || !po || !(po.entryPrice > 0)) {
       container.style.display = 'none';
       return;
+    }
+
+    // Phase 1: position overlay to exactly match chartContainerRef bounds within containerRef
+    if (chartEl && parentEl) {
+      const chartRect = chartEl.getBoundingClientRect();
+      const parentRect = parentEl.getBoundingClientRect();
+      container.style.left = `${chartRect.left - parentRect.left}px`;
+      container.style.top = `${chartRect.top - parentRect.top}px`;
+      container.style.width = `${chartRect.width}px`;
+      container.style.height = `${chartRect.height}px`;
     }
     container.style.display = '';
 
@@ -321,7 +333,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         borderColor: '#CBD5E1',
         timeVisible: true,
         secondsVisible: timeframe === 'M1',
-        barSpacing: 8,
+        barSpacing: 12,
         minBarSpacing: 1.5,
         rightOffset: 18,
         fixLeftEdge: false,
@@ -345,8 +357,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#089981',
       downColor: '#F23645',
-      borderUpColor: '#089981',
-      borderDownColor: '#F23645',
+      borderVisible: false,
       wickUpColor: '#089981',
       wickDownColor: '#F23645',
       priceFormat: {
@@ -413,13 +424,17 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     chart.timeScale().subscribeVisibleLogicalRangeChange(handleRangeOrCrosshair);
     chart.subscribeCrosshairMove(handleRangeOrCrosshair);
 
-    // rAF loop: keeps overlay in sync during price-axis drag/zoom (TV doesn't fire events for that)
-    let rafId = 0;
-    const rafLoop = () => {
-      syncOverlayDOM();
-      rafId = requestAnimationFrame(rafLoop);
-    };
-    rafId = requestAnimationFrame(rafLoop);
+    // Phase 4: pointerdown/pointermove on the chart container covers price-axis drag
+    // (TV doesn't fire visibleLogicalRange or crosshair events during vertical scale drag)
+    let priceAxisDragging = false;
+    const onChartPointerDown = () => { priceAxisDragging = true; };
+    const onChartPointerMove = () => { if (priceAxisDragging) syncOverlayDOM(); };
+    const onChartPointerUp = () => { priceAxisDragging = false; };
+    const chartEl = chartContainerRef.current;
+    chartEl?.addEventListener('pointerdown', onChartPointerDown);
+    chartEl?.addEventListener('pointermove', onChartPointerMove, { passive: true });
+    chartEl?.addEventListener('pointerup', onChartPointerUp);
+    chartEl?.addEventListener('pointercancel', onChartPointerUp);
 
     // Responsive Auto-Resize
     const resizeObserver = new ResizeObserver((entries) => {
@@ -433,8 +448,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     resizeObserver.observe(chartContainerRef.current);
 
     return () => {
-      cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
+      chartEl?.removeEventListener('pointerdown', onChartPointerDown);
+      chartEl?.removeEventListener('pointermove', onChartPointerMove);
+      chartEl?.removeEventListener('pointerup', onChartPointerUp);
+      chartEl?.removeEventListener('pointercancel', onChartPointerUp);
       try {
         chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeOrCrosshair);
         chart.unsubscribeCrosshairMove(handleRangeOrCrosshair);
@@ -687,86 +705,84 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ref={containerRef}
       className="relative w-full h-full min-h-[400px] flex flex-col bg-[#FAF7EE] select-none"
     >
-      {/* TradingView Chart Canvas Container + Order Overlay (MUST share same parent for coordinate alignment) */}
-      <div ref={chartContainerRef} className="w-full flex-1 min-h-0 relative">
+      {/* TradingView Chart Canvas Container — TV owns this div entirely */}
+      <div ref={chartContainerRef} className="w-full flex-1 min-h-0 relative" />
 
-      {/* Interactive Draggable Order Overlay — INSIDE chartContainerRef so Y coords match priceToCoordinate */}
-      {plannedOrder && plannedOrder.entryPrice > 0 && (
-        <div ref={overlayContainerRef} className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 50 }}>
-          {/* Shaded Risk Zone (Entry↔SL) */}
-          <div
-            ref={overlayRiskZoneRef}
-            className="absolute left-0 right-0 pointer-events-none"
-            style={{ backgroundColor: 'rgba(239, 68, 68, 0.18)', display: 'none' }}
-          />
+      {/* Phase 1: Interactive Draggable Order Overlay — SIBLING to chartContainerRef, NOT inside it.
+          TV's canvas eats all pointer events inside chartContainerRef. This overlay sits above via z-index. */}
+      <div
+        ref={overlayContainerRef}
+        className="absolute pointer-events-none overflow-hidden"
+        style={{ zIndex: 50, display: 'none' }}
+      >
+        {/* Shaded Risk Zone (Entry↔SL) */}
+        <div
+          ref={overlayRiskZoneRef}
+          className="absolute left-0 right-0 pointer-events-none"
+          style={{ backgroundColor: 'rgba(239, 68, 68, 0.18)', display: 'none' }}
+        />
 
-          {/* Shaded Profit Zone (Entry↔TP) */}
-          <div
-            ref={overlayProfitZoneRef}
-            className="absolute left-0 right-0 pointer-events-none"
-            style={{ backgroundColor: 'rgba(16, 185, 129, 0.18)', display: 'none' }}
-          />
+        {/* Shaded Profit Zone (Entry↔TP) */}
+        <div
+          ref={overlayProfitZoneRef}
+          className="absolute left-0 right-0 pointer-events-none"
+          style={{ backgroundColor: 'rgba(16, 185, 129, 0.18)', display: 'none' }}
+        />
 
-          {/* Entry Line (Cyan) */}
+        {/* Entry Line (Cyan) */}
+        <div
+          ref={overlayEntryRef}
+          className="absolute left-0 right-0 flex items-center pointer-events-none"
+          style={{ transform: 'translateY(-50%)', display: 'none' }}
+        >
+          <div className="w-full border-t-2 border-[#06B6D4] border-solid opacity-90" />
           <div
-            ref={overlayEntryRef}
-            className="absolute left-0 right-0 flex items-center pointer-events-none"
-            style={{ transform: 'translateY(-50%)', display: 'none' }}
+            onPointerDown={(e) => handleDragStart('ENTRY', e)}
+            className="absolute left-3 bg-[#06B6D4] text-white text-[11px] font-mono font-bold px-2.5 py-1 border border-[#0891B2] flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none shadow-[1px_1px_0px_0px_#0891B2]"
           >
-            <div className="w-full border-t-2 border-[#06B6D4] border-solid opacity-90" />
-            <div
-              onPointerDown={(e) => handleDragStart('ENTRY', e)}
-              className="absolute left-3 bg-[#06B6D4] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none"
-            >
-              <span>↕ ENTRY</span>
-              <span className="opacity-90 font-normal">
-                ({formatPriceDisplay(plannedOrder.entryPrice, symbol)})
-              </span>
-            </div>
+            <span>↕ ENTRY</span>
+            <span className="opacity-90 font-normal">
+              ({formatPriceDisplay(plannedOrder?.entryPrice ?? 0, symbol)})
+            </span>
           </div>
-
-          {/* SL Line (Red) */}
-          {plannedOrder.slPrice && plannedOrder.slPrice > 0 && (
-            <div
-              ref={overlaySlRef}
-              className="absolute left-0 right-0 flex items-center pointer-events-none"
-              style={{ transform: 'translateY(-50%)', display: 'none' }}
-            >
-              <div className="w-full border-t-2 border-[#EF4444] border-dashed opacity-90" />
-              <div
-                onPointerDown={(e) => handleDragStart('SL', e)}
-                className="absolute left-[140px] bg-[#EF4444] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none"
-              >
-                <span>↕ SL</span>
-                <span className="opacity-90 font-normal">
-                  ({formatPriceDisplay(plannedOrder.slPrice, symbol)})
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* TP Line (Green) */}
-          {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 && (
-            <div
-              ref={overlayTpRef}
-              className="absolute left-0 right-0 flex items-center pointer-events-none"
-              style={{ transform: 'translateY(-50%)', display: 'none' }}
-            >
-              <div className="w-full border-t-2 border-[#10B981] border-dashed opacity-90" />
-              <div
-                onPointerDown={(e) => handleDragStart('TP', e)}
-                className="absolute left-[270px] bg-[#10B981] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none"
-              >
-                <span>↕ TP</span>
-                <span className="opacity-90 font-normal">
-                  ({formatPriceDisplay(plannedOrder.tpPrice, symbol)})
-                </span>
-              </div>
-            </div>
-          )}
         </div>
-      )}
-      </div>{/* end chartContainerRef */}
+
+        {/* SL Line (Red) */}
+        <div
+          ref={overlaySlRef}
+          className="absolute left-0 right-0 flex items-center pointer-events-none"
+          style={{ transform: 'translateY(-50%)', display: 'none' }}
+        >
+          <div className="w-full border-t-2 border-[#EF4444] border-dashed opacity-90" />
+          <div
+            onPointerDown={(e) => handleDragStart('SL', e)}
+            className="absolute left-[140px] bg-[#EF4444] text-white text-[11px] font-mono font-bold px-2.5 py-1 border border-[#DC2626] flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none shadow-[1px_1px_0px_0px_#DC2626]"
+          >
+            <span>↕ SL</span>
+            <span className="opacity-90 font-normal">
+              ({formatPriceDisplay(plannedOrder?.slPrice ?? 0, symbol)})
+            </span>
+          </div>
+        </div>
+
+        {/* TP Line (Green) */}
+        <div
+          ref={overlayTpRef}
+          className="absolute left-0 right-0 flex items-center pointer-events-none"
+          style={{ transform: 'translateY(-50%)', display: 'none' }}
+        >
+          <div className="w-full border-t-2 border-[#10B981] border-dashed opacity-90" />
+          <div
+            onPointerDown={(e) => handleDragStart('TP', e)}
+            className="absolute left-[270px] bg-[#10B981] text-white text-[11px] font-mono font-bold px-2.5 py-1 border border-[#059669] flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none shadow-[1px_1px_0px_0px_#059669]"
+          >
+            <span>↕ TP</span>
+            <span className="opacity-90 font-normal">
+              ({formatPriceDisplay(plannedOrder?.tpPrice ?? 0, symbol)})
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* Loading & Status Overlay */}
       {isLoading && (
