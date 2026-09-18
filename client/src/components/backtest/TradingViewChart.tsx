@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import {
   createChart,
   CandlestickSeries,
@@ -194,12 +194,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const plannedSlLineRef = useRef<any>(null);
   const plannedTpLineRef = useRef<any>(null);
 
-  // Overlay Y pixel coordinates
-  const [overlayCoords, setOverlayCoords] = useState<{
-    entryY: number | null;
-    slY: number | null;
-    tpY: number | null;
-  }>({ entryY: null, slY: null, tpY: null });
+  // Overlay Y pixel coordinates — use refs for zero-delay DOM manipulation
+  const overlayEntryRef = useRef<HTMLDivElement>(null);
+  const overlaySlRef = useRef<HTMLDivElement>(null);
+  const overlayTpRef = useRef<HTMLDivElement>(null);
+  const overlayRiskZoneRef = useRef<HTMLDivElement>(null);
+  const overlayProfitZoneRef = useRef<HTMLDivElement>(null);
+  const overlayContainerRef = useRef<HTMLDivElement>(null);
 
   // Dragging state tracking ref
   const activeDragTypeRef = useRef<'ENTRY' | 'SL' | 'TP' | null>(null);
@@ -210,33 +211,70 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     plannedOrderRef.current = plannedOrder;
   }, [plannedOrder]);
 
-  // Function to calculate price pixel coordinates using latest ref
-  const updateOverlayCoords = useCallback(() => {
+  // Direct DOM update — zero React re-render, zero delay
+  const syncOverlayDOM = useCallback(() => {
     const po = plannedOrderRef.current;
-    if (!candleSeriesRef.current || !po || !(po.entryPrice > 0)) {
-      setOverlayCoords((prev) => {
-        if (prev.entryY === null && prev.slY === null && prev.tpY === null) return prev;
-        return { entryY: null, slY: null, tpY: null };
-      });
+    const series = candleSeriesRef.current;
+    const container = overlayContainerRef.current;
+    if (!container) return;
+
+    if (!series || !po || !(po.entryPrice > 0)) {
+      container.style.display = 'none';
       return;
     }
+    container.style.display = '';
 
-    const series = candleSeriesRef.current;
     const entryY = series.priceToCoordinate(po.entryPrice);
-    const slY =
-      po.slPrice && po.slPrice > 0
-        ? series.priceToCoordinate(po.slPrice)
-        : null;
-    const tpY =
-      po.tpPrice && po.tpPrice > 0
-        ? series.priceToCoordinate(po.tpPrice)
-        : null;
+    const slY = po.slPrice && po.slPrice > 0 ? series.priceToCoordinate(po.slPrice) : null;
+    const tpY = po.tpPrice && po.tpPrice > 0 ? series.priceToCoordinate(po.tpPrice) : null;
 
-    setOverlayCoords({
-      entryY: entryY ?? null,
-      slY: slY ?? null,
-      tpY: tpY ?? null,
-    });
+    // Entry line
+    if (overlayEntryRef.current) {
+      if (entryY !== null) {
+        overlayEntryRef.current.style.display = '';
+        overlayEntryRef.current.style.top = `${entryY}px`;
+      } else {
+        overlayEntryRef.current.style.display = 'none';
+      }
+    }
+    // SL line
+    if (overlaySlRef.current) {
+      if (slY !== null) {
+        overlaySlRef.current.style.display = '';
+        overlaySlRef.current.style.top = `${slY}px`;
+      } else {
+        overlaySlRef.current.style.display = 'none';
+      }
+    }
+    // TP line
+    if (overlayTpRef.current) {
+      if (tpY !== null) {
+        overlayTpRef.current.style.display = '';
+        overlayTpRef.current.style.top = `${tpY}px`;
+      } else {
+        overlayTpRef.current.style.display = 'none';
+      }
+    }
+    // Risk zone (entry↔sl)
+    if (overlayRiskZoneRef.current) {
+      if (entryY !== null && slY !== null) {
+        overlayRiskZoneRef.current.style.display = '';
+        overlayRiskZoneRef.current.style.top = `${Math.min(entryY, slY)}px`;
+        overlayRiskZoneRef.current.style.height = `${Math.abs(entryY - slY)}px`;
+      } else {
+        overlayRiskZoneRef.current.style.display = 'none';
+      }
+    }
+    // Profit zone (entry↔tp)
+    if (overlayProfitZoneRef.current) {
+      if (entryY !== null && tpY !== null) {
+        overlayProfitZoneRef.current.style.display = '';
+        overlayProfitZoneRef.current.style.top = `${Math.min(entryY, tpY)}px`;
+        overlayProfitZoneRef.current.style.height = `${Math.abs(entryY - tpY)}px`;
+      } else {
+        overlayProfitZoneRef.current.style.display = 'none';
+      }
+    }
   }, []);
 
   // 1. Initialize Lightweight Chart Engine (v5.2)
@@ -369,11 +407,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     // Subscribe visible logical range and crosshair move for overlay line sync
     const handleRangeOrCrosshair = () => {
-      updateOverlayCoords();
+      syncOverlayDOM();
     };
 
     chart.timeScale().subscribeVisibleLogicalRangeChange(handleRangeOrCrosshair);
     chart.subscribeCrosshairMove(handleRangeOrCrosshair);
+
+    // rAF loop: keeps overlay in sync during price-axis drag/zoom (TV doesn't fire events for that)
+    let rafId = 0;
+    const rafLoop = () => {
+      syncOverlayDOM();
+      rafId = requestAnimationFrame(rafLoop);
+    };
+    rafId = requestAnimationFrame(rafLoop);
 
     // Responsive Auto-Resize
     const resizeObserver = new ResizeObserver((entries) => {
@@ -381,12 +427,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) {
         chartRef.current.applyOptions({ width, height });
-        updateOverlayCoords();
+        syncOverlayDOM();
       }
     });
     resizeObserver.observe(chartContainerRef.current);
 
     return () => {
+      cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
       try {
         chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRangeOrCrosshair);
@@ -472,13 +519,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
 
     // Sync overlay coordinates when candles update
-    updateOverlayCoords();
-  }, [candles, indicators, updateOverlayCoords]);
+    syncOverlayDOM();
+  }, [candles, indicators, syncOverlayDOM]);
 
   // 3. Sync Overlay Coordinates when plannedOrder changes
   useEffect(() => {
-    updateOverlayCoords();
-  }, [plannedOrder, updateOverlayCoords]);
+    syncOverlayDOM();
+  }, [plannedOrder, syncOverlayDOM]);
 
   // 4. Render Active Trade Price Lines
   useEffect(() => {
@@ -583,7 +630,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   // Global pointer move & up listeners to guarantee smooth, continuous drag tracking
   useEffect(() => {
     const handleGlobalPointerMove = (e: PointerEvent) => {
-      if (!activeDragTypeRef.current || !candleSeriesRef.current || !plannedOrder || !chartContainerRef.current) {
+      const po = plannedOrderRef.current;
+      if (!activeDragTypeRef.current || !candleSeriesRef.current || !po || !chartContainerRef.current) {
         return;
       }
 
@@ -595,9 +643,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const newPrice = formatPriceStep(rawPrice, symbol);
       const type = activeDragTypeRef.current;
 
-      let newEntry = plannedOrder.entryPrice;
-      let newSl = plannedOrder.slPrice || 0;
-      let newTp = plannedOrder.tpPrice || 0;
+      let newEntry = po.entryPrice;
+      let newSl = po.slPrice || 0;
+      let newTp = po.tpPrice || 0;
 
       if (type === 'ENTRY') newEntry = newPrice;
       else if (type === 'SL') newSl = newPrice;
@@ -625,7 +673,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       window.removeEventListener('pointerup', handleGlobalPointerUp);
       window.removeEventListener('pointercancel', handleGlobalPointerUp);
     };
-  }, [plannedOrder, symbol, onPlannedOrderChange]);
+  }, [symbol, onPlannedOrderChange]);
 
   // Handle Drag Interactions for Entry, SL, and TP handles
   const handleDragStart = (type: 'ENTRY' | 'SL' | 'TP', e: React.PointerEvent) => {
@@ -639,87 +687,78 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ref={containerRef}
       className="relative w-full h-full min-h-[400px] flex flex-col bg-[#FAF7EE] select-none"
     >
-      {/* TradingView Chart Canvas Container */}
-      <div ref={chartContainerRef} className="w-full flex-1 min-h-0 relative" />
+      {/* TradingView Chart Canvas Container + Order Overlay (MUST share same parent for coordinate alignment) */}
+      <div ref={chartContainerRef} className="w-full flex-1 min-h-0 relative">
 
-      {/* Interactive Draggable Order Overlay */}
+      {/* Interactive Draggable Order Overlay — INSIDE chartContainerRef so Y coords match priceToCoordinate */}
       {plannedOrder && plannedOrder.entryPrice > 0 && (
-        <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
-          {/* Shaded Risk Zone (Red rgba(239, 68, 68, 0.18)) */}
-          {overlayCoords.entryY !== null && overlayCoords.slY !== null && (
-            <div
-              className="absolute left-0 right-0 pointer-events-none transition-none"
-              style={{
-                top: `${Math.min(overlayCoords.entryY, overlayCoords.slY)}px`,
-                height: `${Math.abs(overlayCoords.entryY - overlayCoords.slY)}px`,
-                backgroundColor: 'rgba(239, 68, 68, 0.18)',
-              }}
-            />
-          )}
+        <div ref={overlayContainerRef} className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 50 }}>
+          {/* Shaded Risk Zone (Entry↔SL) */}
+          <div
+            ref={overlayRiskZoneRef}
+            className="absolute left-0 right-0 pointer-events-none"
+            style={{ backgroundColor: 'rgba(239, 68, 68, 0.18)', display: 'none' }}
+          />
 
-          {/* Shaded Profit Zone (Green rgba(16, 185, 129, 0.18)) */}
-          {overlayCoords.entryY !== null && overlayCoords.tpY !== null && (
-            <div
-              className="absolute left-0 right-0 pointer-events-none transition-none"
-              style={{
-                top: `${Math.min(overlayCoords.entryY, overlayCoords.tpY)}px`,
-                height: `${Math.abs(overlayCoords.entryY - overlayCoords.tpY)}px`,
-                backgroundColor: 'rgba(16, 185, 129, 0.18)',
-              }}
-            />
-          )}
+          {/* Shaded Profit Zone (Entry↔TP) */}
+          <div
+            ref={overlayProfitZoneRef}
+            className="absolute left-0 right-0 pointer-events-none"
+            style={{ backgroundColor: 'rgba(16, 185, 129, 0.18)', display: 'none' }}
+          />
 
-          {/* Entry Line (Cyan #06B6D4) with Pill Handle */}
-          {overlayCoords.entryY !== null && (
+          {/* Entry Line (Cyan) */}
+          <div
+            ref={overlayEntryRef}
+            className="absolute left-0 right-0 flex items-center pointer-events-none"
+            style={{ transform: 'translateY(-50%)', display: 'none' }}
+          >
+            <div className="w-full border-t-2 border-[#06B6D4] border-solid opacity-90" />
             <div
-              className="absolute left-0 right-0 flex items-center pointer-events-none"
-              style={{ top: `${overlayCoords.entryY}px`, transform: 'translateY(-50%)' }}
+              onPointerDown={(e) => handleDragStart('ENTRY', e)}
+              className="absolute left-3 bg-[#06B6D4] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none"
             >
-              <div className="w-full border-t-2 border-[#06B6D4] border-solid opacity-90 shadow-sm" />
-              <div
-                onPointerDown={(e) => handleDragStart('ENTRY', e)}
-                className="absolute left-3 bg-[#06B6D4] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/50 touch-none ring-2 ring-[#06B6D4]/30"
-              >
-                <span>↕ GESER ENTRY</span>
-                <span className="opacity-95 font-normal">
-                  ({formatPriceDisplay(plannedOrder.entryPrice, symbol)})
-                </span>
-              </div>
+              <span>↕ ENTRY</span>
+              <span className="opacity-90 font-normal">
+                ({formatPriceDisplay(plannedOrder.entryPrice, symbol)})
+              </span>
             </div>
-          )}
+          </div>
 
-          {/* SL Line (Red #EF4444) with Pill Handle */}
-          {overlayCoords.slY !== null && plannedOrder.slPrice && plannedOrder.slPrice > 0 && (
+          {/* SL Line (Red) */}
+          {plannedOrder.slPrice && plannedOrder.slPrice > 0 && (
             <div
+              ref={overlaySlRef}
               className="absolute left-0 right-0 flex items-center pointer-events-none"
-              style={{ top: `${overlayCoords.slY}px`, transform: 'translateY(-50%)' }}
+              style={{ transform: 'translateY(-50%)', display: 'none' }}
             >
-              <div className="w-full border-t-2 border-[#EF4444] border-dashed opacity-90 shadow-sm" />
+              <div className="w-full border-t-2 border-[#EF4444] border-dashed opacity-90" />
               <div
                 onPointerDown={(e) => handleDragStart('SL', e)}
-                className="absolute left-[160px] bg-[#EF4444] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/50 touch-none ring-2 ring-[#EF4444]/30"
+                className="absolute left-[140px] bg-[#EF4444] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none"
               >
-                <span>↕ GESER SL</span>
-                <span className="opacity-95 font-normal">
+                <span>↕ SL</span>
+                <span className="opacity-90 font-normal">
                   ({formatPriceDisplay(plannedOrder.slPrice, symbol)})
                 </span>
               </div>
             </div>
           )}
 
-          {/* TP Line (Green #10B981) with Pill Handle */}
-          {overlayCoords.tpY !== null && plannedOrder.tpPrice && plannedOrder.tpPrice > 0 && (
+          {/* TP Line (Green) */}
+          {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 && (
             <div
+              ref={overlayTpRef}
               className="absolute left-0 right-0 flex items-center pointer-events-none"
-              style={{ top: `${overlayCoords.tpY}px`, transform: 'translateY(-50%)' }}
+              style={{ transform: 'translateY(-50%)', display: 'none' }}
             >
-              <div className="w-full border-t-2 border-[#10B981] border-dashed opacity-90 shadow-sm" />
+              <div className="w-full border-t-2 border-[#10B981] border-dashed opacity-90" />
               <div
                 onPointerDown={(e) => handleDragStart('TP', e)}
-                className="absolute left-[295px] bg-[#10B981] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none hover:scale-105 active:scale-95 transition-transform border border-white/50 touch-none ring-2 ring-[#10B981]/30"
+                className="absolute left-[270px] bg-[#10B981] text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 cursor-ns-resize pointer-events-auto select-none touch-none"
               >
-                <span>↕ GESER TP</span>
-                <span className="opacity-95 font-normal">
+                <span>↕ TP</span>
+                <span className="opacity-90 font-normal">
                   ({formatPriceDisplay(plannedOrder.tpPrice, symbol)})
                 </span>
               </div>
@@ -727,6 +766,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           )}
         </div>
       )}
+      </div>{/* end chartContainerRef */}
 
       {/* Loading & Status Overlay */}
       {isLoading && (
