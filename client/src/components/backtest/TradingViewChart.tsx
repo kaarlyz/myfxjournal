@@ -485,7 +485,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const nearHandle = (entryY !== null && Math.abs(mouseY - entryY) <= HIT_RADIUS)
         || (slY !== null && Math.abs(mouseY - slY) <= HIT_RADIUS)
         || (tpY !== null && Math.abs(mouseY - tpY) <= HIT_RADIUS);
-      canvas.style.pointerEvents = nearHandle ? 'auto' : 'none';
+      if (nearHandle) {
+        canvas.style.pointerEvents = 'auto';
+        canvas.style.cursor = 'ns-resize';
+      } else {
+        canvas.style.pointerEvents = 'none';
+        canvas.style.cursor = 'default';
+      }
     };
     chart.subscribeCrosshairMove(handleCrosshairMove);
     chart.timeScale().subscribeVisibleLogicalRangeChange(redrawDragCanvas);
@@ -606,13 +612,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
     }
 
-    // Redraw drag canvas after candles update
-    redrawDragCanvas();
+    // Redraw drag canvas after candles update (wait for TV to compute layout)
+    requestAnimationFrame(() => redrawDragCanvas());
   }, [candles, indicators, redrawDragCanvas]);
 
   // Redraw drag canvas when plannedOrder changes
   useEffect(() => {
-    redrawDragCanvas();
+    requestAnimationFrame(() => redrawDragCanvas());
   }, [plannedOrder, redrawDragCanvas]);
 
   // Render Active Trade Price Lines
@@ -726,7 +732,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     const rect = canvas.getBoundingClientRect();
     const clickY = e.clientY - rect.top;
-    const HIT_RADIUS = 12;
+    const HIT_RADIUS = 16;
 
     const entryY = series.priceToCoordinate(po.entryPrice);
     const slY = po.slPrice && po.slPrice > 0 ? series.priceToCoordinate(po.slPrice) : null;
@@ -745,6 +751,36 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       // Do NOT use setPointerCapture — it blocks other UI elements
     } else {
       // Not near any handle — do nothing, let event pass through (canvas has pointerEvents=none when cursor not near handle)
+    }
+  }, []);
+
+  const handleDragCanvasPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    // If we are currently dragging, keep it alive
+    if (activeDragTypeRef.current) return;
+
+    // We are NOT dragging, but pointerEvents is 'auto' on canvas.
+    // Check if we moved away from the handle.
+    const canvas = dragCanvasRef.current;
+    const series = candleSeriesRef.current;
+    const po = plannedOrderRef.current;
+    if (!canvas || !series || !po || !(po.entryPrice > 0)) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseY = e.clientY - rect.top;
+    const HIT_RADIUS = 16;
+    const entryY = series.priceToCoordinate(po.entryPrice);
+    const slY = po.slPrice && po.slPrice > 0 ? series.priceToCoordinate(po.slPrice) : null;
+    const tpY = po.tpPrice && po.tpPrice > 0 ? series.priceToCoordinate(po.tpPrice) : null;
+
+    const nearHandle = (entryY !== null && Math.abs(mouseY - entryY) <= HIT_RADIUS)
+      || (slY !== null && Math.abs(mouseY - slY) <= HIT_RADIUS)
+      || (tpY !== null && Math.abs(mouseY - tpY) <= HIT_RADIUS);
+      
+    if (!nearHandle) {
+      canvas.style.pointerEvents = 'none';
+      canvas.style.cursor = 'default';
+    } else {
+      canvas.style.cursor = 'ns-resize';
     }
   }, []);
 
@@ -822,6 +858,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         className="absolute top-0 left-0"
         style={{ zIndex: 20, pointerEvents: 'none' }}
         onPointerDown={handleDragCanvasPointerDown}
+        onPointerMove={handleDragCanvasPointerMove}
       />
 
       {/* Loading & Status Overlay */}
