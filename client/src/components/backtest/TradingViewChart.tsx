@@ -1,4 +1,8 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { GripHorizontal, ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
+import { getOrderTypeLabel } from './OrderTypes';
+import { calculateAdaptiveSlDistance } from '../../shared/backtestEngine';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import {
   createChart,
   CandlestickSeries,
@@ -91,7 +95,7 @@ export interface CandlestickChartProps {
   onEditPendingOrder?: (order: PendingOrderRecord) => void;
   onCloseActiveTrade?: () => void;
   plannedOrder?: PlannedOrderPreview | null;
-  onPlannedOrderChange?: (newPlanned: { entryPrice: number; slPrice: number; tpPrice: number }) => void;
+  onPlannedOrderChange?: (newPlanned: { entryPrice: number; slPrice: number; tpPrice: number; lotSize?: number }) => void;
   onExecutePlannedTrade?: (pos?: any) => void;
   isVisualOrderActive?: boolean;
   onConfirmVisualOrder?: () => void;
@@ -245,6 +249,28 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const dragCanvasRef = useRef<HTMLCanvasElement>(null);
+  // Floating Panel State
+  const overlayPosRef = useRef<{ x: number; y: number } | null>(null);
+  const overlayDragState = useRef({
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+    currentX: 0,
+    currentY: 0,
+  });
+  const [overlayCollapsed, setOverlayCollapsed] = useState<boolean>(false);
+  const overlayContainerRef = useRef<HTMLDivElement>(null);
+  const [lotInputStr, setLotInputStr] = useState<string>('0.01');
+
+  // Sync lot input string when plannedOrder changes
+  useEffect(() => {
+    if (plannedOrder) {
+      setLotInputStr(plannedOrder.lotSize.toString());
+    } else {
+      overlayPosRef.current = null;
+    }
+  }, [plannedOrder]);
+
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
@@ -873,30 +899,177 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         </div>
       )}
 
-      {/* Visual Order Confirmation UI */}
-      {isVisualOrderActive && plannedOrder && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
-          <div className="bg-[#FFFDEB] border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] p-2 flex flex-col gap-2">
-            <div className="text-xs font-black uppercase text-center border-b-2 border-[#121212] pb-1">Konfirmasi Order</div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
-                className="px-3 py-1.5 bg-[#FEE2E2] border-2 border-[#121212] text-xs font-bold text-[#121212] shadow-[2px_2px_0px_0px_#121212] hover:bg-red-200 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all uppercase"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onConfirmVisualOrder?.(); }}
-                className="px-3 py-1.5 bg-[#86EFAC] border-2 border-[#121212] text-xs font-bold text-[#121212] shadow-[2px_2px_0px_0px_#121212] hover:bg-green-300 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all uppercase"
-              >
-                Konfirmasi
-              </button>
+      
+      {/* Visual Order Confirmation UI (RESTORED ORIGINAL UI) */}
+      {isVisualOrderActive && plannedOrder && (() => {
+        const isBuy = plannedOrder.side === 'BUY';
+        const sideColor = isBuy ? '#059669' : '#DC2626';
+        const sideBg = isBuy ? '#E7F9F0' : '#FDECEC';
+        
+        return (
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-50 pointer-events-auto w-[340px] max-w-[92vw]">
+            <div className="w-full bg-white/95 backdrop-blur-md border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] rounded-xl overflow-hidden">
+              
+              {/* Header Grip Row */}
+              <div className="flex items-center justify-between px-2 py-1.5 bg-[#F0F0F0] border-b-2 border-[#121212] select-none">
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="text-[9px] font-black uppercase tracking-wider px-1 py-0.5 border border-[#121212] rounded"
+                    style={{ background: sideBg, color: sideColor }}
+                  >
+                    {plannedOrder.side}
+                  </span>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-[#717182]">
+                    {plannedOrder.orderType ? getOrderTypeLabel(plannedOrder.orderType) : 'Order'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="p-2 space-y-1.5">
+                  {/* Inline Stats & Lot Row: Entry, R:R, and Lot Size */}
+                  <div className="flex items-center justify-between gap-2 border border-[#121212] bg-slate-50 rounded px-2 py-1">
+                    <div className="flex items-center gap-2">
+                      <div>
+                        <span className="text-[8px] font-black uppercase text-[#717182] block leading-none">Entry</span>
+                        <span className="font-mono font-black text-xs text-[#121212]">{plannedOrder.entryPrice.toFixed(2)}</span>
+                      </div>
+                      <div className="border-l border-slate-300 pl-2">
+                        <span className="text-[8px] font-black uppercase text-[#717182] block leading-none">R:R</span>
+                        <span className="font-mono font-black text-xs text-[#1040C0]">
+                          {plannedOrder.rrRatio && plannedOrder.rrRatio > 0 ? `1:${plannedOrder.rrRatio.toFixed(2)}` : '-'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <span className="text-[9px] font-black uppercase text-[#121212]">Lot:</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={lotInputStr}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setLotInputStr(val);
+                          const num = parseFloat(val);
+                          if (!isNaN(num) && num > 0) {
+                            onPlannedOrderChange?.({
+                              entryPrice: plannedOrder.entryPrice,
+                              slPrice: plannedOrder.slPrice || 0,
+                              tpPrice: plannedOrder.tpPrice || 0,
+                              lotSize: Math.round(num * 100) / 100,
+                            });
+                          }
+                        }}
+                        className="w-14 bg-white border border-[#121212] rounded px-1 py-0.5 text-xs font-mono font-black text-[#121212] outline-none text-center shadow-[1px_1px_0px_0px_#121212]"
+                        placeholder="0.01"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Merged SL/Risk & TP/Target Cards */}
+                  <div className="flex items-center gap-1.5">
+                    {plannedOrder.slPrice && plannedOrder.slPrice > 0 ? (
+                      <div className="flex-1 flex items-center justify-between bg-[#FFF0F0] border border-[#DC2626] rounded px-2 py-1 text-xs">
+                        <div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[8px] uppercase font-black text-[#DC2626]">SL</span>
+                            <span className="font-mono font-bold text-xs text-[#121212]">{plannedOrder.slPrice.toFixed(2)}</span>
+                          </div>
+                          <div className="text-[9px] font-mono font-extrabold text-[#DC2626]">
+                            -${plannedOrder.riskAmount.toFixed(2)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: 0, tpPrice: plannedOrder.tpPrice || 0 }); }}
+                          className="w-4 h-4 flex items-center justify-center text-[#DC2626] hover:bg-red-100 rounded-full cursor-pointer font-black text-[10px]"
+                        >✕</button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const dist = calculateAdaptiveSlDistance(candles, plannedOrder.entryPrice, symbol);
+                          const newSL = Math.round((isBuy ? plannedOrder.entryPrice - dist : plannedOrder.entryPrice + dist) * 100) / 100;
+                          onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: newSL, tpPrice: plannedOrder.tpPrice || 0 });
+                        }}
+                        className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-[#DC2626] text-[#DC2626] font-bold text-[10px] rounded flex items-center justify-center gap-1 cursor-pointer hover:bg-red-50 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" /><span>+ SL</span>
+                      </button>
+                    )}
+
+                    {plannedOrder.tpPrice && plannedOrder.tpPrice > 0 ? (
+                      <div className="flex-1 flex items-center justify-between bg-[#F0FFF8] border border-[#059669] rounded px-2 py-1 text-xs">
+                        <div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[8px] uppercase font-black text-[#059669]">TP</span>
+                            <span className="font-mono font-bold text-xs text-[#121212]">{plannedOrder.tpPrice.toFixed(2)}</span>
+                          </div>
+                          <div className="text-[9px] font-mono font-extrabold text-[#059669]">
+                            +${(plannedOrder.targetProfit || 0).toFixed(2)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: plannedOrder.slPrice || 0, tpPrice: 0 }); }}
+                          className="w-4 h-4 flex items-center justify-center text-[#059669] hover:bg-green-100 rounded-full cursor-pointer font-black text-[10px]"
+                        >✕</button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const dist = calculateAdaptiveSlDistance(candles, plannedOrder.entryPrice, symbol) * 2;
+                          const newTP = Math.round((isBuy ? plannedOrder.entryPrice + dist : plannedOrder.entryPrice - dist) * 100) / 100;
+                          onPlannedOrderChange?.({ entryPrice: plannedOrder.entryPrice, slPrice: plannedOrder.slPrice || 0, tpPrice: newTP });
+                        }}
+                        className="flex-1 min-h-[30px] py-1 px-2 border border-dashed border-[#059669] text-[#059669] font-bold text-[10px] rounded flex items-center justify-center gap-1 cursor-pointer hover:bg-green-50 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" /><span>+ TP</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Validation error */}
+                  {plannedOrder.isValid === false && (
+                    <div className="p-1.5 bg-[#FFF0F0] border border-[#DC2626] rounded text-[9px] text-[#DC2626] font-medium leading-tight">
+                      {plannedOrder.validationError || 'Level harga tidak valid untuk tipe order ini.'}
+                    </div>
+                  )}
+
+                  {/* Slimmer Action buttons */}
+                  <div className="flex items-center gap-1.5 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
+                      className="flex-1 min-h-[30px] py-1 border-2 border-[#121212] bg-white text-[#121212] font-bold text-[10px] uppercase tracking-wider rounded hover:bg-slate-50 active:translate-y-[1px] transition-transform cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="button"
+                      disabled={plannedOrder.isValid === false}
+                      onClick={(e) => { e.stopPropagation(); onConfirmVisualOrder?.(); }}
+                      className={`flex-1 min-h-[30px] py-1 border-2 border-[#121212] font-black text-[10px] uppercase tracking-wider rounded shadow-[2px_2px_0px_0px_#717182] active:shadow-none active:translate-y-[1px] transition-all cursor-pointer ${
+                        plannedOrder.isValid === false
+                          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed shadow-none'
+                          : 'bg-[#121212] text-white hover:bg-[#2a2a2a]'
+                      }`}
+                    >
+                      Konfirmasi
+                    </button>
+                  </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
 
       {error && (
         <div className="absolute top-4 left-4 right-4 bg-[#FEE2E2] border-2 border-[#991B1B] p-2 text-xs font-bold text-[#991B1B] shadow-[2px_2px_0px_0px_#991B1B] z-20">
