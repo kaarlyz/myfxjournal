@@ -747,16 +747,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [plannedOrder]);
 
-  // ─── Drag Canvas Pointer Events ────────────────────────────────────────────
-  // onPointerDown on the drag canvas: hit-test handles or pass through to TV
-  const handleDragCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = dragCanvasRef.current;
+  // ─── Drag Capture Phase ──────────────────────────────────────────────────
+  const handleContainerPointerDownCapture = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const series = candleSeriesRef.current;
     const po = plannedOrderRef.current;
+    const container = chartContainerRef.current;
 
-    if (!canvas || !series || !po || !(po.entryPrice > 0)) return;
+    if (!container || !series || !po || !(po.entryPrice > 0)) return;
 
-    const rect = canvas.getBoundingClientRect();
+    const rect = container.getBoundingClientRect();
     const clickY = e.clientY - rect.top;
     const HIT_RADIUS = 16;
 
@@ -770,30 +769,30 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     else if (tpY !== null && Math.abs(clickY - tpY) <= HIT_RADIUS) hitType = 'TP';
 
     if (hitType) {
-      // Start drag — consume the event
       e.preventDefault();
-      e.stopPropagation();
+      e.stopPropagation(); // Stop TV from receiving the drag
       activeDragTypeRef.current = hitType;
-      // Do NOT use setPointerCapture — it blocks other UI elements
-    } else {
-      // Not near any handle — do nothing, let event pass through (canvas has pointerEvents=none when cursor not near handle)
     }
   }, []);
 
-  const handleDragCanvasPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    // If we are currently dragging, keep it alive
-    if (activeDragTypeRef.current) return;
+  const handleContainerPointerMoveCapture = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // If we are actively dragging, stop TV from getting move events so it doesn't pan
+    if (activeDragTypeRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
 
-    // We are NOT dragging, but pointerEvents is 'auto' on canvas.
-    // Check if we moved away from the handle.
-    const canvas = dragCanvasRef.current;
+    // Dynamic cursor based on hover
     const series = candleSeriesRef.current;
     const po = plannedOrderRef.current;
-    if (!canvas || !series || !po || !(po.entryPrice > 0)) return;
+    const container = chartContainerRef.current;
+    if (!container || !series || !po || !(po.entryPrice > 0)) return;
 
-    const rect = canvas.getBoundingClientRect();
+    const rect = container.getBoundingClientRect();
     const mouseY = e.clientY - rect.top;
     const HIT_RADIUS = 16;
+
     const entryY = series.priceToCoordinate(po.entryPrice);
     const slY = po.slPrice && po.slPrice > 0 ? series.priceToCoordinate(po.slPrice) : null;
     const tpY = po.tpPrice && po.tpPrice > 0 ? series.priceToCoordinate(po.tpPrice) : null;
@@ -801,12 +800,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const nearHandle = (entryY !== null && Math.abs(mouseY - entryY) <= HIT_RADIUS)
       || (slY !== null && Math.abs(mouseY - slY) <= HIT_RADIUS)
       || (tpY !== null && Math.abs(mouseY - tpY) <= HIT_RADIUS);
-      
-    if (!nearHandle) {
-      canvas.style.pointerEvents = 'none';
-      canvas.style.cursor = 'default';
+
+    // Apply cursor to the TV container (or child) so it overrides TV's default crosshair if possible
+    // Note: TradingView uses its own cursor, so we might need to force it
+    if (nearHandle) {
+      container.style.cursor = 'ns-resize';
+      // TV child might need it too
+      const tvDiv = container.querySelector('.tv-lightweight-charts') as HTMLElement;
+      if (tvDiv) tvDiv.style.cursor = 'ns-resize';
     } else {
-      canvas.style.cursor = 'ns-resize';
+      container.style.cursor = 'crosshair';
+      const tvDiv = container.querySelector('.tv-lightweight-charts') as HTMLElement;
+      if (tvDiv) tvDiv.style.cursor = '';
     }
   }, []);
 
@@ -872,19 +877,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     <div
       ref={containerRef}
       className="relative w-full h-full min-h-[400px] flex flex-col bg-[#FAF7EE] select-none"
+      onPointerDownCapture={handleContainerPointerDownCapture}
+      onPointerMoveCapture={handleContainerPointerMoveCapture}
     >
       {/* TradingView Chart Canvas Container — TV owns this div entirely */}
       <div ref={chartContainerRef} className="w-full flex-1 min-h-0" />
 
       {/* Drag canvas — sibling to chartContainerRef, rendered OUTSIDE TV's container.
-          Handles all Entry/SL/TP line drawing and drag interactions via Canvas 2D API.
-          When not near a handle, pointer events pass through to TradingView. */}
+          Handles all Entry/SL/TP line drawing and drag interactions via Canvas 2D API. */}
       <canvas
         ref={dragCanvasRef}
-        className="absolute top-0 left-0"
-        style={{ zIndex: 20, pointerEvents: 'none', touchAction: 'none' }}
-        onPointerDown={handleDragCanvasPointerDown}
-        onPointerMove={handleDragCanvasPointerMove}
+        className="absolute top-0 left-0 w-full h-full pointer-events-none"
+        style={{ zIndex: 20 }}
       />
 
       {/* Loading & Status Overlay */}
