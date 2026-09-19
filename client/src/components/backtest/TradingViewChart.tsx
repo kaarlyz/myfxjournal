@@ -882,7 +882,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       <canvas
         ref={dragCanvasRef}
         className="absolute top-0 left-0"
-        style={{ zIndex: 20, pointerEvents: 'none' }}
+        style={{ zIndex: 20, pointerEvents: 'none', touchAction: 'none' }}
         onPointerDown={handleDragCanvasPointerDown}
         onPointerMove={handleDragCanvasPointerMove}
       />
