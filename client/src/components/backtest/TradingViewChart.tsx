@@ -772,22 +772,51 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       e.preventDefault();
       e.stopPropagation(); // Stop TV from receiving the drag
       activeDragTypeRef.current = hitType;
+      
+      // Capture pointer so we keep getting move events even if mouse leaves the container
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
     }
   }, []);
 
   const handleContainerPointerMoveCapture = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const series = candleSeriesRef.current;
+    const po = plannedOrderRef.current;
+    const container = chartContainerRef.current;
+    if (!container || !series || !po) return;
+
     // If we are actively dragging, stop TV from getting move events so it doesn't pan
     if (activeDragTypeRef.current) {
       e.preventDefault();
       e.stopPropagation();
+
+      const rect = container.getBoundingClientRect();
+      const relativeY = e.clientY - rect.top;
+      const rawPrice = series.coordinateToPrice(relativeY);
+      if (rawPrice === null || isNaN(rawPrice) || rawPrice <= 0) return;
+
+      const newPrice = formatPriceStep(rawPrice, symbol);
+      const type = activeDragTypeRef.current;
+
+      let newEntry = po.entryPrice;
+      let newSl = po.slPrice || 0;
+      let newTp = po.tpPrice || 0;
+
+      if (type === 'ENTRY') newEntry = newPrice;
+      else if (type === 'SL') newSl = newPrice;
+      else if (type === 'TP') newTp = newPrice;
+
+      onPlannedOrderChange?.({
+        entryPrice: newEntry,
+        slPrice: newSl,
+        tpPrice: newTp,
+      });
+
+      requestAnimationFrame(() => redrawDragCanvas());
       return;
     }
 
     // Dynamic cursor based on hover
-    const series = candleSeriesRef.current;
-    const po = plannedOrderRef.current;
-    const container = chartContainerRef.current;
-    if (!container || !series || !po || !(po.entryPrice > 0)) return;
+    if (!(po.entryPrice > 0)) return;
 
     const rect = container.getBoundingClientRect();
     const mouseY = e.clientY - rect.top;
@@ -813,65 +842,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       const tvDiv = container.querySelector('.tv-lightweight-charts') as HTMLElement;
       if (tvDiv) tvDiv.style.cursor = '';
     }
-  }, []);
-
-  // Global pointer move & up listeners for smooth drag tracking
-  useEffect(() => {
-    const handleGlobalPointerMove = (e: PointerEvent) => {
-      const po = plannedOrderRef.current;
-      if (!activeDragTypeRef.current || !candleSeriesRef.current || !po || !chartContainerRef.current) {
-        return;
-      }
-
-      // Keep canvas interactive during drag
-      const canvas = dragCanvasRef.current;
-      if (canvas) canvas.style.pointerEvents = 'auto';
-
-      const rect = chartContainerRef.current.getBoundingClientRect();
-      const relativeY = e.clientY - rect.top;
-      const rawPrice = candleSeriesRef.current.coordinateToPrice(relativeY);
-      if (rawPrice === null || isNaN(rawPrice) || rawPrice <= 0) return;
-
-      const newPrice = formatPriceStep(rawPrice, symbol);
-      const type = activeDragTypeRef.current;
-
-      let newEntry = po.entryPrice;
-      let newSl = po.slPrice || 0;
-      let newTp = po.tpPrice || 0;
-
-      if (type === 'ENTRY') newEntry = newPrice;
-      else if (type === 'SL') newSl = newPrice;
-      else if (type === 'TP') newTp = newPrice;
-
-      onPlannedOrderChange?.({
-        entryPrice: newEntry,
-        slPrice: newSl,
-        tpPrice: newTp,
-      });
-
-      // Immediately redraw canvas to reflect the change
-      redrawDragCanvas();
-    };
-
-    const handleGlobalPointerUp = () => {
-      if (activeDragTypeRef.current) {
-        activeDragTypeRef.current = null;
-        // Reset pointer-events to none so chart can be interacted with again
-        const canvas = dragCanvasRef.current;
-        if (canvas) canvas.style.pointerEvents = 'none';
-      }
-    };
-
-    window.addEventListener('pointermove', handleGlobalPointerMove, { passive: true });
-    window.addEventListener('pointerup', handleGlobalPointerUp);
-    window.addEventListener('pointercancel', handleGlobalPointerUp);
-
-    return () => {
-      window.removeEventListener('pointermove', handleGlobalPointerMove);
-      window.removeEventListener('pointerup', handleGlobalPointerUp);
-      window.removeEventListener('pointercancel', handleGlobalPointerUp);
-    };
   }, [symbol, onPlannedOrderChange, redrawDragCanvas]);
+
+  const handleContainerPointerUpCapture = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (activeDragTypeRef.current) {
+      e.stopPropagation();
+      activeDragTypeRef.current = null;
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+  }, []);
 
   return (
     <div
@@ -879,6 +858,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       className="relative w-full h-full min-h-[400px] flex flex-col bg-[#FAF7EE] select-none"
       onPointerDownCapture={handleContainerPointerDownCapture}
       onPointerMoveCapture={handleContainerPointerMoveCapture}
+      onPointerUpCapture={handleContainerPointerUpCapture}
+      onPointerCancelCapture={handleContainerPointerUpCapture}
     >
       {/* TradingView Chart Canvas Container — TV owns this div entirely */}
       <div ref={chartContainerRef} className="w-full flex-1 min-h-0" />
