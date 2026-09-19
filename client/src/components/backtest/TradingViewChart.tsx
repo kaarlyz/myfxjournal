@@ -238,6 +238,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   onDisableFollowReplay,
   plannedOrder,
   onPlannedOrderChange,
+  isVisualOrderActive,
+  onConfirmVisualOrder,
+  onCancelVisualOrder,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -817,7 +820,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       <canvas
         ref={dragCanvasRef}
         className="absolute top-0 left-0"
-        style={{ zIndex: 40, pointerEvents: 'none' }}
+        style={{ zIndex: 20, pointerEvents: 'none' }}
         onPointerDown={handleDragCanvasPointerDown}
       />
 
@@ -829,6 +832,31 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             <span className="text-xs font-bold text-[#121212] uppercase tracking-wider">
               Loading {symbol} ({timeframe})...
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Visual Order Confirmation UI */}
+      {isVisualOrderActive && plannedOrder && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
+          <div className="bg-[#FFFDEB] border-2 border-[#121212] shadow-[4px_4px_0px_0px_#121212] p-2 flex flex-col gap-2">
+            <div className="text-xs font-black uppercase text-center border-b-2 border-[#121212] pb-1">Konfirmasi Order</div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onCancelVisualOrder?.(); }}
+                className="px-3 py-1.5 bg-[#FEE2E2] border-2 border-[#121212] text-xs font-bold text-[#121212] shadow-[2px_2px_0px_0px_#121212] hover:bg-red-200 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all uppercase"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onConfirmVisualOrder?.(); }}
+                className="px-3 py-1.5 bg-[#86EFAC] border-2 border-[#121212] text-xs font-bold text-[#121212] shadow-[2px_2px_0px_0px_#121212] hover:bg-green-300 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all uppercase"
+              >
+                Konfirmasi
+              </button>
+            </div>
           </div>
         </div>
       )}
