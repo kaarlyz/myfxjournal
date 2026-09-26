@@ -25,6 +25,8 @@ import eaControlRouter from './routes/ea-control';
 import mt5SyncRouter from './routes/mt5-sync';
 import backtestRouter from './routes/backtest';
 import aiRouter from './routes/ai';
+import authRouter from './routes/auth';
+import { requireWebAuth } from './middleware/auth';
 import { logIntegration } from './utils/logger';
 
 // Load environment variables
@@ -58,6 +60,26 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 // Mount routes
+app.use('/api/auth', authRouter);
+
+// Global API Auth Middleware (Protects all routes below)
+app.use('/api', (req, res, next) => {
+  // Public routes that don't need Bearer token
+  const publicPaths = [
+    '/health',
+    '/auth/login',
+    '/webhook', // Legacy webhook
+    '/tradingview/webhook', // TV Webhook
+    '/tradingview/test-event' // TV Webhook test
+  ];
+  
+  if (publicPaths.includes(req.path)) {
+    return next();
+  }
+  
+  return requireWebAuth(req, res, next);
+});
+
 app.use('/api/settings', settingsRouter);
 app.use('/api/sessions', sessionsRouter);
 app.use('/api/trades', tradesRouter);
@@ -106,10 +128,16 @@ app.use((err: any, req: Request, res: Response, next: express.NextFunction) => {
       error: 'Invalid JSON request body',
     });
   }
-  console.error('Global Error Handler:', err);
+  // Use structured logger instead of console.error
+  logIntegration('SYSTEM', 'UNHANDLED_ERROR', 'ERROR', err.message || 'Unknown error', {
+    path: req.originalUrl,
+    method: req.method,
+    stack: err.stack
+  });
+
   res.status(err.status || 500).json({
     ok: false,
-    error: err.message || 'Internal Server Error',
+    error: process.env.NODE_ENV === 'development' ? (err.message || 'Internal Server Error') : 'Internal Server Error',
     details: process.env.NODE_ENV === 'development' ? err.stack : undefined
   });
 });

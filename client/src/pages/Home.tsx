@@ -13,7 +13,7 @@ import { HelpCard, EmptyStateGuide, PageGuide } from '../components/help/HelpSys
 import { BrandLogo } from '../components/ui/BrandLogo';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { useTranslation } from 'react-i18next';
-import { apiUrl, defaultHeaders } from '../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../utils/api';
 
 /* ── Sub-components ── */
 
@@ -143,7 +143,7 @@ export default function Home() {
   const [manualSessions, setManualSessions] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch(apiUrl('/backtest/sessions'), { headers: defaultHeaders() })
+    apiFetch(apiUrl('/backtest/sessions'), { headers: defaultHeaders() })
       .then(res => res.ok ? res.json() : null)
       .then(json => {
         if (json?.ok && Array.isArray(json.data)) {
@@ -170,7 +170,7 @@ export default function Home() {
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
   useEffect(() => {
-    fetch(apiUrl('/accounts'), { headers: defaultHeaders() })
+    apiFetch(apiUrl('/accounts'), { headers: defaultHeaders() })
       .then(res => res.ok ? res.json() : [])
       .then(data => setAccounts(Array.isArray(data) ? data : []))
       .catch(() => setAccounts([]));
@@ -191,7 +191,7 @@ export default function Home() {
     }
 
     setPreviewLoading(true);
-    fetch(apiUrl(`/sessions/${latestSession.id}`), { headers: defaultHeaders() })
+    apiFetch(apiUrl(`/sessions/${latestSession.id}`), { headers: defaultHeaders() })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (!active || !data) return;

@@ -4,7 +4,7 @@ import { Settings2 } from 'lucide-react';
 import { formatUsd, formatPercent } from '../../utils/formatters';
 import { Button } from '../ui/Button';
 import { SectionLabel } from '../ui/SectionLabel';
-import { apiUrl, defaultHeaders } from '../../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../../utils/api';
 import { PremiumTooltip } from '../ui/PremiumTooltip';
 import { formatCompactUsd } from '../../utils/chartUtils';
 
@@ -27,7 +27,7 @@ export default function RiskRecalculationTab({ sessionId, session, metrics, trad
   const handleRecalculate = async () => {
     setLoading(true);
     try {
-      const res = await fetch(apiUrl(`/sessions/${sessionId}/recalculate`), {
+      const res = await apiFetch(apiUrl(`/sessions/${sessionId}/recalculate`), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({

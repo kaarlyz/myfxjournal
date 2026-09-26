@@ -6,7 +6,7 @@ import { PageHeader, SectionLabel } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Input, Select } from '../components/ui/Input';
-import { apiUrl, defaultHeaders } from '../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../utils/api';
 
 export default function Integrations() {
   const { } = useJournalStore();
@@ -58,7 +58,7 @@ export default function Integrations() {
   const checkStatus = async () => {
     setLoading(true);
     try {
-      const settingsRes = await fetch(apiUrl('/settings/private'), {
+      const settingsRes = await apiFetch(apiUrl('/settings/private'), {
         headers: defaultHeaders(),
       });
       if (settingsRes.ok) {
@@ -66,41 +66,41 @@ export default function Integrations() {
         setSecretToken(settings.secretToken || 'Not set');
         
         // MT5
-        const mt5Res = await fetch(apiUrl('/integrations/mt5/status'), {
+        const mt5Res = await apiFetch(apiUrl('/integrations/mt5/status'), {
           headers: defaultHeaders({ 'Authorization': `Bearer ${settings.secretToken}` }),
         });
         if (mt5Res.ok) setMt5Status(await mt5Res.json());
         
         // Telegram
-        const tgRes = await fetch(apiUrl('/integrations/telegram/status'), {
+        const tgRes = await apiFetch(apiUrl('/integrations/telegram/status'), {
           headers: defaultHeaders(),
         });
         if (tgRes.ok) setTelegramStatus(await tgRes.json());
 
         // WhatsApp
-        const waRes = await fetch(apiUrl('/integrations/whatsapp/status'), {
+        const waRes = await apiFetch(apiUrl('/integrations/whatsapp/status'), {
           headers: defaultHeaders(),
         });
         // if (waRes.ok) setWhatsappStatus(await waRes.json());
-        const waDebugRes = await fetch(apiUrl('/integrations/whatsapp/baileys/debug'), {
+        const waDebugRes = await apiFetch(apiUrl('/integrations/whatsapp/baileys/debug'), {
           headers: defaultHeaders(),
         });
         if (waDebugRes.ok) setWhatsappDebug(await waDebugRes.json());
 
-        const tvRes = await fetch(apiUrl('/integrations/tradingview/events'), {
+        const tvRes = await apiFetch(apiUrl('/integrations/tradingview/events'), {
           headers: defaultHeaders(),
         });
         if (tvRes.ok) {
           const tvData = await tvRes.json();
           setTradingViewEvents(tvData.events || []);
         }
-        const tvStatusRes = await fetch(apiUrl('/integrations/tradingview/status'), {
+        const tvStatusRes = await apiFetch(apiUrl('/integrations/tradingview/status'), {
           headers: defaultHeaders(),
         });
         if (tvStatusRes.ok) setTradingViewStatus(await tvStatusRes.json());
       }
         // Integration Settings (Telegram & WhatsApp configs)
-        const intRes = await fetch(apiUrl('/integrations/settings/private'), {
+        const intRes = await apiFetch(apiUrl('/integrations/settings/private'), {
           headers: defaultHeaders(),
         });
         if (intRes.ok) {
@@ -110,7 +110,7 @@ export default function Integrations() {
         }
 
         // Command logs
-        const cmdRes = await fetch(apiUrl('/events/commands'), {
+        const cmdRes = await apiFetch(apiUrl('/events/commands'), {
           headers: defaultHeaders(),
         });
         if (cmdRes.ok) {
@@ -118,7 +118,7 @@ export default function Integrations() {
         }
 
         // Integration logs
-        const logsRes = await fetch(apiUrl('/integrations/logs'), {
+        const logsRes = await apiFetch(apiUrl('/integrations/logs'), {
           headers: defaultHeaders(),
         });
         if (logsRes.ok) {
@@ -127,7 +127,7 @@ export default function Integrations() {
         }
         
         // Telegram Debug status
-        const tgDebugRes = await fetch(apiUrl('/integrations/telegram/debug'), {
+        const tgDebugRes = await apiFetch(apiUrl('/integrations/telegram/debug'), {
           headers: defaultHeaders(),
         });
         if (tgDebugRes.ok) {
@@ -145,7 +145,7 @@ export default function Integrations() {
   const handleSaveTelegram = async () => {
     setSaving(true);
     try {
-      await fetch(apiUrl('/integrations/settings/private'), {
+      await apiFetch(apiUrl('/integrations/settings/private'), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ telegram: telegramConfig }),
@@ -163,7 +163,7 @@ export default function Integrations() {
   const handleSaveWhatsapp = async () => {
     setSaving(true);
     try {
-      await fetch(apiUrl('/integrations/settings/private'), {
+      await apiFetch(apiUrl('/integrations/settings/private'), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ whatsapp: whatsappConfig }),
@@ -181,7 +181,7 @@ export default function Integrations() {
   const requestBaileysQr = async () => {
     setLoading(true);
     try {
-      const res = await fetch(apiUrl('/integrations/whatsapp/baileys/qr'), {
+      const res = await apiFetch(apiUrl('/integrations/whatsapp/baileys/qr'), {
         headers: defaultHeaders(),
       });
       const data = await res.json();
@@ -207,7 +207,7 @@ export default function Integrations() {
     }
     setPairingLoading(true);
     try {
-      const res = await fetch(apiUrl('/integrations/whatsapp/baileys/request-pairing-code'), {
+      const res = await apiFetch(apiUrl('/integrations/whatsapp/baileys/request-pairing-code'), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ phoneNumber: pairingPhone.replace(/[^0-9]/g, '') })
@@ -231,7 +231,7 @@ export default function Integrations() {
     setPollOnceLoading(true);
     setPollOnceResult(null);
     try {
-      const res = await fetch(apiUrl('/integrations/telegram/poll-once'), {
+      const res = await apiFetch(apiUrl('/integrations/telegram/poll-once'), {
         method: 'POST',
         headers: defaultHeaders(),
       });
@@ -248,7 +248,7 @@ export default function Integrations() {
   const startPolling = async () => {
     setPollingLoading(true);
     try {
-      const res = await fetch(apiUrl('/integrations/telegram/start-polling'), {
+      const res = await apiFetch(apiUrl('/integrations/telegram/start-polling'), {
         method: 'POST',
         headers: defaultHeaders(),
       });
@@ -269,7 +269,7 @@ export default function Integrations() {
   const stopPolling = async () => {
     setPollingLoading(true);
     try {
-      await fetch(apiUrl('/integrations/telegram/stop-polling'), {
+      await apiFetch(apiUrl('/integrations/telegram/stop-polling'), {
         method: 'POST',
         headers: defaultHeaders(),
       });
@@ -282,7 +282,7 @@ export default function Integrations() {
   const reconnectWhatsapp = async () => {
     setLoading(true);
     try {
-      const res = await fetch(apiUrl('/integrations/whatsapp/baileys/reconnect'), {
+      const res = await apiFetch(apiUrl('/integrations/whatsapp/baileys/reconnect'), {
         method: 'POST',
         headers: defaultHeaders(),
       });
@@ -297,14 +297,14 @@ export default function Integrations() {
   };
 
   const refreshWhatsappDebug = async () => {
-    const res = await fetch(apiUrl('/integrations/whatsapp/baileys/debug'), {
+    const res = await apiFetch(apiUrl('/integrations/whatsapp/baileys/debug'), {
       headers: defaultHeaders(),
     });
     if (res.ok) setWhatsappDebug(await res.json());
   };
 
   const simulateWhatsappCommand = async (text: string) => {
-    const res = await fetch(apiUrl('/integrations/whatsapp/baileys/simulate-command'), {
+    const res = await apiFetch(apiUrl('/integrations/whatsapp/baileys/simulate-command'), {
       method: 'POST',
       headers: defaultHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ text, fromMe: true }),
@@ -319,7 +319,7 @@ export default function Integrations() {
   };
 
   const setWhatsappSelfMode = async (enabled: boolean) => {
-    const res = await fetch(apiUrl('/integrations/whatsapp/baileys/self-command-mode'), {
+    const res = await apiFetch(apiUrl('/integrations/whatsapp/baileys/self-command-mode'), {
       method: 'POST',
       headers: defaultHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ enabled }),
@@ -336,7 +336,7 @@ export default function Integrations() {
   const refreshQr = async () => {
     setQrRefreshing(true);
     try {
-      const res = await fetch(apiUrl('/integrations/whatsapp/baileys/refresh-qr'), {
+      const res = await apiFetch(apiUrl('/integrations/whatsapp/baileys/refresh-qr'), {
         method: 'POST',
         headers: defaultHeaders(),
       });
@@ -561,7 +561,7 @@ export default function Integrations() {
                 <div className="flex flex-wrap gap-3 pt-4 border-t-2 border-dashed border-[#121212]">
                   <Button
                     onClick={async () => {
-                      const res = await fetch(apiUrl('/integrations/tradingview/test-event'), {
+                      const res = await apiFetch(apiUrl('/integrations/tradingview/test-event'), {
                         method: 'POST',
                         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({}),
@@ -682,7 +682,7 @@ export default function Integrations() {
                   onClick={async () => {
                     const url = prompt("Enter your backend public URL (e.g., https://your-domain.com):");
                     if (url) {
-                      const res = await fetch(apiUrl('/integrations/telegram/set-webhook'), {
+                      const res = await apiFetch(apiUrl('/integrations/telegram/set-webhook'), {
                         method: 'POST',
                         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({ url })
@@ -699,7 +699,7 @@ export default function Integrations() {
                 <div className="flex space-x-3">
                   <Button 
                     onClick={async () => {
-                      const res = await fetch(apiUrl('/integrations/telegram/send-test'), {
+                      const res = await apiFetch(apiUrl('/integrations/telegram/send-test'), {
                         method: 'POST',
                         headers: defaultHeaders(),
                       });

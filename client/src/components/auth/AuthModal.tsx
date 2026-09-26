@@ -40,8 +40,8 @@ export default function AuthModal({
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must contain at least 6 characters.');
+    if (password.length < 4) {
+      setError('Password/PIN minimal 4 karakter');
       return;
     }
 

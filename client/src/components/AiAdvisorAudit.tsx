@@ -3,7 +3,7 @@ import { Sparkles, Brain, AlertTriangle, Lightbulb, Target, RefreshCw, X, Check,
 import { Button } from './ui/Button';
 import { Card, CardBody } from './ui/Card';
 import { Badge } from './ui/Badge';
-import { apiUrl, defaultHeaders } from '../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../utils/api';
 
 export interface EdgeItem {
   title: string;
@@ -83,7 +83,7 @@ export default function AiAdvisorAudit({ sessionId, tradeId, type, title }: AiAd
 
   const updateConfig = async () => {
     try {
-      const res = await fetch(apiUrl('/ai/config'), {
+      const res = await apiFetch(apiUrl('/ai/config'), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ model: modelInput })

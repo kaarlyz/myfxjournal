@@ -173,20 +173,20 @@ router.get('/candles', async (req: Request, res: Response) => {
     const provider = (req.query.provider as string) || 'DUKASCOPY';
 
     // Adaptive limits based on timeframe
-    let defaultLimit = 1200;
-    let maxLimit = 1200;
+    let defaultLimit = 1500;
+    let maxLimit = 2000;
     if (targetTF === 'M1' || targetTF === 'M5') {
-      defaultLimit = 1200;
-      maxLimit = 1200;
+      defaultLimit = 1500;
+      maxLimit = 2000;
     } else if (targetTF === 'M15' || targetTF === 'M30') {
-      defaultLimit = 800;
-      maxLimit = 800;
+      defaultLimit = 1000;
+      maxLimit = 1500;
     } else if (targetTF === 'H1' || targetTF === 'H4') {
-      defaultLimit = 600;
-      maxLimit = 600;
+      defaultLimit = 800;
+      maxLimit = 1200;
     } else if (targetTF === 'D1') {
-      defaultLimit = 365;
-      maxLimit = 365;
+      defaultLimit = 500;
+      maxLimit = 730;
     }
 
     const limit = Math.min(Math.max(1, parseInt(req.query.limit as string, 10) || defaultLimit), maxLimit);

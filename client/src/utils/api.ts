@@ -52,6 +52,13 @@ export function defaultHeaders(customHeaders: Record<string, string> | HeadersIn
     'ngrok-skip-browser-warning': 'true',
   };
 
+  if (typeof window !== 'undefined') {
+    const token = window.localStorage.getItem('myfxjournal_jwt');
+    if (token) {
+      base['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
   if (typeof Headers !== 'undefined' && customHeaders instanceof Headers) {
     customHeaders.forEach((value, key) => {
       base[key] = value;
@@ -66,3 +73,9 @@ export function defaultHeaders(customHeaders: Record<string, string> | HeadersIn
 
   return base;
 }
+
+export const apiFetch = async (url: string | URL | Request, options?: RequestInit): Promise<Response> => {
+  const finalOptions: RequestInit = { ...options };
+  finalOptions.headers = defaultHeaders(finalOptions.headers);
+  return fetch(url, finalOptions);
+};

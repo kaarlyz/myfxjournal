@@ -6,7 +6,7 @@ import { formatUsd, formatPercent } from '../utils/formatters';
 import { HelpCard, PageGuide } from '../components/help/HelpSystem';
 import { PageHeader } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
-import { apiUrl, defaultHeaders } from '../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../utils/api';
 
 export default function QuickLogger() {
   const navigate = useNavigate();
@@ -61,7 +61,7 @@ export default function QuickLogger() {
         profit: profit !== '' ? Number(profit) : undefined,
         notes,
       };
-      const res = await fetch(apiUrl(`/sessions/${sessionId}/quick-log`), {
+      const res = await apiFetch(apiUrl(`/sessions/${sessionId}/quick-log`), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(body),

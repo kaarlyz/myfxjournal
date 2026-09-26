@@ -45,7 +45,7 @@ import { useOnboarding } from './hooks/useOnboarding';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
-import { apiUrl, defaultHeaders } from './utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from './utils/api';
 
 interface AnimatedRoutesProps {
   isAuthenticated: boolean;
@@ -136,7 +136,7 @@ function AppContent() {
   const checkApiHealth = useCallback(async () => {
     try {
       await Promise.allSettled([fetchSettings(), fetchSessions()]);
-      const res = await fetch(apiUrl('/health'), {
+      const res = await apiFetch(apiUrl('/health'), {
         headers: defaultHeaders(),
         signal: AbortSignal.timeout(5000),
       });

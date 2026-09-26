@@ -4,7 +4,7 @@ import { Target, AlertCircle, BarChart3, Zap, CheckCircle2, Database, Info, X, H
 import { formatNumber, formatPercent } from '../../utils/formatters';
 import { ContextualLoading, ProgressStage } from '../ui/ContextualLoading';
 import { ActionFeedback } from '../ui/ActionFeedback';
-import { apiUrl, defaultHeaders } from '../../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../../utils/api';
 
 interface Props {
   metrics: any;
@@ -166,8 +166,8 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
       if (!sessionId) return;
       try {
         const [simRes, valRes] = await Promise.all([
-          fetch(apiUrl(`/analytics/session/${sessionId}/rr-simulation`), { headers: defaultHeaders() }),
-          fetch(apiUrl(`/analytics/session/${sessionId}/validation-summary`), { headers: defaultHeaders() }),
+          apiFetch(apiUrl(`/analytics/session/${sessionId}/rr-simulation`), { headers: defaultHeaders() }),
+          apiFetch(apiUrl(`/analytics/session/${sessionId}/validation-summary`), { headers: defaultHeaders() }),
         ]);
         if (simRes.ok) {
           const simJson = await simRes.json();
@@ -196,7 +196,7 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
     setReplayProgress(null);
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(apiUrl(`/analytics/session/${sessionId}/replay-progress`), { headers: defaultHeaders() });
+        const res = await apiFetch(apiUrl(`/analytics/session/${sessionId}/replay-progress`), { headers: defaultHeaders() });
         if (!res.ok) return;
         const json = await res.json();
         if (json.ok && json.progress) {
@@ -255,7 +255,7 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
     try {
       setAnalysisStep(2);
       // Step 1: Run replay rebuild
-      const analyzeRes = await fetch(apiUrl(`/analytics/session/${sessionId}/analyze`), {
+      const analyzeRes = await apiFetch(apiUrl(`/analytics/session/${sessionId}/analyze`), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ backtestRR, marketDataSource, timeframe }),
@@ -284,8 +284,8 @@ export default function RRLabTab({ metrics, trades, sessionId }: Props) {
       // Step 2: Fetch simulation matrix + validation summary in parallel
       if (summary.valid > 0) {
         const [simRes, valRes] = await Promise.all([
-          fetch(apiUrl(`/analytics/session/${sessionId}/rr-simulation`), { headers: defaultHeaders() }),
-          fetch(apiUrl(`/analytics/session/${sessionId}/validation-summary`), { headers: defaultHeaders() }),
+          apiFetch(apiUrl(`/analytics/session/${sessionId}/rr-simulation`), { headers: defaultHeaders() }),
+          apiFetch(apiUrl(`/analytics/session/${sessionId}/validation-summary`), { headers: defaultHeaders() }),
         ]);
         const simJson = await simRes.json();
         const simData = simJson.data ?? simJson;

@@ -518,6 +518,14 @@ router.post('/heartbeat', requireEaToken, async (req, res) => {
   const mode = normalizeMode(body.mode);
   const isControllerHeartbeat = body.instanceId === 'controller' || String(body.eaName || '').toLowerCase() === 'replayfx mt5 controller';
 
+  // [AUTO-CLEANUP] Prevent SQLite bloat from millions of heartbeat rows
+  if (Math.random() < 0.01) {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await prisma.eaTerminalHeartbeat.deleteMany({
+      where: { timestamp: { lt: yesterday } }
+    });
+  }
+
   const heartbeat = await prisma.eaTerminalHeartbeat.create({
     data: {
       terminalId,

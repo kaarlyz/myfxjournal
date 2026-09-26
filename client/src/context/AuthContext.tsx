@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { saveOnboardingCompleted, saveUserName } from '../utils/localStorage';
+import { apiUrl } from '../utils/api';
 
 export interface User {
   id: string;
@@ -20,7 +21,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const AUTH_USER_KEY = 'kafx_auth_user';
-const AUTH_TOKEN_KEY = 'kafx_auth_token';
+const AUTH_TOKEN_KEY = 'myfxjournal_jwt';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -45,23 +46,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = async ({ email }: { email: string; password?: string }) => {
-    const derivedName = email.split('@')[0] || 'Operator';
-    const formattedName = derivedName.charAt(0).toUpperCase() + derivedName.slice(1);
-    const mockUser: User = {
-      id: 'usr_' + Math.random().toString(36).substring(2, 9),
-      name: formattedName,
-      email,
-    };
-    const mockToken = 'tok_' + Math.random().toString(36).substring(2, 15);
+  const login = async ({ email, password }: { email: string; password?: string }) => {
+    // Authenticate with backend using PIN (passed as password)
+    const pin = password || email;
+    try {
+      const res = await fetch(apiUrl('/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      });
+      const data = await res.json();
+      
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'PIN tidak valid');
+      }
 
-    setUser(mockUser);
-    setToken(mockToken);
+      const derivedName = email.split('@')[0] || 'Operator';
+      const formattedName = derivedName.charAt(0).toUpperCase() + derivedName.slice(1);
+      const user: User = {
+        id: 'usr_' + Date.now(),
+        name: formattedName,
+        email,
+      };
+      
+      setUser(user);
+      setToken(data.token);
 
-    localStorage.setItem(AUTH_TOKEN_KEY, mockToken);
-    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(mockUser));
-    saveUserName(mockUser.name);
-    saveOnboardingCompleted(true);
+      localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+      saveUserName(user.name);
+      saveOnboardingCompleted(true);
+    } catch (err: any) {
+      console.error('Login failed:', err);
+      throw err;
+    }
   };
 
   const register = async ({ name, email }: { name: string; email: string; password?: string }) => {

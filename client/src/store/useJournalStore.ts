@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { BacktestSession, Trade, DashboardMetrics } from '../shared/types';
-import { apiUrl, defaultHeaders } from '../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../utils/api';
 
 export type AppPage = 'home' | 'create-session' | 'csv-import' | 'dashboard' | 'quick-logger' | 'compare-sessions' | 'settings' | 'webhook-monitor' | 'live-journal' | 'accounts' | 'integrations' | 'risk-calculator';
 
@@ -67,7 +67,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   fetchSettings: async () => {
     set({ loading: true });
     try {
-      const res = await fetch(apiUrl('/settings'), { headers: defaultHeaders() });
+      const res = await apiFetch(apiUrl('/settings'), { headers: defaultHeaders() });
       if (!res.ok) throw new Error('Gagal memuat pengaturan.');
       const data = await res.json();
       set({ settings: data, loading: false, error: null });
@@ -79,7 +79,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   updateSettings: async (newSettings) => {
     set({ loading: true });
     try {
-      const res = await fetch(apiUrl('/settings'), {
+      const res = await apiFetch(apiUrl('/settings'), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(newSettings),
@@ -103,7 +103,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   fetchSessions: async () => {
     set({ loading: true });
     try {
-      const res = await fetch(apiUrl('/sessions'), { headers: defaultHeaders() });
+      const res = await apiFetch(apiUrl('/sessions'), { headers: defaultHeaders() });
       if (!res.ok) throw new Error('Gagal mengambil daftar sesi.');
       const data = await res.json();
       set({ sessions: data, loading: false, error: null });
@@ -117,7 +117,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
     set({ loading: true, error: null, activeSessionRequestId: requestId });
 
     try {
-      const res = await fetch(apiUrl(`/sessions/${id}`), { headers: defaultHeaders() });
+      const res = await apiFetch(apiUrl(`/sessions/${id}`), { headers: defaultHeaders() });
       if (!res.ok) throw new Error('Sesi tidak ditemukan.');
       const data = await res.json();
 
@@ -151,7 +151,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   createSession: async (sessionData) => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl('/sessions'), {
+      const res = await apiFetch(apiUrl('/sessions'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sessionData),
@@ -171,7 +171,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   deleteSession: async (id) => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl(`/sessions/${id}`), { method: 'DELETE' });
+      const res = await apiFetch(apiUrl(`/sessions/${id}`), { method: 'DELETE' });
       if (!res.ok) throw new Error('Gagal menghapus sesi backtest.');
       
       await get().fetchSessions();
@@ -191,7 +191,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   resetDatabase: async () => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl('/settings/reset'), { method: 'POST' });
+      const res = await apiFetch(apiUrl('/settings/reset'), { method: 'POST' });
       if (!res.ok) throw new Error('Gagal mereset database.');
       
       set({
@@ -213,7 +213,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   seedDemo: async () => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl('/settings/seed-demo'), { method: 'POST' });
+      const res = await apiFetch(apiUrl('/settings/seed-demo'), { method: 'POST' });
       if (!res.ok) throw new Error('Gagal mengisi data demo.');
       
       await get().fetchSessions();
@@ -235,7 +235,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
 
   updateTrade: async (tradeId, updates) => {
     try {
-      const res = await fetch(apiUrl(`/trades/${tradeId}`), {
+      const res = await apiFetch(apiUrl(`/trades/${tradeId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
@@ -256,7 +256,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
 
   deleteTrade: async (tradeId) => {
     try {
-      const res = await fetch(apiUrl(`/trades/${tradeId}`), { method: 'DELETE' });
+      const res = await apiFetch(apiUrl(`/trades/${tradeId}`), { method: 'DELETE' });
       if (!res.ok) throw new Error('Gagal menghapus trade.');
       
       // Refresh current session
@@ -273,7 +273,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
 
   updateSession: async (id, updates) => {
     try {
-      const res = await fetch(apiUrl(`/sessions/${id}`), {
+      const res = await apiFetch(apiUrl(`/sessions/${id}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
@@ -295,7 +295,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
       const formData = new FormData();
       formData.append('csvFile', csvFile);
 
-      const res = await fetch(apiUrl(`/sessions/${id}/update-csv?mode=${mode}`), {
+      const res = await apiFetch(apiUrl(`/sessions/${id}/update-csv?mode=${mode}`), {
         method: 'POST',
         body: formData,
       });

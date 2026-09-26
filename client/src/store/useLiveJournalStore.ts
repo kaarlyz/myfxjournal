@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { apiUrl, defaultHeaders } from '../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../utils/api';
 
 export interface TradingAccount {
   id: string;
@@ -152,7 +152,7 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
   fetchAccounts: async () => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl('/accounts'), { headers: defaultHeaders() });
+      const res = await apiFetch(apiUrl('/accounts'), { headers: defaultHeaders() });
       if (!res.ok) throw new Error('Failed to fetch accounts');
       const data = await res.json();
       const validAccounts = Array.isArray(data) ? data : [];
@@ -179,7 +179,7 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
   createAccount: async (data) => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl('/accounts'), {
+      const res = await apiFetch(apiUrl('/accounts'), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(data)
@@ -195,7 +195,7 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
   deleteAccount: async (id) => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl(`/accounts/${id}`), {
+      const res = await apiFetch(apiUrl(`/accounts/${id}`), {
         method: 'DELETE',
         headers: defaultHeaders()
       });
@@ -223,7 +223,7 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
       const path = activeAccountId 
         ? `/live-trades?accountId=${activeAccountId}`
         : '/live-trades';
-      const res = await fetch(apiUrl(path), { headers: defaultHeaders() });
+      const res = await apiFetch(apiUrl(path), { headers: defaultHeaders() });
       if (!res.ok) throw new Error('Failed to fetch trades');
       const data = await res.json();
       const validTrades = Array.isArray(data) ? data : [];
@@ -250,7 +250,7 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
       const path = activeAccountId 
         ? `/live-trades/summary?accountId=${activeAccountId}`
         : '/live-trades/summary';
-      const res = await fetch(apiUrl(path), { headers: defaultHeaders() });
+      const res = await apiFetch(apiUrl(path), { headers: defaultHeaders() });
       if (res.ok) {
         const data = await res.json();
         set({
@@ -266,7 +266,7 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
   addTrade: async (data) => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl('/live-trades'), {
+      const res = await apiFetch(apiUrl('/live-trades'), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(data)
@@ -284,7 +284,7 @@ export const useLiveJournalStore = create<LiveJournalStore>((set, get) => ({
   deleteTrade: async (id) => {
     set({ loading: true, error: null });
     try {
-      const res = await fetch(apiUrl(`/live-trades/${id}`), {
+      const res = await apiFetch(apiUrl(`/live-trades/${id}`), {
         method: 'DELETE',
         headers: defaultHeaders()
       });

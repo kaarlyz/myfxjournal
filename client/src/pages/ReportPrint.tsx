@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { buildBacktestExportData, buildLiveJournalExportData, buildMt5ReportExportData } from '../utils/reportExportData';
 import { formatNumber, formatUsd } from '../utils/formatters';
 import { BrandLogo } from '../components/ui/BrandLogo';
-import { apiUrl, defaultHeaders } from '../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../utils/api';
 
 type ReportKind = 'mt5' | 'session' | 'live';
 
@@ -22,20 +22,20 @@ export default function ReportPrint({ kind }: { kind: ReportKind }) {
       setError(null);
       try {
         if (kind === 'mt5') {
-          const res = await fetch(apiUrl(`/mt5-reports/sessions/${id}`), { headers: defaultHeaders() });
+          const res = await apiFetch(apiUrl(`/mt5-reports/sessions/${id}`), { headers: defaultHeaders() });
           const body = await res.json();
           if (!res.ok) throw new Error(body.error || 'MT5 report not found');
           if (active) setRaw(body);
         } else if (kind === 'session') {
-          const res = await fetch(apiUrl(`/sessions/${id}`), { headers: defaultHeaders() });
+          const res = await apiFetch(apiUrl(`/sessions/${id}`), { headers: defaultHeaders() });
           const body = await res.json();
           if (!res.ok) throw new Error(body.error || 'Session not found');
           if (active) setRaw(body);
         } else {
           const [accountsRes, summaryRes, tradesRes] = await Promise.all([
-            fetch(apiUrl('/accounts'), { headers: defaultHeaders() }),
-            fetch(apiUrl(`/live-trades/summary?accountId=${id}`), { headers: defaultHeaders() }),
-            fetch(apiUrl(`/live-trades?accountId=${id}`), { headers: defaultHeaders() }),
+            apiFetch(apiUrl('/accounts'), { headers: defaultHeaders() }),
+            apiFetch(apiUrl(`/live-trades/summary?accountId=${id}`), { headers: defaultHeaders() }),
+            apiFetch(apiUrl(`/live-trades?accountId=${id}`), { headers: defaultHeaders() }),
           ]);
           const accounts = await accountsRes.json();
           const summary = await summaryRes.json();

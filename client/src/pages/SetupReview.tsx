@@ -4,7 +4,7 @@ import { CheckCircle2, XCircle, RefreshCcw, Clock, ExternalLink, AlertTriangle }
 import { PageHeader } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { apiUrl, defaultHeaders } from '../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../utils/api';
 
 type TradingViewSetup = {
   id: string;
@@ -50,7 +50,7 @@ export default function SetupReview() {
     setError(null);
     try {
       const path = `/integrations/tradingview/setups${status !== 'ALL' ? `?status=${status}` : ''}`;
-      const res = await fetch(apiUrl(path), { headers: defaultHeaders() });
+      const res = await apiFetch(apiUrl(path), { headers: defaultHeaders() });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Failed to load setups');
       setSetups(data.setups || []);
@@ -76,7 +76,7 @@ export default function SetupReview() {
     setBusyId(setupId);
     setError(null);
     try {
-      const res = await fetch(apiUrl(`/integrations/tradingview/setups/${setupId}/${action}`), {
+      const res = await apiFetch(apiUrl(`/integrations/tradingview/setups/${setupId}/${action}`), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ reviewSource: 'WEB' }),

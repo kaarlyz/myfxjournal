@@ -18,7 +18,7 @@ import { TimeframeSelect } from '../components/forms/TimeframeSelect';
 import { MarketCategorySelect } from '../components/forms/MarketCategorySelect';
 import { PageHeader } from '../components/ui/SectionLabel';
 import { Button } from '../components/ui/Button';
-import { apiUrl, defaultHeaders } from '../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../utils/api';
 
 export default function CSVImport() {
   const navigate = useNavigate();
@@ -112,7 +112,7 @@ export default function CSVImport() {
     formData.append('csvFile', selectedFile);
 
     try {
-      const res = await fetch(apiUrl('/sessions/parse-csv'), {
+      const res = await apiFetch(apiUrl('/sessions/parse-csv'), {
         method: 'POST',
         headers: defaultHeaders(),
         body: formData,
@@ -180,7 +180,7 @@ export default function CSVImport() {
     };
 
     try {
-      const res = await fetch(apiUrl('/sessions/import'), {
+      const res = await apiFetch(apiUrl('/sessions/import'), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload),

@@ -77,7 +77,7 @@ import {
   TradeSide,
   BacktestStats as IBacktestStats,
 } from '../shared/backtestEngine';
-import { apiUrl, defaultHeaders } from '../utils/api';
+import { apiUrl, apiFetch, defaultHeaders } from '../utils/api';
 
 export default function Backtest() {
   // ── Mode State Machine ──
@@ -477,7 +477,7 @@ export default function Backtest() {
     currentBoundsSymbolRef.current = sym;
     try {
       const prov = getProviderForSymbol(sym);
-      const res = await fetch(apiUrl(`/backtest/timeline-bounds?symbol=${sym}&timeframe=${tf}&provider=${prov}`), {
+      const res = await apiFetch(apiUrl(`/backtest/timeline-bounds?symbol=${sym}&timeframe=${tf}&provider=${prov}`), {
         headers: defaultHeaders(),
       });
       const json = await res.json();
@@ -568,7 +568,7 @@ export default function Backtest() {
       fetchTimelineBounds(symbol, timeframe);
     }
 
-    fetch(apiUrl('/backtest/symbols'), { headers: defaultHeaders() })
+    apiFetch(apiUrl('/backtest/symbols'), { headers: defaultHeaders() })
       .then((res) => res.json())
       .then((json) => {
         if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
@@ -706,7 +706,7 @@ export default function Backtest() {
 
         // 1. Update session timeframe in DB
         if (sessionId) {
-          fetch(apiUrl(`/backtest/sessions/${sessionId}`), {
+          apiFetch(apiUrl(`/backtest/sessions/${sessionId}`), {
             method: 'PUT',
             headers: defaultHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({ timeframe: newTF }),
@@ -766,7 +766,7 @@ export default function Backtest() {
     setFollowReplay(true);
     try {
       const prov = getProviderForSymbol(sym);
-      const resSession = await fetch(apiUrl('/backtest/sessions'), {
+      const resSession = await apiFetch(apiUrl('/backtest/sessions'), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
@@ -882,7 +882,7 @@ export default function Backtest() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(apiUrl(`/backtest/sessions/${targetSessionId}`), {
+      const res = await apiFetch(apiUrl(`/backtest/sessions/${targetSessionId}`), {
         signal: controller.signal,
         headers: defaultHeaders(),
       });
@@ -1025,7 +1025,7 @@ export default function Backtest() {
     if (!sessionId) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      fetch(apiUrl(`/backtest/sessions/${sessionId}`), {
+      apiFetch(apiUrl(`/backtest/sessions/${sessionId}`), {
         method: 'PUT',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ drawingsJson: JSON.stringify(newDrawings) }),
@@ -1263,7 +1263,7 @@ export default function Backtest() {
             (hitResult.type === 'TP' ? curTrade.tpPrice : curTrade.slPrice);
 
           try {
-            const closeRes = await fetch(apiUrl(`/backtest/sessions/${sessionId}/trades/${curTrade.id}/close`), {
+            const closeRes = await apiFetch(apiUrl(`/backtest/sessions/${sessionId}/trades/${curTrade.id}/close`), {
               method: 'POST',
               headers: defaultHeaders({ 'Content-Type': 'application/json' }),
               body: JSON.stringify({
@@ -1287,7 +1287,7 @@ export default function Backtest() {
                 });
               }
 
-              fetch(apiUrl(`/backtest/sessions/${sessionId}/sync-to-journal`), {
+              apiFetch(apiUrl(`/backtest/sessions/${sessionId}/sync-to-journal`), {
                 method: 'POST',
                 headers: defaultHeaders(),
               }).catch(console.error);
@@ -1315,7 +1315,7 @@ export default function Backtest() {
       const newT = new Date(next[next.length - 1].time);
       setReplayTime(newT);
       if (sessionId) {
-        fetch(apiUrl(`/backtest/sessions/${sessionId}`), {
+        apiFetch(apiUrl(`/backtest/sessions/${sessionId}`), {
           method: 'PUT',
           headers: defaultHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ replayTime: newT.toISOString() }),
@@ -1385,7 +1385,7 @@ export default function Backtest() {
       if (!curSessionId) {
         const startTime = tradeParams.tradeTime || replayTime || (candles.length > 0 ? new Date(candles[candles.length - 1].time) : new Date());
         const prov = getProviderForSymbol(symbol);
-        const resSession = await fetch(apiUrl('/backtest/sessions'), {
+        const resSession = await apiFetch(apiUrl('/backtest/sessions'), {
           method: 'POST',
           headers: defaultHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
@@ -1412,13 +1412,13 @@ export default function Backtest() {
       const tradeTime = tradeParams.tradeTime || replayTime || (candles.length > 0 ? new Date(candles[candles.length - 1].time) : new Date());
 
       // Ensure backend session replayTime is strictly synced to tradeTime before placing trade
-      await fetch(apiUrl(`/backtest/sessions/${curSessionId}`), {
+      await apiFetch(apiUrl(`/backtest/sessions/${curSessionId}`), {
         method: 'PUT',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ replayTime: tradeTime.toISOString() }),
       });
 
-      const res = await fetch(apiUrl(`/backtest/sessions/${curSessionId}/trades`), {
+      const res = await apiFetch(apiUrl(`/backtest/sessions/${curSessionId}/trades`), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
@@ -1484,7 +1484,7 @@ export default function Backtest() {
     setIsSubmittingTrade(true);
     try {
       const currentP = candles[candles.length - 1]?.close || activeTrade?.entryPrice || 0;
-      const res = await fetch(apiUrl(`/backtest/sessions/${sessionId}/trades/${idToClose}/close`), {
+      const res = await apiFetch(apiUrl(`/backtest/sessions/${sessionId}/trades/${idToClose}/close`), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
@@ -1504,7 +1504,7 @@ export default function Backtest() {
           amount: typeof closed.pnl === 'number' ? closed.pnl : undefined,
           rr: typeof closed.rr === 'number' ? closed.rr : undefined,
         });
-        fetch(apiUrl(`/backtest/sessions/${sessionId}/sync-to-journal`), {
+        apiFetch(apiUrl(`/backtest/sessions/${sessionId}/sync-to-journal`), {
           method: 'POST',
           headers: defaultHeaders(),
         }).catch(console.error);
@@ -1535,7 +1535,7 @@ export default function Backtest() {
     }
     try {
       setIsSyncingDashboard(true);
-      const res = await fetch(apiUrl(`/backtest/sessions/${sessionId}/sync-to-journal`), {
+      const res = await apiFetch(apiUrl(`/backtest/sessions/${sessionId}/sync-to-journal`), {
         method: 'POST',
         headers: defaultHeaders({ 'Content-Type': 'application/json' }),
       });
@@ -2057,7 +2057,7 @@ export default function Backtest() {
       const tOut = setTimeout(() => controller.abort(), 9000);
 
       try {
-        const res = await fetch(apiUrl('/ai/analyze-chart'), {
+        const res = await apiFetch(apiUrl('/ai/analyze-chart'), {
           method: 'POST',
           headers: defaultHeaders({ 'Content-Type': 'application/json' }),
           signal: controller.signal,
