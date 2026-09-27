@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 set -e
 
-# Warna buat output biar cakep
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 echo -e "${BLUE}=======================================${NC}"
-echo -e "${GREEN}  HOPDIS - Hermes OS Migration Tool   ${NC}"
+echo -e "${GREEN}  HOPDIS V2 - Universal Linux Migrator   ${NC}"
 echo -e "${BLUE}=======================================${NC}"
 echo "Pilih mode operasi:"
-echo "1) Backup  (Bungkus Hermes & Dev Tools ke file tar.gz)"
-echo "2) Restore (Ekstrak backup ke OS baru & setup systemd)"
+echo "1) Backup  (Bungkus AI, SSH, Config & Dev Tools)"
+echo "2) Restore (Ekstrak ke OS Linux baru)"
 echo "3) Exit"
 read -p "Masukkan angka (1-3): " choice
 
@@ -20,11 +19,11 @@ if [ "$choice" == "1" ]; then
     echo -e "\n${BLUE}[*] Memulai proses Backup...${NC}"
     BACKUP_DIR="$HOME/hermes_backup"
     mkdir -p "$BACKUP_DIR"
-    BACKUP_FILE="$BACKUP_DIR/hermes_env_complete_$(date +%Y%m%d).tar.gz"
+    BACKUP_FILE="$BACKUP_DIR/linux_state_complete_$(date +%Y%m%d).tar.gz"
     
     cd "$HOME"
     
-    echo "Sedang memadatkan file (mengabaikan cache dan logs)..."
+    echo "Sedang memadatkan environment (Aman dari cache raksasa)..."
     tar --exclude='.hermes/cache' \
         --exclude='.hermes/logs' \
         --exclude='.hermes/runtime' \
@@ -32,48 +31,41 @@ if [ "$choice" == "1" ]; then
         --exclude='.hermes/sandboxes' \
         --exclude='.hermes/audio_cache' \
         --exclude='.hermes/image_cache' \
-        --exclude='.hermes/sessions' \
-        --exclude='.hermes/hermes-agent' \
+        --exclude='.npm' \
+        --exclude='.cache' \
         -czf "$BACKUP_FILE" \
-        .hermes .9router .gemini .config/opencode .config/systemd/user .local/bin/agy .local/bin/nr-tokens .local/bin/cloudflared 2>/dev/null || true
+        .hermes .9router .gemini .config/opencode .config/systemd/user \
+        .local/bin/agy .local/bin/nr-tokens .local/bin/cloudflared \
+        .ssh .gitconfig .bashrc .zshrc .profile 2>/dev/null || true
         
     echo -e "${GREEN}[V] Backup selesai! File tersimpan di: $BACKUP_FILE${NC}"
-    echo "Silakan copy file tersebut ke flashdisk atau cloud."
+    echo "PENTING: Pindahkan folder 'hermes_backup' dan 'Documents' ke Harddisk Eksternal!"
 
 elif [ "$choice" == "2" ]; then
     echo -e "\n${BLUE}[*] Memulai proses Restore...${NC}"
     BACKUP_DIR="$HOME/hermes_backup"
-    
-    # Cari file tar.gz terbaru di folder backup
-    LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/hermes_env_complete*.tar.gz 2>/dev/null | head -n 1)
+    LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/linux_state_complete*.tar.gz 2>/dev/null | head -n 1)
     
     if [ -z "$LATEST_BACKUP" ]; then
-        echo -e "${RED}[X] Tidak ditemukan file backup (hermes_env_complete*.tar.gz) di $BACKUP_DIR!${NC}"
-        echo "Pastikan file tar.gz sudah ditaruh di folder ~/hermes_backup/"
+        echo -e "${RED}[X] Tidak ditemukan file backup (linux_state_complete*.tar.gz) di $BACKUP_DIR!${NC}"
         exit 1
     fi
     
-    echo "Ditemukan file backup: $LATEST_BACKUP"
-    read -p "Apakah Anda yakin ingin mengekstrak ini ke $HOME? (y/n): " confirm
-    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-        echo "Restore dibatalkan."
-        exit 0
-    fi
-    
-    echo "Mengekstrak file..."
+    echo "Mengekstrak $LATEST_BACKUP..."
     tar -xzf "$LATEST_BACKUP" -C "$HOME"
     
-    echo "Memperbaiki izin akses executable..."
-    chmod +x "$HOME/.local/bin/agy" "$HOME/.local/bin/nr-tokens" "$HOME/.local/bin/cloudflared" 2>/dev/null || true
+    echo "Memperbaiki izin akses folder SSH dan Binaries..."
+    chmod 700 "$HOME/.ssh" 2>/dev/null || true
+    chmod 600 "$HOME/.ssh/id_rsa" "$HOME/.ssh/id_ed25519" 2>/dev/null || true
+    chmod +x "$HOME/.local/bin/"* 2>/dev/null || true
     
-    echo "Mengonfigurasi Systemd & Linger..."
+    echo "Mengonfigurasi Systemd & Linger (Zero-login autostart)..."
     loginctl enable-linger "$USER"
     systemctl --user daemon-reload
     systemctl --user enable --now hermes-gateway.service gemini-bridge.service 2>/dev/null || true
     
-    echo -e "${GREEN}[V] Restore selesai! Lingkungan Hermes siap digunakan.${NC}"
-    echo "Pastikan ~/.local/bin sudah ada di dalam PATH ~/.bashrc Anda."
-
+    echo -e "${GREEN}[V] Restore Sempurna!${NC}"
+    echo "AI Agents (Hermes, Agy, 9router), kredensial GitHub, dan konfigurasi terminal sudah kembali normal."
 else
     echo "Keluar."
 fi
