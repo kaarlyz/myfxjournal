@@ -214,9 +214,9 @@ export class MarketAnalyticsService {
       totalCandles: g._count.id,
     }));
 
-    if (baseSymbol === 'XAUUSD' && (!provider || provider.toUpperCase() === 'PARQUET' || provider.toUpperCase() === 'DUKASCOPY')) {
-      const bounds = await parquetProvider.getTimelineBounds();
-      if (bounds) {
+    if (!provider || provider.toUpperCase() === 'PARQUET' || provider.toUpperCase() === 'DUKASCOPY') {
+      const bounds = await parquetProvider.getTimelineBounds(baseSymbol);
+      if (bounds && bounds.dateFrom) {
         coverages.unshift({
           symbol: baseSymbol,
           timeframe: 'TICKS',
@@ -410,8 +410,8 @@ export class MarketAnalyticsService {
 
     const ticks = tickResult?.ticks || [];
     if (ticks.length === 0) {
-      const bounds = await parquetProvider.getTimelineBounds();
-      if (bounds && (entryTime.getTime() < new Date(bounds.dateFrom).getTime() || entryTime.getTime() > new Date(bounds.dateTo).getTime())) {
+      const bounds = await parquetProvider.getTimelineBounds(baseSymbol);
+      if (bounds && bounds.dateFrom && (entryTime.getTime() < new Date(bounds.dateFrom).getTime() || entryTime.getTime() > new Date(bounds.dateTo).getTime())) {
         console.log(`[ANALYTICS][INVALID] id=${tradeId} reason="Trade entry time outside dataset bounds [${bounds.dateFrom} - ${bounds.dateTo}]" entryTime=${entryTime.toISOString()} exitTime=${exitTime.toISOString()} entryPrice=${entryPrice} exitPrice=${exitPrice} tickCount=0`);
         return {
           tradeId,

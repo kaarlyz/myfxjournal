@@ -61,25 +61,36 @@ interface RpcResponse {
 const SERVER_ROOT = path.resolve(__dirname, '../../..');
 const PYTHON_SCRIPT = process.env.PARQUET_SCRIPT_PATH || path.join(SERVER_ROOT, 'src', 'services', 'parquetTickService.py');
 
-function resolveParquetPath(): string {
+function resolveParquetPath(symbol: string = 'XAUUSD'): string {
   const env = process.env.PARQUET_TICK_PATH?.trim().replace(/^["']|["']$/g, '');
   const dataDir = path.join(SERVER_ROOT, 'data', 'market-data');
+  const sym = symbol.toUpperCase();
   const candidates = [
     env,
     env && path.resolve(SERVER_ROOT, env),
     env && path.resolve(SERVER_ROOT, '..', env),
     env?.startsWith('server/') ? path.resolve(SERVER_ROOT, env.replace(/^server\//, '')) : null,
-    path.join(dataDir, 'XAUUSD_Tick_Parquet.parquet'),
-    path.join(dataDir, 'xauusd_tick_parquet.parquet'),
+    path.join(dataDir, `${sym}_Tick.parquet`),
+    path.join(dataDir, `${sym}_Tick_Parquet.parquet`),
+    path.join(dataDir, `${sym}_M1.parquet`),
+    path.join(dataDir, `${sym}_M5.parquet`),
   ].filter(Boolean) as string[];
+
+  if (sym === 'XAUUSD') {
+    candidates.push(path.join(dataDir, 'XAUUSD_Tick_Parquet.parquet'));
+  }
 
   for (const c of candidates) {
     if (fs.existsSync(c)) return path.resolve(c);
   }
 
-  // Fallback: scan any .parquet in market-data
-  const anyParquet = fs.existsSync(dataDir) && fs.readdirSync(dataDir).find((f) => f.toLowerCase().endsWith('.parquet'));
-  return anyParquet ? path.join(dataDir, anyParquet) : (env || 'XAUUSD_Tick_Parquet.parquet');
+  // Look for any file matching {SYMBOL}_*.parquet
+  if (fs.existsSync(dataDir)) {
+    const symMatch = fs.readdirSync(dataDir).find((f) => f.toUpperCase().startsWith(`${sym}_`) && f.toLowerCase().endsWith('.parquet'));
+    if (symMatch) return path.join(dataDir, symMatch);
+  }
+
+  return env || path.join(dataDir, `${sym}_Tick.parquet`);
 }
 
 function resolvePythonBin(): string {
@@ -108,7 +119,6 @@ class ParquetDaemon {
       const parquetPath = resolveParquetPath();
       const pythonBin = resolvePythonBin();
 
-      // ponytail: 5s fail-fast timeout so daemon startup failure never hangs HTTP requests
       const startupTimer = setTimeout(() => {
         this.startPromise = null;
         reject(new Error('Parquet daemon startup timeout (5s)'));
@@ -133,7 +143,7 @@ class ParquetDaemon {
           const msg: RpcResponse = JSON.parse(line);
           if (msg.id === 0) {
             clearTimeout(startupTimer);
-            return resolve(); // Startup ping ack
+            return resolve();
           }
           const h = this.pending.get(msg.id);
           if (h) {
@@ -155,7 +165,6 @@ class ParquetDaemon {
         this.pending.clear();
       });
 
-      // Startup ping
       this.proc.stdin.write(JSON.stringify({ id: 0, action: 'ping' }) + '\n');
     });
 
@@ -255,16 +264,34 @@ export async function getTicks(opts: {
   return res && Array.isArray(res.ticks) ? res : null;
 }
 
-export async function getTimelineBounds(): Promise<TimelineBounds | null> {
-  const res = await query<{ data?: Record<string, unknown> } & Record<string, unknown>>('bounds');
+export async function getTimelineBounds(symbol?: string): Promise<TimelineBounds | null> {
+  const res = await query<{ data?: Record<string, unknown> } & Record<string, unknown>>('bounds', {
+    symbol: symbol ?? 'XAUUSD',
+  });
   if (!res) return null;
   const d = (res.data ?? res) as Record<string, unknown>;
   return {
     dateFrom: d.dateFrom as string,
     dateTo: d.dateTo as string,
-    provider: d.provider as string,
-    symbol: d.symbol as string,
-    totalTicks: Number(d.totalTicks),
+    provider: (d.provider as string) || 'PARQUET',
+    symbol: (d.symbol as string) || (symbol ?? 'XAUUSD').toUpperCase(),
+    totalTicks: Number(d.totalTicks || 0),
+  };
+}
+
+export async function listAvailableSymbols(): Promise<string[]> {
+  const res = await query<{ symbols?: string[]; result?: { symbols?: string[] } }>('symbols');
+  const syms = res?.symbols ?? res?.result?.symbols;
+  return Array.isArray(syms) ? syms : [];
+}
+
+export async function validateData(filepath: string): Promise<{ valid: boolean; columns: string[]; issues: string[] }> {
+  const res = await query<{ result?: { valid: boolean; columns: string[]; issues: string[] }; valid?: boolean; columns?: string[]; issues?: string[] }>('validate', { filepath });
+  const d = res?.result ?? res;
+  return {
+    valid: Boolean(d?.valid),
+    columns: Array.isArray(d?.columns) ? d.columns : [],
+    issues: Array.isArray(d?.issues) ? d.issues : [],
   };
 }
 

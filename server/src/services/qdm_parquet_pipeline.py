@@ -9,8 +9,9 @@ import pyarrow.parquet as pq
 
 JAVA_BIN = "/home/vallencia/Downloads/QDM/QDM_Installer/j64/bin/java"
 CLASSPATH = "/home/vallencia/Downloads/QDM/QDM_Installer/internal/libs/*:/tmp"
-OUTPUT_DIR = "/home/vallencia/Documents/myfxjournal/server/data/market-data"
-OUTPUT_PARQUET = os.path.join(OUTPUT_DIR, "XAUUSD_Tick_Parquet.parquet")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SERVER_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR") or os.path.join(SERVER_ROOT, "data", "market-data")
 TEMP_DOWNLOAD_DIR = "/tmp/qdm_downloads"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -39,29 +40,38 @@ def download_file(url, target_path):
     print()
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print("Usage: python qdm_parquet_pipeline.py [SYMBOL]")
+        print("Downloads and processes tick data for any symbol (default: XAUUSD).")
+        print("If your data is CSV, use: python data_converter.py input.csv SYMBOL")
+        sys.exit(0)
+
+    symbol = sys.argv[1].upper() if len(sys.argv) > 1 else "XAUUSD"
+    output_parquet = os.path.join(OUTPUT_DIR, f"{symbol}_Tick.parquet")
+
     print("=" * 60)
-    print("XAUUSD Full Historical Tick Pipeline (2003 - 2026)")
-    print(f"Target Parquet: {OUTPUT_PARQUET}")
+    print(f"{symbol} Full Historical Tick Pipeline (2003 - 2026)")
+    print(f"Target Parquet: {output_parquet}")
     print("=" * 60)
 
     years = list(range(2003, 2027))
-    writer = pq.ParquetWriter(OUTPUT_PARQUET, schema, compression="snappy")
+    writer = pq.ParquetWriter(output_parquet, schema, compression="snappy")
     
     total_all_ticks = 0
     start_time = time.time()
 
     for year in years:
-        url = f"https://cdn.strategyquantcdn.com/data/dukascopy/tick/XAUUSD/{year}.zip"
-        zip_path = os.path.join(TEMP_DOWNLOAD_DIR, f"{year}.zip")
+        url = f"https://cdn.strategyquantcdn.com/data/dukascopy/tick/{symbol}/{year}.zip"
+        zip_path = os.path.join(TEMP_DOWNLOAD_DIR, f"{symbol}_{year}.zip")
         
         print(f"\n>> Processing Year {year}...")
         try:
             if not os.path.exists(zip_path):
                 download_file(url, zip_path)
             else:
-                print(f"   Using cached {year}.zip")
+                print(f"   Using cached {os.path.basename(zip_path)}")
         except Exception as e:
-            print(f"   [SKIP] Could not download {year}.zip: {e}")
+            print(f"   [SKIP] Could not download {url}: {e}")
             continue
 
         proc = subprocess.Popen(
@@ -123,11 +133,12 @@ def main():
 
     writer.close()
     elapsed = time.time() - start_time
-    file_size_gb = os.path.getsize(OUTPUT_PARQUET) / (1024 ** 3)
+    file_size_gb = os.path.getsize(output_parquet) / (1024 ** 3) if os.path.exists(output_parquet) else 0
     print("\n" + "=" * 60)
     print(f"PIPELINE COMPLETED in {elapsed/60:.2f} minutes!")
     print(f"Total Ticks: {total_all_ticks:,}")
-    print(f"Parquet File: {OUTPUT_PARQUET} ({file_size_gb:.2f} GB)")
+    print(f"Parquet File: {output_parquet} ({file_size_gb:.2f} GB)")
+    print("If your data is CSV, use: python data_converter.py input.csv SYMBOL")
     print("=" * 60)
 
 if __name__ == "__main__":

@@ -62,6 +62,16 @@ export function invalidateSymbolsCache(): void {
   invalidateCandlesCache();
 }
 
+// GET /api/backtest/available-symbols
+router.get('/available-symbols', async (_req: Request, res: Response) => {
+  try {
+    const symbols = await parquetProvider.listAvailableSymbols();
+    return res.json({ ok: true, symbols });
+  } catch (error: any) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 // GET /api/backtest/symbols
 router.get('/symbols', async (req: Request, res: Response) => {
   try {
@@ -80,18 +90,21 @@ router.get('/symbols', async (req: Request, res: Response) => {
       try {
         const map = new Map<string, SymbolCatalogEntry>();
 
-        // 1. Parquet datasets available (e.g. XAUUSD canonical tick data)
+        // 1. Parquet datasets available
         try {
-          const pqBounds = await parquetProvider.getTimelineBounds();
-          if (pqBounds && pqBounds.symbol) {
-            const key = `${pqBounds.symbol}_${pqBounds.provider || 'PARQUET'}`;
-            map.set(key, {
-              symbol: pqBounds.symbol,
-              provider: pqBounds.provider || 'PARQUET',
-              candleCount: pqBounds.totalTicks,
-              dateFrom: pqBounds.dateFrom,
-              dateTo: pqBounds.dateTo,
-            });
+          const availableSymbols = await parquetProvider.listAvailableSymbols();
+          for (const sym of availableSymbols) {
+            const pqBounds = await parquetProvider.getTimelineBounds(sym);
+            if (pqBounds && pqBounds.symbol) {
+              const key = `${pqBounds.symbol}_${pqBounds.provider || 'PARQUET'}`;
+              map.set(key, {
+                symbol: pqBounds.symbol,
+                provider: pqBounds.provider || 'PARQUET',
+                candleCount: pqBounds.totalTicks,
+                dateFrom: pqBounds.dateFrom,
+                dateTo: pqBounds.dateTo,
+              });
+            }
           }
         } catch {
           // Parquet not available or failed
@@ -287,8 +300,8 @@ router.get('/candles', async (req: Request, res: Response) => {
       realVolume: c.realVolume ?? undefined,
     }));
 
-    if (m1Candles.length === 0 && symbol.toUpperCase() === 'XAUUSD') {
-      // ── Parquet-first: query DuckDB tick daemon ONLY for XAUUSD ───────────
+    if (m1Candles.length === 0) {
+      // ── Parquet-first: query DuckDB tick daemon for symbol ───────────
       const pqCandles = await parquetProvider.getCandles({
         symbol,
         timeframe: targetTF,
@@ -405,12 +418,10 @@ router.get('/next-candle', async (req: Request, res: Response) => {
 
     const tfMinutes = TIMEFRAME_MINUTES[targetTF] || 1;
 
-    // Fast-path: For XAUUSD, query high-speed Parquet DuckDB engine first
-    if (symbol.toUpperCase() === 'XAUUSD') {
-      const pqNext = await parquetProvider.getNextCandle({ symbol, timeframe: targetTF, afterTime });
-      if (pqNext) {
-        return res.json({ ok: true, data: pqNext });
-      }
+    // Fast-path: query high-speed Parquet DuckDB engine first
+    const pqNext = await parquetProvider.getNextCandle({ symbol, timeframe: targetTF, afterTime });
+    if (pqNext) {
+      return res.json({ ok: true, data: pqNext });
     }
 
     if (targetTF === 'M1') {
@@ -584,24 +595,22 @@ router.get('/timeline-bounds', async (req: Request, res: Response) => {
     const timeframe = (req.query.timeframe as string) || 'M1';
     const provider = (req.query.provider as string) || 'DUKASCOPY';
 
-    // Parquet is the primary source of truth ONLY for XAUUSD
-    if (symbol.toUpperCase() === 'XAUUSD') {
-      try {
-        const pqBounds = await parquetProvider.getTimelineBounds();
-        if (pqBounds && pqBounds.symbol === symbol.toUpperCase()) {
-          return res.json({
-            ok: true,
-            data: {
-              dateFrom: pqBounds.dateFrom,
-              dateTo: pqBounds.dateTo,
-              candleCount: pqBounds.totalTicks,
-              provider: 'PARQUET',
-            },
-          });
-        }
-      } catch {
-        // Fallback to SQLite DB
+    // Parquet is the primary source of truth for symbols with Parquet data
+    try {
+      const pqBounds = await parquetProvider.getTimelineBounds(symbol);
+      if (pqBounds && pqBounds.dateFrom) {
+        return res.json({
+          ok: true,
+          data: {
+            dateFrom: pqBounds.dateFrom,
+            dateTo: pqBounds.dateTo,
+            candleCount: pqBounds.totalTicks,
+            provider: 'PARQUET',
+          },
+        });
       }
+    } catch {
+      // Fallback to SQLite DB
     }
 
     const catalog = await prisma.marketDataCatalog.findFirst({
@@ -669,16 +678,14 @@ router.get('/random-start', async (req: Request, res: Response) => {
     let minTime: Date | null = null;
     let maxTime: Date | null = null;
 
-    if (symbol.toUpperCase() === 'XAUUSD') {
-      try {
-        const pqBounds = await parquetProvider.getTimelineBounds();
-        if (pqBounds) {
-          minTime = new Date(pqBounds.dateFrom);
-          maxTime = new Date(pqBounds.dateTo);
-        }
-      } catch {
-        // Fallback to SQLite
+    try {
+      const pqBounds = await parquetProvider.getTimelineBounds(symbol);
+      if (pqBounds && pqBounds.dateFrom && pqBounds.dateTo) {
+        minTime = new Date(pqBounds.dateFrom);
+        maxTime = new Date(pqBounds.dateTo);
       }
+    } catch {
+      // Fallback to SQLite
     }
 
     if (!minTime || !maxTime) {

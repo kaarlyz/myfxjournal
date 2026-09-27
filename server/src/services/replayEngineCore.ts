@@ -69,21 +69,19 @@ export interface SymbolInfo {
  * and logs a warning — does NOT silently fall back to XAUUSD.
  */
 export function normalizeSymbol(symbol: string): SymbolInfo {
-  const rawInput = symbol;
-  const alias = symbol.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  const canonical = SYMBOL_ALIAS_MAP[alias];
+  const rawInput = symbol || 'XAUUSD';
+  const alias = rawInput.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  const canonical = SYMBOL_ALIAS_MAP[alias] || (alias.length >= 3 && alias.length <= 12 ? alias : null);
 
   if (!canonical) {
     console.warn(
-      `[ReplayCore] WARNING: Unknown symbol "${rawInput}" (cleaned: "${alias}"). ` +
-      `Not falling back to XAUUSD. Please add this symbol to SYMBOL_ALIAS_MAP.`
+      `[ReplayCore] WARNING: Unknown symbol "${rawInput}" (cleaned: "${alias}").`
     );
-    // Return the alias itself as canonical, but flag it as unknown
     return { canonical: alias, base: alias.slice(0, 3), quote: alias.slice(3, 6), known: false, rawInput, alias };
   }
 
-  const base = canonical.slice(0, 3);
-  const quote = canonical.slice(3, 6);
+  const base = canonical.length >= 6 ? canonical.slice(0, 3) : canonical;
+  const quote = canonical.length >= 6 ? canonical.slice(3) : 'USD';
   return { canonical, base, quote, known: true, rawInput, alias };
 }
 
