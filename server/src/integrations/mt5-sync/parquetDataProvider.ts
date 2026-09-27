@@ -76,10 +76,6 @@ function resolveParquetPath(symbol: string = 'XAUUSD'): string {
     path.join(dataDir, `${sym}_M5.parquet`),
   ].filter(Boolean) as string[];
 
-  if (sym === 'XAUUSD') {
-    candidates.push(path.join(dataDir, 'XAUUSD_Tick_Parquet.parquet'));
-  }
-
   for (const c of candidates) {
     if (fs.existsSync(c)) return path.resolve(c);
   }

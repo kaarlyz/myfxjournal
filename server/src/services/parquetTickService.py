@@ -7,6 +7,21 @@ import duckdb
 
 _bounds_cache = {}
 
+def _get_price_decimals(sym):
+    """Auto-detect decimal places based on instrument type."""
+    s = sym.upper()
+    if 'XAU' in s or 'XAG' in s:
+        return 3
+    if s.endswith('JPY') or 'JPY' in s:
+        return 3
+    if any(x in s for x in ('BTC', 'ETH', 'SOL', 'BNB')):
+        return 2
+    if any(x in s for x in ('NAS', 'SPX', 'US30', 'US500', 'DAX', 'USTEC', 'US100')):
+        return 2
+    if any(x in s for x in ('WTI', 'BRENT', 'OIL', 'USOIL')):
+        return 3
+    return 5  # forex pairs default
+
 def resolve_parquet_file(symbol='XAUUSD', timeframe='M1'):
     server_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     data_dir = os.path.join(server_dir, 'data', 'market-data')
@@ -320,7 +335,8 @@ def query_candles(symbol='XAUUSD', timeframe='M1', limit=None, before_time=None,
 
     where_sql = " AND ".join(where_clauses)
 
-    if is_pre_aggregated:
+    exact_tf_match = pq_file.upper().endswith(f'_{tf}.PARQUET')
+    if is_pre_aggregated and exact_tf_match:
         query = f"""
             SELECT 
                 {time_col} as candle_time,
@@ -332,6 +348,32 @@ def query_candles(symbol='XAUUSD', timeframe='M1', limit=None, before_time=None,
             FROM '{pq_file}'
             WHERE {where_sql}
             ORDER BY {time_col} {order_dir}
+            LIMIT {int(limit_val)}
+        """
+    elif is_pre_aggregated and not exact_tf_match:
+        bucket_expr = get_time_bucket_expr(tf)
+        query = f"""
+            WITH filtered AS (
+                SELECT 
+                    {time_col} as dt,
+                    open,
+                    high,
+                    low,
+                    close,
+                    {vol_col} as tick_volume
+                FROM '{pq_file}'
+                WHERE {where_sql}
+            )
+            SELECT 
+                {bucket_expr} as candle_time,
+                ARG_MIN(open, dt) as open,
+                MAX(high) as high,
+                MIN(low) as low,
+                ARG_MAX(close, dt) as close,
+                SUM(tick_volume) as tick_volume
+            FROM filtered
+            GROUP BY candle_time
+            ORDER BY candle_time {order_dir}
             LIMIT {int(limit_val)}
         """
     else:
@@ -370,7 +412,7 @@ def query_candles(symbol='XAUUSD', timeframe='M1', limit=None, before_time=None,
     if order_dir == 'DESC':
         rows.reverse()
 
-    price_decimals = 3 if 'XAU' in sym else 5
+    price_decimals = _get_price_decimals(sym)
     candles = []
     for r in rows:
         candles.append({
@@ -431,7 +473,8 @@ def get_next_candle(symbol='XAUUSD', timeframe='M1', after_time=None):
     has_ts_ms = 'timestamp_ms' in cols_lower
     time_filter = f"timestamp_ms > {a_ms}" if has_ts_ms else f"{time_col} > TIMESTAMP '{a_dt.isoformat()}'"
 
-    if is_pre_aggregated:
+    exact_tf_match = pq_file.upper().endswith(f'_{tf}.PARQUET')
+    if is_pre_aggregated and exact_tf_match:
         query = f"""
             SELECT 
                 {time_col} as candle_time,
@@ -443,6 +486,33 @@ def get_next_candle(symbol='XAUUSD', timeframe='M1', after_time=None):
             FROM '{pq_file}'
             WHERE {time_filter} AND open > 0
             ORDER BY {time_col} ASC
+            LIMIT 1
+        """
+    elif is_pre_aggregated and not exact_tf_match:
+        bucket_expr = get_time_bucket_expr(tf)
+        query = f"""
+            WITH filtered AS (
+                SELECT 
+                    {time_col} as dt,
+                    open,
+                    high,
+                    low,
+                    close,
+                    {vol_col} as tick_volume
+                FROM '{pq_file}'
+                WHERE open > 0
+            )
+            SELECT 
+                {bucket_expr} as candle_time,
+                ARG_MIN(open, dt) as open,
+                MAX(high) as high,
+                MIN(low) as low,
+                ARG_MAX(close, dt) as close,
+                SUM(tick_volume) as tick_volume
+            FROM filtered
+            GROUP BY candle_time
+            HAVING candle_time > TIMESTAMP '{a_dt.isoformat()}'
+            ORDER BY candle_time ASC
             LIMIT 1
         """
     else:
@@ -473,7 +543,7 @@ def get_next_candle(symbol='XAUUSD', timeframe='M1', after_time=None):
     try:
         r = con.execute(query).fetchone()
         if r:
-            price_decimals = 3 if 'XAU' in sym else 5
+            price_decimals = _get_price_decimals(sym)
             candle = {
                 'time': r[0].isoformat() if hasattr(r[0], 'isoformat') else str(r[0]),
                 'open': round(float(r[1]), price_decimals),
@@ -514,6 +584,8 @@ def get_ticks(symbol='XAUUSD', from_time=None, to_time=None, limit=100000):
             time_col = cand
             break
             
+    is_real_tick = 'bid' in cols_lower or 'ask' in cols_lower
+    
     bid_col = 'bid' if 'bid' in cols_lower else ('price' if 'price' in cols_lower else ('open' if 'open' in cols_lower else cols_lower[1]))
     ask_col = 'ask' if 'ask' in cols_lower else ('price' if 'price' in cols_lower else ('close' if 'close' in cols_lower else bid_col))
     
@@ -551,7 +623,7 @@ def get_ticks(symbol='XAUUSD', from_time=None, to_time=None, limit=100000):
         return {'ok': False, 'error': str(e), 'ticks': []}
 
     latency_ms = (time.perf_counter() - t0) * 1000
-    price_decimals = 3 if 'XAU' in sym else 5
+    price_decimals = _get_price_decimals(sym)
     ticks = []
     for r in rows:
         t_iso = r[0].isoformat() if hasattr(r[0], 'isoformat') else str(r[0])
@@ -569,6 +641,7 @@ def get_ticks(symbol='XAUUSD', from_time=None, to_time=None, limit=100000):
         'dataStart': ticks[0]['time'] if ticks else None,
         'dataEnd': ticks[-1]['time'] if ticks else None,
         'ticks': ticks,
+        'tickSource': 'TICK' if is_real_tick else 'CANDLE_ESTIMATE',
         'latencyMs': round(latency_ms, 2),
     }
 

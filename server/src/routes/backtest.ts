@@ -766,7 +766,7 @@ router.get('/random-start', async (req: Request, res: Response) => {
       });
     }
 
-    // Parquet provider for random start if symbol is XAUUSD
+    // Parquet provider for random start for any symbol with parquet data
     const pqNext = await parquetProvider.getNextCandle({
       symbol,
       timeframe,
